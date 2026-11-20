@@ -34,7 +34,7 @@ window.LeasingLessons = [
     description: 'Practice wait list controls, self-access and in-person viewing rules.',
     steps: [
       ['Set up the wait list', 'Turn on the wait list or change the message for Rosewood House, then save.', 'waitlist', 'save-waitlist', ['rental', 'r1', 'settings', 'viewing']],
-      ['Configure self-access', 'Choose a viewing method, ID requirement or instructions, then save.', 'self-access', 'save-self-access', ['rental', 'r1', 'settings', 'viewing']],
+      ['Configure self-access', 'Choose a viewing type, assign a practice device, or change the ID requirement or instructions. Then save the rental settings.', 'self-access', 'save-self-access', ['rental', 'r1', 'settings', 'viewing']],
       ['Configure in-person tours', 'Change the duration, booking notice, tour capacity or trip limit and save.', 'in-person', 'save-in-person', ['rental', 'r1', 'settings', 'viewing']],
     ],
   },
@@ -42,9 +42,9 @@ window.LeasingLessons = [
     id: 'availability', name: 'Set showing availability', icon: 'calendar', duration: '4 min',
     description: 'Add team availability and a time block specific to the rental.',
     steps: [
-      ['Add team availability', 'Create a time block with General scope. Choose a team member, day, start and end.', 'add-availability', 'add-general-slot', ['rental', 'r1', 'availability']],
-      ['Add a rental time block', 'Add another time block and select Rental for its scope.', 'add-availability', 'add-rental-slot', ['rental', 'r1', 'availability']],
-      ['Edit a time block', 'Open any availability row, change its time and save it.', 'availability-table', 'edit-slot', ['rental', 'r1', 'availability']],
+      ['Add team availability', 'In Settings → Availability, choose Add general hours. Pick a team member, day, start and end.', 'add-general-hours', 'add-general-slot', ['rental', 'r1', 'settings', 'availability']],
+      ['Add a rental time block', 'Choose Add rental hours to make a block that applies to this rental only.', 'add-rental-hours', 'add-rental-slot', ['rental', 'r1', 'settings', 'availability']],
+      ['Edit a time block', 'Open any availability row, change its time and save it.', 'availability-table', 'edit-slot', ['rental', 'r1', 'settings', 'availability']],
     ],
   },
   {
@@ -62,7 +62,7 @@ window.LeasingLessons = [
     description: 'Read the funnel, choose the feedback owners see and set a weekly delivery schedule.',
     steps: [
       ['Review the owner report', 'Open the report and review the counts for inquiries, qualification, scheduling and completed tours.', 'owner-metrics', 'view-owner-report', ['rental', 'r1', 'owner']],
-      ['Choose visible feedback', 'Hide or show a feedback entry in the owner report.', 'owner-feedback', 'toggle-feedback', ['rental', 'r1', 'owner']],
+      ['Choose visible feedback', 'Open a dated feedback entry, then use Hide from owner report or Show on owner report on the lead’s viewing record.', 'owner-feedback', 'toggle-feedback', ['rental', 'r1', 'owner']],
       ['Save delivery preferences', 'Enable the practice delivery schedule, select a day and time, and save.', 'owner-schedule', 'schedule-owner', ['rental', 'r1', 'owner']],
     ],
   },
@@ -95,3 +95,16 @@ window.LeasingLessons = [
     ],
   },
 ];
+
+window.LeasingLessonReferences = {
+  portfolio: ['0000-rentals','0125-rental-settings','1125-closing'],
+  marketing: ['0142-marketing','0215-syndication','0655-application'],
+  qualify: ['0232-qualifying','0253-custom-questions','0712-lead-queue','0712-lead-queue'],
+  showings: ['0314-wait-list','0337-self-access','0605-in-person'],
+  availability: ['0633-general-availability','0648-rental-availability','0648-rental-availability'],
+  leads: ['0712-lead-queue','0712-lead-queue','0605-in-person','0818-owner-metrics'],
+  owners: ['0818-owner-metrics','0818-owner-metrics','0745-owner-schedule'],
+  reports: ['0836-report-catalog','0926-lead-source','0926-lead-source','0842-scheduled-reports'],
+  access: ['0548-device-assignment','0950-send-code','1005-authorized-contacts','0938-access'],
+  help: ['0620-showing-limit','1112-support'],
+};
