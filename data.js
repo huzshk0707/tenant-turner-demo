@@ -2,11 +2,27 @@
 
 window.LeasingData = (() => {
   const people = ['Jamie Taylor', 'Casey Nguyen', 'Morgan Ellis'];
-  const sites = ['Zillow', 'Apartments.com', 'Apartment List', 'HotPads', 'Realtor.com', 'Rent.com', 'Zumper', 'Homes.com'];
+  const sites = ['ApartmentAdvisor', 'Apartment List', 'Apartments.com', 'Homes.com', 'Realtor.com', 'Rentals.com', 'RentalSource', 'Zillow, Trulia, & HotPads'];
+  const leadSources = [...sites.slice(0, -1), 'Zillow', 'Trulia', 'HotPads', 'Rent.com', 'Zumper', 'Website', 'Referral', 'Other'];
   const stages = ['New inquiry', 'Waitlisted', 'Qualified', 'Showing requested', 'Showing scheduled', 'Viewing completed', 'Applied', 'Needs review', 'Archived'];
   const devices = ['CodeBox', 'SentriLock', 'PointCentral'];
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const photos = ['rosewood', 'juniper', 'birch', 'waterline', 'westhaven', 'alder'];
+  const photoLabels = Object.fromEntries([...photos.map(photo => [photo, photo[0].toUpperCase() + photo.slice(1) + ' exterior']), ['living-sample','Sample living room'], ['kitchen-sample','Sample kitchen']]);
+  const galleryPhotos = Object.keys(photoLabels);
+  const importedFields = ['name','address','type','rent','deposit','term','beds','baths','sqft','available','description'];
+  const screening = [
+    ['coSigner','Allow leads with a co-signer','Has a co-signer','Co-signers are turned off for this rental.'],
+    ['voucher','Allow leads with government housing vouchers','Uses a housing voucher','Housing vouchers are turned off in this practice scenario.'],
+    ['bankruptcy','Allow leads with a bankruptcy','Reports a bankruptcy','The practice bankruptcy criterion was not met.'],
+    ['judgment','Allow leads with a filed civil judgment','Reports a filed civil judgment','The practice civil judgment criterion was not met.'],
+    ['eviction','Allow leads with an eviction','Reports an eviction','The practice eviction criterion was not met.'],
+    ['conviction','Allow leads with a felony conviction against people or property','Reports a felony conviction against people or property','The practice conviction criterion was not met.'],
+  ];
+  const petTypes = [['cats','Cats'],['smallDogs','Small dogs (under 20 lbs)'],['largeDogs','Large dogs']];
+  const approvals = ['Take requests', 'Set appointments'];
+  const screeningDefaults = Object.fromEntries([...screening.map(([key]) => key), ...petTypes.map(([key]) => key)].map(key => [key,true]));
+  const ownerDelivery = { day:'Tuesday', time:'09:00' };
   const date = (offset = 0) => {
     const day = new Date();
     day.setDate(day.getDate() + offset);
@@ -15,23 +31,24 @@ window.LeasingData = (() => {
 
   function rental(id, name, address, photo, overrides = {}) {
     return {
-      id, name, address, photo, active: true, alert: false, assignee: people[0],
+      id, name, address, photo, gallery:[photo,'living-sample','kitchen-sample'], origin:'Manual',
+      active: true, alert: false, assignee: people[0],
       rent: 2350, deposit: 2350, term: 12, beds: 3, baths: 2, sqft: 1560,
       available: date(3), listingSince: date(-18), type: 'House', tourUrl: '',
       description: 'A light-filled rental with modern finishes, generous storage, and convenient access to neighborhood shops.',
       amenities: 'In-unit laundry, off-street parking', utilities: 'Water included',
-      syndication: ['Zillow', 'Apartments.com'], incomeRatio: 2.5, moveDays: 60,
-      pets: true, petMax: 2, coSigner: true, questions: [],
+      syndication: ['Zillow, Trulia, & HotPads', 'Apartments.com'], incomeRatio: 2.5, moveDays: 60,
+      requireIncome:true, requireMoveIn:true, pets: true, petMax: 2, ...screeningDefaults, questions: [],
       waitlist: false, waitMessage: 'Thanks for your interest. We’ll let you know when tours open.',
       selfAccess: true, inPerson: true, viewingType: 'Electronic lockbox',
       appointmentType: 'Set appointments', requireId: true,
       instructions: 'Meet at the front entrance. Please close the door when you leave.',
       duration: 20, notice: 24, buffer: 15, maxShowings: 2, limit: 'Group trips', notifyOccupants: false,
-      availability: [
-        { id: `${id}-open-2`, scope: 'Rental', agent: people[1], day: 'Saturday', start: '11:00', end: '14:00', repeat: true },
+      useGeneral:true, useRental:true, availability: [
+        { id: `${id}-open-2`, scope: 'Rental', agent: people[1], day: 'Saturday', start: '11:00', end: '14:00', repeat: true, approval:'Set appointments', capacity:2 },
       ],
       application: 'https://example.com/apply', applicationFee: 45, adminFee: 0,
-      ownerReport: { enabled: false, feedback: true, day: 'Friday', time: '09:00', email: 'owner@example.com' },
+      ownerReport: { enabled: false, feedback: true, email: 'owner@example.com' },
       ...overrides,
     };
   }
@@ -50,6 +67,7 @@ window.LeasingData = (() => {
   function workspaceSeed() {
     return {
       signedOut: false,
+      ownerDelivery: {...ownerDelivery}, followUps: [], supportMessages: [],
       team: people.map((name, i) => ({id:`team-${i+1}`,name,email:`${name.toLowerCase().replace(/ /g,'.')}@example.com`,role:i === 0 ? 'Manager' : 'Leasing agent',active:true})),
       workspaceProfile: {name:'Brookfield Leasing',email:'office@example.com',timezone:'Eastern',incomeRatio:2.5,notice:24,applicationFee:45},
       threads: [
@@ -64,10 +82,10 @@ window.LeasingData = (() => {
     return {
       version: 1, mode: 'free', course: {}, lesson: '',
       ...workspaceSeed(),
-      teamAvailability: people.map((agent, index) => ({ id: `general-${index+1}`, scope: 'General', agent, day: days[index+1], start: '10:00', end: '16:00', repeat: true })),
+      teamAvailability: people.map((agent, index) => ({ id: `general-${index+1}`, scope: 'General', agent, day: days[index+1], start: '10:00', end: '16:00', repeat: true, approval:'Set appointments', capacity:2 })),
       rentals: [
-        rental('r1', 'Rosewood House', '24 Wren Lane, Brookfield', 'rosewood', { alert: true }),
-        rental('r2', 'Juniper Modern', '81 Juniper Court, Brookfield', 'juniper', { rent: 2950, deposit: 2950, beds: 4, baths: 3, sqft: 2180, assignee: people[1], listingSince: date(-12) }),
+        rental('r1', 'Rosewood House', '24 Wren Lane, Brookfield', 'rosewood', { alert: true, origin:'Imported' }),
+        rental('r2', 'Juniper Modern', '81 Juniper Court, Brookfield', 'juniper', { rent: 2950, deposit: 2950, beds: 4, baths: 3, sqft: 2180, assignee: people[1], listingSince: date(-12), origin:'Imported' }),
         rental('r3', 'Birch & Co.', '16 Silver Birch Road, Cedar Park', 'birch', { rent: 1950, deposit: 1950, beds: 2, baths: 1, sqft: 1120, available: date(14), waitlist: true, selfAccess: false, assignee: people[2] }),
         rental('r4', 'Waterline Apartments', '208 Harbor Walk, Unit 4B', 'waterline', { rent: 1825, deposit: 1825, beds: 2, baths: 2, sqft: 980, type: 'Apartment', selfAccess: false, listingSince: date(-33), assignee: people[1] }),
         rental('r5', 'Westhaven Cottage', '52 Westhaven Drive, Cedar Park', 'westhaven', { rent: 2140, deposit: 2140, beds: 3, baths: 1.5, sqft: 1315, selfAccess: false, assignee: people[2] }),
@@ -100,5 +118,5 @@ window.LeasingData = (() => {
     };
   }
 
-  return { people, sites, stages, devices, days, photos, date, rental, lead, workspaceSeed, seed };
+  return { people, sites, leadSources, stages, devices, days, photos, photoLabels, galleryPhotos, importedFields, screening, screeningDefaults, petTypes, approvals, date, rental, lead, workspaceSeed, seed };
 })();

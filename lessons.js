@@ -7,14 +7,14 @@ window.LeasingLessons = [
     steps: [
       ['Find Rosewood House', 'Type “Rosewood” in the rental search. The grid updates as you type.', 'rental-search', 'search-rental', ['rentals']],
       ['Open the rental', 'Open Rosewood House from its card to see its Leads, Owner report, Availability and Settings tabs.', 'rental-r1', 'view-r1', ['rentals']],
-      ['Add a practice listing', 'Open Add rental and save a fictional property with a name, address and rent.', 'add-rental', 'add-rental', ['rentals']],
+      ['Add a practice listing', 'Open Import rentals, choose Enter a rental manually, then save a fictional property with a name, address and rent.', 'add-rental', 'add-rental', ['rentals']],
     ],
   },
   {
     id: 'marketing', name: 'Set up a listing', icon: 'edit', duration: '4 min',
     description: 'Update listing details, choose advertising channels and set the application link.',
     steps: [
-      ['Save marketing details', 'Change Rosewood House’s listing description, monthly rent or property details, then select Save settings.', 'marketing', 'save-marketing', ['rental', 'r1', 'settings', 'marketing']],
+      ['Save marketing details', 'Browse the imported photo gallery, then change the virtual tour URL, amenities or utilities and select Save settings.', 'marketing', 'save-marketing', ['rental', 'r1', 'settings', 'marketing']],
       ['Choose syndication sites', 'Turn a listing site on or off and save. Each rental has its own site selection.', 'syndication', 'save-syndication', ['rental', 'r1', 'settings', 'marketing']],
       ['Set application and fees', 'Update the fictional application link or fee and save the settings.', 'application', 'save-application', ['rental', 'r1', 'settings', 'application']],
     ],
@@ -26,7 +26,7 @@ window.LeasingLessons = [
       ['Change a qualifying rule', 'Adjust a qualification rule such as the income multiplier or pet limit and save.', 'qualifying', 'save-rules', ['rental', 'r1', 'settings', 'qualifying']],
       ['Add a custom question', 'Add a question, choose which answer should qualify if you want it to screen applicants, then save.', 'add-question', 'save-question', ['rental', 'r1', 'settings', 'qualifying']],
       ['Simulate an inquiry', 'Use New inquiry and enter fictional answers. The sandbox evaluates them against the rental’s rules.', 'add-lead', 'add-lead', ['rental', 'r1', 'leads']],
-      ['Review the qualification', 'Open a lead on this rental and look at its Prequalification section.', 'lead-table', 'view-lead', ['rental', 'r1', 'leads']],
+      ['Review the qualification', 'Open your practice lead and read its Prequalification section. Use Show archived if it missed the criteria.', 'lead-table', 'view-lead', ['rental', 'r1', 'leads']],
     ],
   },
   {
@@ -42,9 +42,9 @@ window.LeasingLessons = [
     id: 'availability', name: 'Set showing availability', icon: 'calendar', duration: '4 min',
     description: 'Add team availability and a time block specific to the rental.',
     steps: [
-      ['Add team availability', 'In Settings → Availability, choose Add general hours. Pick a team member, day, start and end.', 'add-general-hours', 'add-general-slot', ['rental', 'r1', 'settings', 'availability']],
-      ['Add a rental time block', 'Choose Add rental hours to make a block that applies to this rental only.', 'add-rental-hours', 'add-rental-slot', ['rental', 'r1', 'settings', 'availability']],
-      ['Edit a time block', 'Open any availability row, change its time and save it.', 'availability-table', 'edit-slot', ['rental', 'r1', 'settings', 'availability']],
+      ['Add team availability', 'Choose Add general hours. Set the day, times, viewing approval and capacity on the new row, then save it.', 'add-general-hours', 'add-general-slot', ['rental', 'r1', 'settings', 'availability']],
+      ['Add a rental time block', 'Choose Add rental hours and save a time block for this rental. Choose whether it repeats weekly.', 'add-rental-hours', 'add-rental-slot', ['rental', 'r1', 'settings', 'availability']],
+      ['Edit a time block', 'Change any saved time block and choose Save time block on that row.', 'availability-table', 'edit-slot', ['rental', 'r1', 'settings', 'availability']],
     ],
   },
   {
@@ -52,8 +52,8 @@ window.LeasingLessons = [
     description: 'Review a lead, add an internal note and take a showing through completion.',
     steps: [
       ['Add an internal note', 'Open Avery Reed’s record and add a note for the leasing team.', 'lead-note', 'add-note', ['lead', 'l1']],
-      ['Review the inquiry', 'Choose Mark qualified or Needs review to record the result of your review.', 'lead-review', 'review-lead', ['lead', 'l1']],
-      ['Book a tour', 'Choose Schedule showing and enter a sample date, time and viewing method. You can reschedule an existing showing.', 'book-showing', 'book-showing', ['lead', 'l1']],
+      ['Review the inquiry', 'Choose Mark qualified to clear Avery for booking.', 'lead-review', 'review-lead', ['lead', 'l1']],
+      ['Book a tour', 'Turn off the rental’s wait list if it is on. Choose Schedule showing and use an available time. If the block takes requests, confirm the request on this lead.', 'book-showing', 'book-showing', ['lead', 'l1']],
       ['Finish the tour', 'Record a completed showing with a rating or comment.', 'finish-showing', 'finish-showing', ['lead', 'l1']],
     ],
   },
@@ -63,7 +63,7 @@ window.LeasingLessons = [
     steps: [
       ['Review the owner report', 'Open the report and review the counts for inquiries, qualification, scheduling and completed tours.', 'owner-metrics', 'view-owner-report', ['rental', 'r1', 'owner']],
       ['Choose visible feedback', 'Open a dated feedback entry, then use Hide from owner report or Show on owner report on the lead’s viewing record.', 'owner-feedback', 'toggle-feedback', ['rental', 'r1', 'owner']],
-      ['Save delivery preferences', 'Enable the practice delivery schedule, select a day and time, and save.', 'owner-schedule', 'schedule-owner', ['rental', 'r1', 'owner']],
+      ['Save delivery preferences', 'Enable weekly delivery and save the owner’s preferences. To change the time for all enabled rentals, open Scheduled reports.', 'owner-schedule', 'schedule-owner', ['rental', 'r1', 'owner']],
     ],
   },
   {
@@ -72,7 +72,7 @@ window.LeasingLessons = [
     steps: [
       ['Open the lead source report', 'Select Lead source in the standard report list.', 'report-source', 'view-source', ['reports']],
       ['Filter results', 'Select any rental, source or date range and apply the filters.', 'report-filter', 'filter-report', ['report', 'source']],
-      ['Export the report', 'Download the current results as a CSV file.', 'report-export', 'export-report', ['report', 'source']],
+      ['Export the report', 'Use Copy, CSV, Excel, PDF or Print to export the filtered results.', 'report-export', 'export-report', ['report', 'source']],
       ['Schedule a report', 'Open Scheduled reports and add a schedule with a fictional email.', 'add-schedule', 'add-schedule', ['reports', '', 'scheduled']],
     ],
   },
@@ -83,7 +83,7 @@ window.LeasingLessons = [
       ['Assign a device', 'Open Settings on a device and choose a practice rental for it.', 'device-settings', 'assign-device', ['access']],
       ['Generate a practice code', 'Open Get code and generate a code for a sample recipient and date.', 'access-code', 'create-code', ['access']],
       ['Add an authorized contact', 'Switch to Authorized contacts and enter a fictional vendor.', 'add-contact', 'add-contact', ['access', '', 'contacts']],
-      ['Review the access log', 'Open Access log to find the code created during practice.', 'access-log', 'view-access-log', ['access', '', 'log']],
+      ['Review the access report', 'Under Reports, open Device access to find the code you created.', 'report-export', 'view-access-log', ['report', 'device-access']],
     ],
   },
   {
@@ -91,7 +91,7 @@ window.LeasingLessons = [
     description: 'Use the viewing calendar and find answers for common practice tasks.',
     steps: [
       ['Open the showings calendar', 'Review upcoming, past and recorded showings in one place.', 'showing-list', 'view-showings', ['viewings']],
-      ['Look up a question', 'Open Help and expand an answer about scheduling, access or reports.', 'help-list', 'open-answer', ['help']],
+      ['Look up a question', 'Use the floating Help button and expand an answer about scheduling, access or reports.', 'help-list', 'open-answer', ['help']],
     ],
   },
   {

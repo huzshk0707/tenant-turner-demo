@@ -2,6 +2,7 @@
 
 (() => {
   const D = window.LeasingData;
+  const Schedule = window.LeasingSchedule;
   const lessons = window.LeasingLessons;
   const references = window.LeasingLessonReferences;
   const KEY = 'leasing-lab-v1';
@@ -9,6 +10,7 @@
   const content = $('#content');
   const coach = $('#coach');
   const modal = $('#modal');
+  const support = $('#support-panel');
   const iconPaths = {
     home: 'm3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M9 21v-7h6v7',
     users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M16 3a4 4 0 0 1 0 8 M22 21v-2a4 4 0 0 0-3-4 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
@@ -51,10 +53,42 @@
   const atRental = id => state.leads.filter(row => row.rentalId === id);
   const timeBlocks = rental => [...state.teamAvailability, ...rental.availability];
   const showingDevice = r => state.devices.find(d => d.rentalId === r.id && (r.showingDeviceId === undefined || d.id === r.showingDeviceId));
+  let storageSnapshot;
   function load() {
     try {
-      const saved = JSON.parse(localStorage.getItem(KEY));
-      if (saved?.version === 1 && Array.isArray(saved.teamAvailability)) return {...D.workspaceSeed(), ...saved};
+      storageSnapshot = localStorage.getItem(KEY);
+      const saved = JSON.parse(storageSnapshot);
+      if (saved?.version === 1 && Array.isArray(saved.teamAvailability)) {
+        const upgraded = {...D.workspaceSeed(), ...saved};
+        const previousSchedule = saved.rentals.find(r => r.ownerReport?.enabled && r.ownerReport.day)?.ownerReport;
+        if (!saved.ownerDelivery && previousSchedule) {
+          upgraded.ownerDelivery = { day:previousSchedule.day, time:previousSchedule.time };
+        }
+        for (const r of upgraded.rentals) {
+          r.origin ??= ['r1','r2'].includes(r.id) ? 'Imported' : 'Manual';
+          r.gallery ??= [r.photo,'living-sample','kitchen-sample'].filter(p => D.galleryPhotos.includes(p));
+          r.requireIncome ??= true;
+          r.requireMoveIn ??= true;
+          r.useGeneral ??= true;
+          r.useRental ??= true;
+          for (const [key,value] of Object.entries(D.screeningDefaults)) r[key] ??= value;
+          const channels = new Set(r.syndication.map(site => ['Zillow','Trulia','HotPads'].includes(site) ? 'Zillow, Trulia, & HotPads' : site));
+          r.syndication = [...channels];
+          const {enabled,feedback,email} = r.ownerReport;
+          r.ownerReport = {enabled,feedback,email};
+        }
+        for (const block of [...upgraded.teamAvailability,...upgraded.rentals.flatMap(r => r.availability)]) {
+          block.approval ??= 'Set appointments';
+          block.capacity ??= 50;
+          if (!block.repeat && !block.date) {
+            const {date,time} = Schedule.localParts(Date.now(),upgraded.workspaceProfile.timezone);
+            const today = (new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7;
+            const daysUntil = (D.days.indexOf(block.day) - today + 7) % 7;
+            block.date = Schedule.shiftDate(date,daysUntil || (block.start > time ? 0 : 7));
+          }
+        }
+        return upgraded;
+      }
     } catch { /* Start with the training data if storage is unavailable. */ }
     return D.seed();
   }
@@ -66,8 +100,9 @@
   let mobileMenu = false;
   let modalSave;
   let modalOpener;
+  let supportOpener;
   let toastTimer;
-  const rentalFilters = { search:'', assignee:'', inactive:false, status:'All rentals' };
+  const rentalFilters = { search:'', assignee:'', inactive:false };
   const leadFilters = { search:'', archived:false, sort:'Newest', stage:'' };
   let showingFilter = 'Upcoming';
   let accessSearch = '';
@@ -75,7 +110,11 @@
   const reportFilters = {};
 
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); }
+    try {
+      const latest = JSON.stringify(state);
+      localStorage.setItem(KEY,latest);
+      storageSnapshot = latest;
+    }
     catch { notice('Browser storage is unavailable. Your changes will last until this tab is closed.'); }
   }
   function notice(message) {
@@ -142,6 +181,7 @@
     try {
       const parts = raw.replace(/^#/, '').split('/').map(decodeURIComponent);
       if (parts[0] === 'showings') parts[0] = 'viewings';
+      if (parts[0] === 'access' && parts[2] === 'log') return ['report','device-access'];
       if ([...nav.map(item => item[0]),'rental','lead','leads','report'].includes(parts[0])) return parts;
     } catch { /* Use the landing page for an invalid URL. */ }
     return ['rentals'];
@@ -151,8 +191,17 @@
   }
   function go(parts, { focus = true, historyEntry = true } = {}) {
     if (state.signedOut) parts = ['sign-out'];
-    route = parts;
     mobileMenu = false;
+    if (parts[0] === 'help') {
+      $('.rail').classList.remove('is-open');
+      if (!$('#support-launcher').childElementCount) render();
+      openSupport();
+      return;
+    }
+    route = parts;
+    if (parts[0] === 'report' && parts[1] === 'availability' && byRental(parts[2])) {
+      reportFilters.availability = {...reportFilters.availability,rental:parts[2]};
+    }
     workspacePages.enter(parts);
     if (historyEntry && location.hash !== href(parts)) history.pushState(null, '', href(parts));
     render();
@@ -162,17 +211,14 @@
     if (parts[0] === 'lead') learn('view-lead');
     if (parts[0] === 'rental' && parts[2] === 'owner') learn('view-owner-report');
     if (parts[0] === 'report' && parts[1] === 'source') learn('view-source');
-    if (parts[0] === 'access' && parts[2] === 'log') learn('view-access-log');
+    if (parts[0] === 'report' && parts[1] === 'device-access') learn('view-access-log');
     if (parts[0] === 'viewings') learn('view-showings');
     if (parts[3]) scrollToCue(parts[3], false);
   }
 
-  function stat(label, value, symbol, tone, sub = '') {
-    return `<div class="stat-card"><span class="stat-icon ${tone}">${icon(symbol,21)}</span><div><p>${text(label)}</p><strong>${value}</strong>${sub ? `<small>${text(sub)}</small>` : ''}</div></div>`;
-  }
   function rentalCard(r) {
     const badge = !r.active ? chip('Inactive','neutral') : r.waitlist ? chip('Wait list','amber') : chip('Active','green');
-    const img = D.photos.includes(r.photo) ? r.photo : D.photos[0];
+    const img = D.galleryPhotos.includes(r.photo) ? r.photo : D.photos[0];
     return `<article class="rental-card" data-rental="${text(r.id)}">
       <a href="${href(['rental',r.id,'leads'])}" data-nav="${href(['rental',r.id,'leads']).slice(1)}" data-cue="rental-${text(r.id)}" aria-label="Open ${text(r.name)}" class="rental-photo">
         <img src="assets/${img}.jpg" alt="" width="850" height="480"><span class="photo-badges">${badge}${r.alert ? chip('Review lead','rose',false) : ''}</span>
@@ -188,37 +234,25 @@
     const f = rentalFilters;
     const q = f.search.trim().toLowerCase();
     return state.rentals.filter(r => (f.inactive || r.active) && (!f.assignee || r.assignee === f.assignee)
-      && (!q || `${r.name} ${r.address}`.toLowerCase().includes(q))
-      && (f.status === 'All rentals' || (f.status === 'Wait list' && r.waitlist) || (f.status === 'Review needed' && r.alert)));
+      && (!q || `${r.name} ${r.address}`.toLowerCase().includes(q)));
   }
   function refreshRentalGrid() {
     const list = filteredRentals();
     $('#rental-grid').innerHTML = list.length ? list.map(rentalCard).join('') : empty('No rentals match these filters.');
-    $('#rental-count').textContent = `${list.length} ${list.length === 1 ? 'listing' : 'listings'}`;
   }
   function rentalsView() {
-    const active = state.rentals.filter(r => r.active);
-    const newLeads = state.leads.filter(l => l.stage === 'New inquiry').length;
-    const scheduled = state.leads.filter(l => l.stage === 'Showing scheduled').length;
-    return `${heading('Rentals','Manage listings, prospects, and showings from one workspace.',anchor(['leads'],'All leads',{classes:'btn outline',symbol:'users'}) + button('Add rental','add-rental',{classes:'btn primary',symbol:'plus',cue:'add-rental'}),'PORTFOLIO')}
-      <div class="stats-grid">
-        ${stat('Active rentals',active.length,'home','lilac',`${state.rentals.length} in portfolio`)}
-        ${stat('New inquiries',newLeads,'users','sky','Awaiting review')}
-        ${stat('Scheduled showings',scheduled,'calendar','mint','Across all rentals')}
-        ${stat('Needs attention',active.filter(r => r.alert).length,'alert','peach','Rentals flagged')}
-      </div>
-      <div class="portfolio-heading"><h2>All rentals</h2><span id="rental-count" class="muted" aria-live="polite"></span></div>
-      <div class="toolbar rental-toolbar"><div data-cue="rental-search">${searchField('rental-search',rentalFilters.search,'Search rentals')}</div>
-        <label class="compact-field"><span class="sr-only">Status</span><select id="rental-status">${opts(['All rentals','Wait list','Review needed'],rentalFilters.status)}</select></label>
+    return `${heading('Rentals','',button('Import rentals','import-rentals',{classes:'btn outline',symbol:'reset',cue:'add-rental'}))}
+      <div class="toolbar rental-toolbar">
         <label class="compact-field"><span class="sr-only">Assignee</span><select id="rental-assignee">${opts([['','All assignees'],...teamNames()],rentalFilters.assignee)}</select></label>
         <label class="inline-check"><input id="rental-inactive" type="checkbox" ${rentalFilters.inactive ? 'checked' : ''}>Show inactive</label>
+        <div class="rental-search-control" data-cue="rental-search">${searchField('rental-search',rentalFilters.search,'Search rentals')}</div>
       </div><div class="rental-grid" id="rental-grid"></div>`;
   }
 
   function leadRows(rentalId) {
     const f = leadFilters;
     const q = f.search.trim().toLowerCase();
-    return state.leads.filter(l => (!rentalId || l.rentalId === rentalId) && (f.archived || l.stage !== 'Archived')
+    return state.leads.filter(l => (!rentalId || l.rentalId === rentalId) && (f.archived || f.stage === 'Archived' || l.stage !== 'Archived')
       && (!f.stage || l.stage === f.stage) && (!q || `${l.name} ${l.email} ${l.source}`.toLowerCase().includes(q)))
       .sort((a,b) => f.sort === 'Name' ? a.name.localeCompare(b.name) : b.created.localeCompare(a.created));
   }
@@ -261,27 +295,75 @@
     return `<div class="question-row">${field('Question','question',q.prompt,{required:true,attrs:'maxlength="160"'})}
       ${select('Required answer','answer',['None','Yes','No'],q.answer)}${button('Remove','remove-question',{classes:'btn outline small'})}</div>`;
   }
+  function galleryView(r, photos = r.gallery, index = 0) {
+    const imported = r.origin === 'Imported';
+    const selected = photos[index];
+    return `<div id="photo-gallery" class="span inside-section" data-photo-index="${index}"><h3>Photos</h3>
+      <figure class="gallery-preview"><img src="assets/${selected}.jpg" width="850" height="480" alt="${text(D.photoLabels[selected])}">
+        <figcaption><span>${text(D.photoLabels[selected])} · ${index + 1} of ${photos.length}</span>${index === 0 ? chip('Cover photo','purple',false) : ''}</figcaption>
+      </figure>
+      <div class="gallery-thumbnails" role="group" aria-label="Listing photos">${photos.map((photo,i) =>
+        `<button type="button" class="gallery-thumb" data-action="gallery-photo" data-value="${i}" aria-label="View ${text(D.photoLabels[photo])}" aria-pressed="${index === i}"><img src="assets/${photo}.jpg" width="85" height="48" alt=""></button>`).join('')}</div>
+      ${imported ? '' : `${photos.map(photo => `<input type="hidden" name="gallery" value="${photo}">`).join('')}
+        <div class="gallery-tools">${select('Sample photo','newPhoto',D.galleryPhotos.filter(photo => !photos.includes(photo)).map(photo => [photo,D.photoLabels[photo]]),'')}
+          ${button('Add photo','gallery-add',{classes:'btn outline small',attrs:photos.length === D.galleryPhotos.length ? 'disabled' : ''})}
+          ${button('Set as cover','gallery-cover',{classes:'btn outline small',attrs:index === 0 ? 'disabled' : ''})}
+          ${button('Remove photo','gallery-remove',{classes:'btn text small',attrs:photos.length === 1 ? 'disabled' : ''})}
+        </div>`}
+    </div>`;
+  }
+  function updateGallery(action,value) {
+    const r = byRental(route[1]);
+    const gallery = $('#photo-gallery');
+    const imported = r.origin === 'Imported';
+    const photos = imported ? r.gallery : [...gallery.querySelectorAll('[name="gallery"]')].map(input => input.value);
+    let index = Number(gallery.dataset.photoIndex);
+    if (action === 'gallery-photo') index = Number(value);
+    else if (imported) return;
+    else if (action === 'gallery-add') {
+      const next = $('[name="newPhoto"]',gallery).value;
+      if (!next || photos.includes(next)) return;
+      photos.push(next);
+      index = photos.length - 1;
+    } else if (action === 'gallery-cover') {
+      photos.unshift(...photos.splice(index,1));
+      index = 0;
+    } else if (action === 'gallery-remove' && photos.length > 1) {
+      photos.splice(index,1);
+      index = Math.min(index,photos.length - 1);
+    }
+    gallery.outerHTML = galleryView(r,photos,index);
+    $('.gallery-thumb[aria-pressed="true"]')?.focus({preventScroll:true});
+  }
   function settingsView(r) {
     const assigned = showingDevice(r);
     const deviceOptions = [['','No device assigned'], ...state.devices.filter(d => !d.rentalId || d.rentalId === r.id).map(d => [d.id,`${d.model} · ${d.serial}`])];
+    const imported = r.origin === 'Imported';
+    const marketingFields = [
+      field('Listing name','name',r.name,{required:true,attrs:'maxlength="70"'}),field('Address','address',r.address,{required:true,attrs:'maxlength="120"'}),select('Property type','type',['House','Apartment','Condo','Townhouse'],r.type),
+      moneyField('Monthly rent','rent',r.rent),moneyField('Security deposit','deposit',r.deposit),numberField('Lease term (months)','term',r.term,1,60),
+      numberField('Bedrooms','beds',r.beds,0,20),numberField('Bathrooms','baths',r.baths,0,20,0.5),numberField('Square feet','sqft',r.sqft,0,100000),
+      field('Available on','available',r.available,{type:'date',required:true}),area('Description','description',r.description),
+    ].join('');
     return `<div class="settings-layout"><nav class="local-nav" aria-label="Rental settings sections">
       ${[['status','Status'],['marketing','Marketing'],['qualifying','Qualifying'],['viewing','Viewing'],['availability','Availability'],['application','Application & fees']].map(([key,label]) => button(label,'jump',{value:key,classes:'local-nav-link'})).join('')}
       </nav><form id="settings-form" data-form="rental-settings">
       <section class="panel settings-section" data-cue="status">${section('Rental status','Make the listing active and select who manages it.')}
         <div class="form-body form-grid">${check('Active rental','active',r.active)}${select('Assigned to','assignee',activePeople(r.assignee),r.assignee)}</div>
       </section>
-      <section class="panel settings-section" data-cue="marketing">${section('Marketing','Edit the listing details prospects would see.')}
-        <div class="form-body form-grid columns-3">${field('Listing name','name',r.name,{required:true,attrs:'maxlength="70"'})}${field('Address','address',r.address,{required:true,attrs:'maxlength="120"'})}${select('Property type','type',['House','Apartment','Condo','Townhouse'],r.type)}
-        ${moneyField('Monthly rent','rent',r.rent)}${moneyField('Security deposit','deposit',r.deposit)}${numberField('Lease term (months)','term',r.term,1,60)}
-        ${numberField('Bedrooms','beds',r.beds,0,20)}${numberField('Bathrooms','baths',r.baths,0,20,0.5)}${numberField('Square feet','sqft',r.sqft,0,100000)}
-        ${field('Available on','available',r.available,{type:'date',required:true})}${field('Virtual tour URL','tourUrl',r.tourUrl,{type:'url'})}${select('Practice photo','photo',D.photos.map(p => [p,p[0].toUpperCase()+p.slice(1)]),r.photo)}
-        ${area('Description','description',r.description)}${field('Amenities','amenities',r.amenities)}${field('Included utilities','utilities',r.utilities)}
-        <div class="span media-preview"><img src="assets/${D.photos.includes(r.photo) ? r.photo : D.photos[0]}.jpg" width="850" height="480" alt="Practice listing photo"><p>Listing photo</p></div>
+      <section class="panel settings-section" data-cue="marketing">${section('Marketing',imported ? 'The source listing supplies the fields marked as imported.' : '',chip(imported ? 'Imported listing' : 'Manual listing','neutral',false))}
+        <div class="form-body form-grid columns-3">
+        ${imported ? `<fieldset class="span form-grid columns-3 imported-fields" disabled><legend>${icon('lock',15)} Imported listing details</legend>${marketingFields}</fieldset>` : marketingFields}
+        ${field('Virtual tour URL','tourUrl',r.tourUrl,{type:'url'})}${field('Amenities','amenities',r.amenities)}${field('Included utilities','utilities',r.utilities)}
+        ${galleryView(r)}
         <div class="span inside-section" data-cue="syndication"><h3>Syndication</h3><p>Choose the channels for this rental.</p><div class="switch-grid">${D.sites.map(site => check(site,'site',r.syndication.includes(site)).replace('name="site"',`name="site" value="${text(site)}"`)).join('')}</div></div></div>
       </section>
       <section class="panel settings-section" data-cue="qualifying">${section('Qualifying','Set the rules the practice inquiry form uses.')}
-        <div class="form-body form-grid">${numberField('Minimum income × rent','incomeRatio',r.incomeRatio,0,20,0.1)}${numberField('Move in within (days)','moveDays',r.moveDays,1,365)}
-        ${check('Allow pets','pets',r.pets)}${numberField('Maximum pets','petMax',r.petMax,0,20)}${check('Allow a co-signer','coSigner',r.coSigner)}
+        <div class="form-body form-grid">${check('Require move-in within the availability window','requireMoveIn',r.requireMoveIn)}${numberField('Days from rental availability','moveDays',r.moveDays,1,365)}
+        ${check('Require a minimum income-to-rent ratio','requireIncome',r.requireIncome)}${numberField('Minimum income × rent','incomeRatio',r.incomeRatio,0,20,0.1)}
+        <div class="span inside-section"><h3>Pets</h3><div class="form-grid">${check('Allow pets','pets',r.pets)}${numberField('Maximum pets','petMax',r.petMax,0,20)}
+        <div class="span switch-grid">${D.petTypes.map(([key,label]) => check(`Allow ${label.toLowerCase()}`,key,r[key])).join('')}</div></div></div>
+        <div class="span inside-section"><h3>Other practice criteria</h3><div class="form-grid">${D.screening.map(([key,label]) => check(label,key,r[key])).join('')}</div></div>
         <div class="span inside-section"><div class="section-inline"><div><h3>Custom questions</h3><p>Choose Yes or No to require an answer.</p></div>${button('Add question','add-question',{classes:'btn outline small',symbol:'plus',cue:'add-question'})}</div><div id="question-list">${r.questions.map(questionRow).join('')}</div></div></div>
       </section>
       <section class="panel settings-section" data-cue="viewing">${section('Viewing methods','Control when and how prospects can tour the property.')}
@@ -298,14 +380,33 @@
         <div class="form-body form-grid columns-3">${field('Application URL','application',r.application,{type:'url'})}${moneyField('Application fee','applicationFee',r.applicationFee)}${moneyField('Admin fee','adminFee',r.adminFee)}</div>
       </section>${saveBar()}</form></div>`;
   }
+  function slotEditor(slot, draft = false) {
+    const input = html => html.replace(/name="([^"]+)"/, 'data-slot-field="$1" form="availability-controls"');
+    const heading = draft ? 'New time block' : slot.repeat ? `${slot.day}s` : dayText(slot.date);
+    return `<fieldset class="slot-editor" data-slot="${text(slot.id)}" data-scope="${text(slot.scope)}">
+      <legend>${text(heading)}</legend><div class="form-grid columns-3">
+        ${input(select('Team member','agent',activePeople(slot.agent),slot.agent))}
+        ${input(check('Repeats weekly','repeat',slot.repeat))}
+        <div data-recurring ${slot.repeat ? '' : 'hidden'}>${input(select('Day of week','day',D.days,slot.day))}</div>
+        <div data-once ${slot.repeat ? 'hidden' : ''}>${input(field('Date','date',slot.date || D.date(1),{type:'date'}))}</div>
+        ${input(field('From','start',slot.start,{type:'time'}))}${input(field('To','end',slot.end,{type:'time'}))}
+        ${input(select('Viewing approval','approval',D.approvals,slot.approval))}
+        ${input(numberField('Maximum showings per slot','capacity',slot.capacity,1,50))}
+      </div><p class="slot-error" role="alert" hidden></p><div class="action-row">
+        ${button('Save time block','save-slot',{classes:'btn primary small'})}${button(draft ? 'Discard block' : 'Remove time block','remove-slot',{classes:'btn text small'})}
+      </div></fieldset>`;
+  }
   function availabilityView(r) {
     const groups = [
-      {scope:'General', title:'General availability', description:'Team hours shared across rentals.', label:'Add general hours', cue:'add-general-hours', rows:state.teamAvailability},
-      {scope:'Rental', title:'Rental-specific availability', description:'Time blocks that apply only to this rental.', label:'Add rental hours', cue:'add-rental-hours', rows:r.availability},
+      {scope:'General', title:'General availability', description:'Bookings use the assigned team member’s shared hours.', label:'Add general hours', cue:'add-general-hours', rows:state.teamAvailability, key:'useGeneral'},
+      {scope:'Rental', title:'Rental-specific availability', description:'Rental hours take priority on their scheduled dates.', label:'Add rental hours', cue:'add-rental-hours', rows:r.availability, key:'useRental'},
     ];
     return `<div id="availability-panel" data-cue="availability"><div data-cue="availability-table">${groups.map(group =>
-      `<section class="panel">${section(group.title,group.description,button(group.label,'schedule-slot',{classes:'btn outline',symbol:'plus',cue:group.cue,attrs:`data-scope="${group.scope}"`}))}
-      ${table(['Day','Time','Agent','Repeats',''],group.rows.map(slot => [text(slot.day),`${timeText(slot.start)} – ${timeText(slot.end)}`,text(slot.agent),slot.repeat ? 'Weekly':'Once',`<div class="cell-actions">${button('Edit','schedule-slot',{value:slot.id,classes:'btn outline small'})}${button('Remove','remove-slot',{value:slot.id,classes:'btn text small'})}</div>`]),'No time blocks yet.')}</section>`).join('')}</div></div>`;
+      `<section class="panel" data-block-group="${group.scope}">${section(group.title,group.description,button(group.label,'add-slot',{classes:'btn outline',symbol:'plus',cue:group.cue,value:group.scope}))}
+        <div class="form-body"><div class="section-inline">${check(`Use ${group.title.toLowerCase()}`,group.key,r[group.key]).replace(`name="${group.key}"`,`data-availability="${group.key}"`)}
+        ${group.scope === 'Rental' ? anchor(['report','availability',r.id],'View availability report',{classes:'btn text small'}) : ''}</div>
+        <div class="availability-blocks">${group.rows.map(row => slotEditor(row)).join('')}</div>
+        <p class="muted no-slots" ${group.rows.length ? 'hidden' : ''}>No time blocks yet.</p></div></section>`).join('')}</div></div>`;
   }
   function ownerView(r) {
     const leads = atRental(r.id);
@@ -319,16 +420,17 @@
       </section><section class="panel" data-cue="owner-feedback">${section('Viewing feedback',report.feedback ? 'Choose which entries appear in the owner report.':'Feedback is turned off in the delivery preferences.')}
         ${table(['Date','Rating','Feedback','Visibility'],leads.filter(l => l.feedback).map(l => [anchor(['lead',l.id,'showing','owner-feedback-controls'],dayText(l.showingDate || l.created),{classes:'text-link',cue:'feedback-entry'}),`${l.rating || '—'} / 5`,text(l.feedback),chip(l.feedbackHidden ? 'Hidden':'Included',l.feedbackHidden ? 'neutral':'green')]),'No viewing feedback yet.')}
       </section></div>
-      <form class="panel" data-cue="owner-schedule" data-form="owner-schedule">${section('Delivery schedule','Practice a weekly email report.')}
+      <form class="panel" data-cue="owner-schedule" data-form="owner-schedule">${section('Owner report delivery','Practice a weekly email report.')}
         <div class="form-body form-grid single">${check('Enable weekly delivery','enabled',report.enabled)}${check('Include viewing feedback','feedback',report.feedback)}
-          ${select('Delivery day','day',D.days,report.day)}${field('Delivery time','time',report.time,{type:'time',required:true})}${field('Recipient email','email',report.email,{type:'email',required:true})}
-          <p class="muted">This schedule stays in the sandbox. It sends no email.</p></div>${saveBar('Save schedule')}
+          ${field('Recipient email','email',report.email,{type:'email',required:true})}
+          <div class="read-field"><span>Weekly delivery schedule</span><strong>${text(state.ownerDelivery.day)} at ${timeText(state.ownerDelivery.time)} ${text(state.workspaceProfile.timezone)}</strong>${anchor(['reports','','scheduled'],'Change the shared schedule',{classes:'text-link'})}</div>
+        </div>${saveBar('Save delivery preferences')}
       </form>
     </div>`;
   }
   function leadDetail(l) {
     const r = byRental(l.rentalId);
-    const showing = l.showingDate ? `${dayText(l.showingDate)} at ${timeText(l.showingTime)}${l.showingMethod ? ` · ${text(l.showingMethod)}` : ''}` : 'No showing scheduled';
+    const showing = l.showingDate ? [`${dayText(l.showingDate)} at ${timeText(l.showingTime)}`,l.showingMethod,l.showingMethod === 'In person' && l.showingAgent].filter(Boolean).join(' · ') : 'No showing scheduled';
     return `${anchor(r ? ['rental',r.id,'leads'] : ['leads'],r ? `${r.name} leads` : 'All leads',{classes:'back-link',symbol:'back'})}
       ${heading(l.name,`${r?.name || 'Rental'} · Received ${dayText(l.created)}`,stageChip(l.stage))}
       <div class="two-col wide-left">
@@ -338,12 +440,14 @@
           <div class="span action-row" data-cue="lead-review">${button('Message lead','workspace-compose',{value:l.id,classes:'btn outline',symbol:'messages'})}${button('Mark qualified','lead-stage',{value:'Qualified',classes:'btn outline',symbol:'check'})}${button('Needs review','lead-stage',{value:'Needs review',classes:'btn outline'})}${button(l.verified ? 'Reset ID review':'Mark practice ID reviewed','verify-id',{classes:'btn outline'})}${button(l.stage === 'Archived' ? 'Restore inquiry':'Archive lead','lead-stage',{value:l.stage === 'Archived' ? 'New inquiry':'Archived',classes:'btn text'})}</div></div>
         </section>
         <section class="panel" data-cue="book-showing">${section('Showing',showing,button(l.showingDate ? 'Reschedule showing':'Schedule showing','book-showing',{classes:'btn primary',symbol:'calendar'}))}
-          <div class="form-body"><div class="action-row" data-cue="finish-showing">${button('Complete showing','finish-showing',{classes:'btn outline',attrs:l.showingDate && l.stage !== 'Showing requested' ? '' : 'disabled'})}${l.stage === 'Showing requested' ? button('Confirm request','confirm-showing',{classes:'btn primary'}) : ''}${l.showingDate && ['Showing scheduled','Showing requested'].includes(l.stage) ? button('Cancel showing','cancel-showing',{classes:'btn text'}) : ''}${l.stage === 'Viewing completed' ? button('Mark applied','lead-stage',{value:'Applied',classes:'btn outline'}) : ''}</div>
+          <div class="form-body"><div class="action-row" data-cue="finish-showing">${button(['Viewing completed','Applied'].includes(l.stage) ? 'Edit feedback' : 'Complete showing','finish-showing',{classes:'btn outline',attrs:l.showingDate && ['Showing scheduled','Viewing completed','Applied'].includes(l.stage) ? '' : 'disabled'})}${l.stage === 'Showing requested' ? button('Confirm request','confirm-showing',{classes:'btn primary'}) : ''}${l.showingDate && ['Showing scheduled','Showing requested'].includes(l.stage) ? button('Cancel showing','cancel-showing',{classes:'btn text'}) : ''}${l.stage === 'Viewing completed' ? button('Mark applied','lead-stage',{value:'Applied',classes:'btn outline'}) : ''}</div>
             ${l.feedback ? `<div class="feedback" data-cue="owner-feedback-controls"><strong>${text(l.rating ? `${l.rating} / 5` : 'Feedback')}</strong><p>${text(l.feedback)}</p><div class="action-row">${button(l.feedbackHidden ? 'Show on owner report' : 'Hide from owner report','toggle-feedback',{value:l.id,classes:'btn outline small'})}${r ? anchor(['rental',r.id,'owner'],'Back to owner report',{classes:'btn text small'}) : ''}</div></div>` : ''}
           </div></section>
         <section class="panel">${section('Prequalification')}
           <div class="form-body form-grid columns-3"><div class="read-field"><span>Move-in date</span><strong>${dayText(l.moveIn)}</strong></div><div class="read-field"><span>Monthly income</span><strong>${cash(l.income)}</strong></div><div class="read-field"><span>Pets</span><strong>${text(l.pets)}</strong></div>
-          <div class="read-field"><span>Result</span>${l.qualified === null ? chip('Not reviewed') : l.qualified ? chip('Qualified','green') : chip('Review required','amber')}</div>${l.coSigner ? '<div class="read-field"><span>Co-signer</span><strong>Yes</strong></div>' : ''}
+          <div class="read-field"><span>Result</span>${l.qualified === null ? chip('Not reviewed') : l.qualified ? chip('Qualified','green') : chip(l.stage === 'Archived' ? 'Did not qualify':'Review required','amber')}</div>
+          ${l.petTypes?.length ? `<div class="read-field"><span>Pet types</span><strong>${text(l.petTypes.join(', '))}</strong></div>` : ''}
+          ${l.coSigner ? '<div class="read-field"><span>Co-signer</span><strong>Yes</strong></div>' : ''}
           ${(l.screening || []).map(item => `<div class="read-field"><span>${text(item.prompt)}</span><strong>${text(item.answer)}</strong></div>`).join('')}
           ${(l.reasons || []).length ? `<div class="span"><h3>Practice screening notes</h3><ul class="reason-list">${l.reasons.map(item => `<li>${text(item)}</li>`).join('')}</ul></div>` : ''}</div>
         </section></div>
@@ -377,7 +481,7 @@
   const reportTitle = id => reports.find(r => r[0] === id)?.[1] || 'Report';
   const filterOptions = () => [['','All rentals'], ...state.rentals.map(r => [r.id,r.name])];
   function rowsForReport(id, f) {
-    const rentals = state.rentals.filter(r => (!f.rental || r.id === f.rental) && (!f.active || r.active));
+    const rentals = state.rentals.filter(r => (!f.rental || r.id === f.rental) && (!f.agent || r.assignee === f.agent) && (!f.active || r.active));
     const renting = new Set(rentals.map(r => r.id));
     const inRange = date => (!f.start || date >= f.start) && (!f.end || date <= f.end);
     const leads = state.leads.filter(l => renting.has(l.rentalId) && (!f.source || l.source === f.source) && inRange(l.created));
@@ -387,15 +491,21 @@
     const stats = rows => [rows.length,rows.filter(l => l.qualified).length,rows.filter(l => l.showingDate).length,rows.filter(l => ['Viewing completed','Applied'].includes(l.stage)).length];
     switch (id) {
       case 'activity': return result(['Rental','Assignee','Active','Inquiries','Qualified','Scheduled','Completed'],rentals.map(r => [r.name,r.assignee,r.active ? 'Yes':'No',...stats(leads.filter(l => l.rentalId === r.id))]));
-      case 'source': return result(['Lead','Rental','Received','Stage','Channel','Source'],leads.map(l => [l.name,name(l.rentalId),l.created,l.stage,l.channel,l.source]));
+      case 'source': return result(['Lead','Rental','Received','Stage','Channel','Source','Partner'],leads.map(l => [l.name,name(l.rentalId),l.created,l.stage,l.channel,l.source,l.sourcePartner || '—']));
       case 'days': return result(['Rental','Listed','Days on market','Available','Status'],rentals.map(r => [r.name,r.listingSince,Math.max(0,Math.round((new Date(D.date())-new Date(r.listingSince))/86400000)),r.available,r.active ? 'Active':'Inactive']));
       case 'leads': return result(['Lead','Rental','Stage','Received','Latest activity'],leads.map(l => [l.name,name(l.rentalId),l.stage,l.created,l.timeline.at(-1)?.text || '—']));
-      case 'syndication': return result(['Rental','Active','Selected channels'],rentals.map(r => [r.name,r.active ? 'Yes':'No',r.syndication.join(', ') || 'None']));
+      case 'syndication': return result(['Rental','Active','Selected channels'],rentals.map(r => [r.name,r.active ? 'Yes':'No',r.syndication.filter(site => D.sites.includes(site)).join(', ') || 'None']));
       case 'viewings': return result(['Rental','Lead','Date','Time','Method','Stage'],leads.filter(l => l.showingDate).map(l => [name(l.rentalId),l.name,l.showingDate,l.showingTime,l.showingMethod,l.stage]));
-      case 'availability': return result(['Rental','Scope','Agent','Day','Start','End'],rentals.flatMap(r => timeBlocks(r).map(a => [r.name,a.scope,a.agent,a.day,a.start,a.end])));
+      case 'availability': return result(['Rental','Scope','Agent','Day or date','Start','End','Viewing approval','Capacity'],rentals.flatMap(r => timeBlocks(r)
+        .filter(a => a.scope === 'Rental' ? r.useRental : r.useGeneral && a.agent === r.assignee)
+        .map(a => [r.name,a.scope,a.agent,a.repeat ? a.day : a.date,a.start,a.end,a.approval,Math.min(r.maxShowings,a.capacity)])));
       case 'notifications': return result(['Lead','Rental','Date','Activity'],leads.flatMap(l => l.timeline.filter(e => inRange(e.date)).map(e => [l.name,name(l.rentalId),e.date,e.text])));
       case 'inventory': return result(['Device','Type','Rental','Status'],devices.map(d => [d.serial,d.model,name(d.rentalId),d.state]));
-      case 'device-access': return result(['Date','Device','Recipient','Type','Practice code'],state.accesses.filter(a => devices.some(d => d.serial === a.serial) && inRange(a.date)).map(a => [a.date,a.serial,a.name,a.type,a.code]));
+      case 'device-access': return result(['Date','Device','Recipient','Company','Delivery','Type','Practice code'],state.accesses.filter(a => {
+        if (!inRange(a.date)) return false;
+        const rentalId = a.rentalId ?? state.devices.find(d => d.serial === a.serial)?.rentalId;
+        return rentalId ? renting.has(rentalId) : !f.rental && !f.agent && !f.active;
+      }).map(a => [a.date,a.serial,a.name,a.company || '—',a.delivery || 'Get code',a.type,a.code]));
       case 'staff': return result(['Team member','Rentals','Inquiries','Qualified','Scheduled','Completed'],teamNames().map(p => [p,rentals.filter(r => r.assignee === p).length,...stats(leads.filter(l => byRental(l.rentalId)?.assignee === p))]));
       default: return result(['Active rentals','Total rentals','Inquiries','Qualified','Scheduled','Completed'],[[rentals.filter(r => r.active).length,rentals.length,...stats(leads)]]);
     }
@@ -410,7 +520,9 @@
     ];
     return `${heading('Reports','Explore leasing performance and manage report schedules.')}
       ${tabs([['standard','Standard reports',['reports']],['scheduled','Scheduled reports',['reports','','scheduled']]],scheduled ? 'scheduled':'standard')}
-      ${scheduled ? `<section class="panel">${section('Report schedules','Schedules are saved for practice.',button('Add schedule','report-schedule',{classes:'btn primary',symbol:'plus',cue:'add-schedule'}))}
+      ${scheduled ? `<form class="panel" data-form="owner-delivery" data-cue="owner-delivery">${section('Schedule owner reports',`Set the weekly ${state.workspaceProfile.timezone} delivery time for rentals with owner reporting enabled.`)}
+        <div class="form-body form-grid">${select('Delivery day','day',D.days,state.ownerDelivery.day)}${field('Delivery time','time',state.ownerDelivery.time,{type:'time',required:true})}</div>${saveBar('Save owner report schedule')}</form>
+        <section class="panel">${section('Schedule standard reports','Schedules are saved for practice.',button('Add schedule','report-schedule',{classes:'btn primary',symbol:'plus',cue:'add-schedule'}))}
         ${table(['Report','Frequency','Recipient','Time',''],state.schedules.map(s => [text(reportTitle(s.report)),text(s.frequency),text(s.email),timeText(s.time),`<div class="cell-actions">${button('Edit','report-schedule',{value:s.id,classes:'btn outline small'})}${button('Remove','remove-report-schedule',{value:s.id,classes:'btn text small'})}</div>`]),'No practice report schedules yet.')}</section>` :
       `<div class="report-grid report-groups">${groups.map(([title,symbol,ids]) => `<article class="panel report-card"><span class="stat-icon lilac">${icon(symbol,21)}</span><h2>${text(title)}</h2><ul class="report-list">${ids.map(key => {
         const [id,name,description] = reports.find(report => report[0] === key);
@@ -422,45 +534,67 @@
     const data = rowsForReport(id,f);
     const hasSource = ['activity','source','leads','viewings','notifications','staff','account'].includes(id);
     const hasRange = hasSource || id === 'device-access';
+    const formats = [['copy','Copy'],['csv','CSV'],['xlsx','Excel'],['pdf','PDF'],['print','Print']];
     return `${anchor(['reports'],'All reports',{classes:'back-link',symbol:'back'})}
-      ${heading(reportTitle(id),`${data.data.length} ${data.data.length === 1 ? 'result' : 'results'}`,button('Download CSV','csv',{classes:'btn primary',symbol:'download',cue:'report-export'}))}
+      ${heading(reportTitle(id),`${data.data.length} ${data.data.length === 1 ? 'result' : 'results'}`)}
       <form class="panel" data-form="report-filters" data-cue="report-filter">${section('Filters')}
         <div class="form-body form-grid columns-3">${select('Rental','rental',filterOptions(),f.rental || '')}
+        ${['activity','source','leads','viewings','availability'].includes(id) ? select('Assignee','agent',[['','All assignees'],...teamNames()],f.agent || '') : ''}
         ${hasSource ? select('Source','source',[['','All sources'],...new Set(state.leads.map(l => l.source))],f.source || '') : ''}
         ${hasRange ? field('From date','start',f.start || '',{type:'date'})+field('Through date','end',f.end || '',{type:'date'}) : ''}${check('Show active rentals only','active',f.active)}</div>${saveBar('Apply filters')}</form>
-      <section class="panel">${section('Results')}${table(data.columns,data.data.map(row => row.map(text)))}</section>`;
+      <section class="panel report-results">${section('Results','',`<div class="action-row export-actions" role="group" aria-label="Export results" data-cue="report-export">${formats.map(([format,label]) => button(label,'export-report',{value:format,classes:'btn outline small'})).join('')}</div>`)}
+      ${table(data.columns,data.data.map(row => row.map(text)))}</section>`;
   }
   function accessView(tab) {
-    const active = [...D.devices,'contacts','log'].includes(tab) ? tab : D.devices[0];
-    const all = [...D.devices.map(model => [model,model]),['contacts','Authorized contacts'],['log','Access log']];
+    const active = [...D.devices,'contacts'].includes(tab) ? tab : D.devices[0];
+    const all = [...D.devices.map(model => [model,model]),['contacts','Authorized contacts']];
     const devices = state.devices.filter(d => d.model === active && (!accessUnassigned || !d.rentalId)
       && `${d.serial} ${byRental(d.rentalId)?.name || ''}`.toLowerCase().includes(accessSearch.trim().toLowerCase()));
     return `${heading('Access','Manage practice devices, access requests and authorized contacts.')}
-      ${tabs(all.map(([id,label]) => [id,label,['access','',id],id === 'log' ? 'access-log':'']),active)}
+      ${tabs(all.map(([id,label]) => [id,label,['access','',id]]),active)}
       ${active === 'contacts' ? `<section class="panel">${section('Authorized contacts','',button('Add contact','contact',{classes:'btn primary',symbol:'plus',cue:'add-contact'}))}
         ${table(['Contact','Company','Access','Email',''],state.contacts.map(c => [text(c.name),text(c.company),chip(c.access,c.access === 'Recurring' ? 'purple':'neutral'),text(c.email),`<div class="cell-actions">${button('Edit','contact',{value:c.id,classes:'btn outline small'})}${button('Remove','remove-contact',{value:c.id,classes:'btn text small'})}</div>`]),'No authorized contacts yet.')}</section>` :
-      active === 'log' ? `<section class="panel" data-cue="access-log">${section('Access log','Generated practice codes and intended recipients.')}
-        ${table(['Date','Device','Recipient','Type','Practice code'],state.accesses.slice().reverse().map(a => [dayText(a.date),text(a.serial),text(a.name),text(a.type),`<code>${text(a.code)}</code>`]),'No practice access requests yet.')}</section>` :
       `<div class="toolbar">${searchField('access-search',accessSearch,'Search devices')}
         <label class="inline-check"><input id="unassigned" type="checkbox" ${accessUnassigned ? 'checked':''}>Show unassigned only</label>
         ${button('Add device','device-add',{value:active,classes:'btn outline',symbol:'plus'})}</div><div class="device-grid">
         ${devices.map(d => `<article class="panel device-card"><div class="device-head"><span class="stat-icon lilac">${icon('lock',21)}</span>${chip(d.state,d.state === 'Ready' ? 'green':'amber')}</div>
           <h2>${text(d.serial)}</h2><p>${text(byRental(d.rentalId)?.name || 'Unassigned')}</p><div class="action-row">
-          ${button('Send code','send-code',{value:d.id,classes:'btn text small',attrs:d.state === 'Ready' ? '' : 'disabled'})}${button('Get code','get-code',{value:d.id,cue:'access-code',classes:'btn primary small',attrs:d.state === 'Ready' ? '' : 'disabled'})}
+          ${button(d.model === 'CodeBox' ? 'Send CodeBox code' : 'Send code','send-code',{value:d.id,classes:'btn text small',attrs:d.state === 'Ready' ? '' : 'disabled'})}${button('Get code','get-code',{value:d.id,cue:'access-code',classes:'btn primary small',attrs:d.state === 'Ready' ? '' : 'disabled'})}
           ${button('Settings','device-settings',{value:d.id,cue:'device-settings',classes:'btn outline small'})}</div></article>`).join('') || empty('No devices match these filters.','lock')}</div>`}`;
   }
   const faq = [
     ['How do I publish a listing?','Open Rentals, choose Settings for a property, and use Status, Marketing and Syndication to configure it. Save settings to keep your changes in the browser.'],
-    ['How do I practice a showing?','Open Leads and select a prospect. Choose Schedule showing and enter a date, time and method. Use Complete showing to record a rating or comment.'],
-    ['How are inquiries screened?','Each rental has practice income, move-in, pet, co-signer and custom question rules. New inquiry evaluates these rules and records the reasons for a review.'],
-    ['How do I practice a one-time access code?','Open Access, choose a practice device and select Get code. The generated code is a sandbox value you can look up in the Access log.'],
-    ['Where are reports and exports?','Open Reports to find standard and scheduled reports. Choose a standard report, apply filters and use Download CSV. A rental’s Owner report tab contains its funnel and feedback.'],
+    ['How do I practice a showing?','Open a rental’s Leads tab and select a qualified prospect. Select Schedule showing to pick a time in an availability block. Confirm any booking requests from the lead record.'],
+    ['How are inquiries screened?','New inquiries are checked against the rental’s criteria. Use Show archived to review a lead that did not qualify. Automatic replies and follow-ups appear in Messages.'],
+    ['How do I practice a one-time access code?','Choose Get code on a practice device or use Send CodeBox code to simulate a text. Review generated codes in the Device access report.'],
+    ['Where are reports and exports?','Open a standard report, apply filters and choose Copy, CSV, Excel, PDF or Print. Set the weekly owner report timing under Scheduled reports.'],
     ['How do I start over?','Reset practice data restores the fictional portfolio and clears tutorial progress in this browser.'],
   ];
-  function helpView() {
-    return `${heading('Help','Answers for common tasks in the practice workspace.')}
-      <section class="panel" data-cue="help-list">${section('Practice help center','',searchField('faq-search','','Search questions'))}
-        <div id="faq-list" class="faq-list">${faq.map(([q,a]) => `<details data-faq="${text(`${q} ${a}`.toLowerCase())}"><summary>${text(q)}</summary><p>${text(a)}</p></details>`).join('')}</div></section>`;
+  function openSupport() {
+    if (!support.hidden) return;
+    supportOpener = document.activeElement;
+    support.innerHTML = `<div class="support-heading"><div><h2 id="support-title">Practice support</h2><p>Messages stay in this workspace.</p></div>
+      ${button('','close-support',{classes:'icon-button',symbol:'close',attrs:'aria-label="Close support"'})}</div>
+      <div class="support-body" data-cue="help-list"><div class="faq-list">${faq.map(([q,a]) =>
+        `<details><summary>${text(q)}</summary><p>${text(a)}</p></details>`).join('')}</div>
+      <form class="support-form" data-form="support-message">${area('Practice message','message','',2)}
+        <button class="btn primary small top-gap" type="submit">Send practice message</button>
+        <div class="support-messages" aria-live="polite">${supportMessages()}</div></form></div>`;
+    support.hidden = false;
+    $('[data-action="support-toggle"]').setAttribute('aria-expanded','true');
+    $('[data-action="close-support"]',support).focus();
+    drawCoach();
+  }
+  function supportMessages() {
+    if (!state.supportMessages.length) return '';
+    return `<p>Your message is saved in this practice workspace.</p><ul>${state.supportMessages.map(message => `<li>${text(message)}</li>`).join('')}</ul>`;
+  }
+  function closeSupport(restoreFocus = true) {
+    if (support.hidden) return;
+    support.hidden = true;
+    const launcher = $('[data-action="support-toggle"]');
+    launcher.setAttribute('aria-expanded','false');
+    if (restoreFocus) (supportOpener?.isConnected ? supportOpener : launcher).focus();
   }
 
   function activeLesson() { return lessons.find(l => l.id === state.lesson); }
@@ -520,6 +654,12 @@
     const [page,id,tab] = route;
     const areaName = currentSection();
     document.body.classList.toggle('signed-out',state.signedOut);
+    if (!$('#support-launcher').childElementCount) {
+      $('#support-launcher').innerHTML = button('Help','support-toggle',{
+        classes:'btn primary support-toggle',symbol:'messages',attrs:'aria-controls="support-panel" aria-expanded="false"',
+      });
+    }
+    if (state.signedOut) closeSupport(false);
     $('.rail').classList.toggle('is-open',mobileMenu);
     $('#primary').innerHTML = nav.map(([key,label,symbol]) => `<a href="${href([key])}" data-nav="${key}" class="rail-link ${areaName === key ? 'selected' : ''}" ${areaName === key ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${label}</span></a>`).join('');
     const me = state.team[0];
@@ -536,7 +676,6 @@
       case 'reports': content.innerHTML = reportsView(tab); break;
       case 'report': content.innerHTML = reportView(id); break;
       case 'access': content.innerHTML = accessView(tab); break;
-      case 'help': content.innerHTML = helpView(); break;
       default: content.innerHTML = rentalsView(); refreshRentalGrid();
     }
     if ($('#leads-result')) refreshLeads();
@@ -573,9 +712,9 @@
   function error(message) { notice(message); }
 
   const settingGroups = {
-    'save-marketing':['name','address','type','rent','deposit','term','beds','baths','sqft','available','tourUrl','photo','description','amenities','utilities'],
+    'save-marketing':[...D.importedFields,'tourUrl','gallery','amenities','utilities'],
     'save-syndication':['syndication'], 'save-application':['application','applicationFee','adminFee'],
-    'save-rules':['incomeRatio','moveDays','pets','petMax','coSigner'], 'save-question':['questions'],
+    'save-rules':['requireIncome','requireMoveIn','incomeRatio','moveDays','pets','petMax',...Object.keys(D.screeningDefaults)], 'save-question':['questions'],
     'save-waitlist':['waitlist','waitMessage'], 'save-self-access':['selfAccess','viewingType','appointmentType','requireId','instructions'],
     'save-in-person':['inPerson','duration','notice','buffer','maxShowings','limit','notifyOccupants'],
   };
@@ -583,13 +722,21 @@
     const r = byRental(route[1]);
     if (!r) return;
     const updated = { ...r };
-    const boolean = ['active','pets','coSigner','waitlist','selfAccess','requireId','inPerson','notifyOccupants'];
+    const boolean = ['active','requireIncome','requireMoveIn','pets','waitlist','selfAccess','requireId','inPerson','notifyOccupants',...Object.keys(D.screeningDefaults)];
     const numeric = ['rent','deposit','term','beds','baths','sqft','incomeRatio','moveDays','petMax','duration','notice','buffer','maxShowings','applicationFee','adminFee'];
+    const writable = key => r.origin !== 'Imported' || !D.importedFields.includes(key);
     for (const key of boolean) updated[key] = isChecked(fd,key);
-    for (const key of numeric) updated[key] = num(fd,key);
-    for (const key of ['name','address','type','assignee','available','tourUrl','photo','description','amenities','utilities','waitMessage','viewingType','appointmentType','instructions','limit','application']) updated[key] = val(fd,key);
+    for (const key of numeric.filter(writable)) updated[key] = num(fd,key);
+    for (const key of ['name','address','type','assignee','available','tourUrl','description','amenities','utilities','waitMessage','viewingType','appointmentType','instructions','limit','application'].filter(writable)) updated[key] = val(fd,key);
     if (!updated.name || !updated.address) { error('Enter a listing name and address.'); return; }
-    updated.syndication = fd.getAll('site').filter(site => D.sites.includes(site));
+    if (r.origin !== 'Imported') {
+      const photos = [...new Set(fd.getAll('gallery'))].filter(photo => D.galleryPhotos.includes(photo));
+      if (photos.length) {
+        updated.gallery = photos;
+        updated.photo = photos[0];
+      }
+    }
+    updated.syndication = [...fd.getAll('site').filter(site => D.sites.includes(site)),...r.syndication.filter(site => !D.sites.includes(site))];
     const answers = fd.getAll('answer');
     updated.questions = fd.getAll('question').map((q,i) => ({prompt:String(q).trim(),answer:answers[i]})).filter(q => q.prompt);
     const events = Object.entries(settingGroups).filter(([,keys]) => keys.some(key => JSON.stringify(r[key]) !== JSON.stringify(updated[key]))).map(([event]) => event);
@@ -601,8 +748,34 @@
       if (chosen) chosen.rentalId = r.id;
       events.push('save-self-access');
     }
+    const released = r.waitlist && !updated.waitlist;
     Object.assign(r,updated);
+    if (released) {
+      for (const l of atRental(r.id).filter(lead => lead.stage === 'Waitlisted' && lead.qualified)) {
+        l.stage = 'Qualified';
+        automatedMessage(l,'Viewings are open',`Viewings are now available for ${r.name}. Choose a showing time when you’re ready.`);
+        setFollowUp(l,'booking',Date.now()+86_400_000,'Qualified','Showing invitation reminder',`You can still choose an available tour at ${r.name}.`);
+      }
+    }
     commit('Rental settings saved.',...(r.id === 'r1' ? events : []));
+  }
+  function rentalSetup() {
+    const alreadyImported = Boolean(byRental('r-import-copperleaf'));
+    modalInfo('Import rentals',`<p>Bring a fictional listing into the workspace to practice reviewing imported fields.</p>
+      <div class="action-row">${button(alreadyImported ? 'Open imported sample' : 'Import sample rental','import-sample',{classes:'btn primary'})}
+      ${button('Enter a rental manually','add-rental',{classes:'btn outline'})}</div>`);
+  }
+  function importSample() {
+    const id = 'r-import-copperleaf';
+    if (!byRental(id)) {
+      state.rentals.unshift(D.rental(id,'Copperleaf Practice House','220 Heather Court, Brookfield','juniper',{
+        origin:'Imported',rent:2795,deposit:2795,beds:4,baths:3,sqft:2350,listingSince:D.date(),
+      }));
+      persist();
+      notice('Sample rental imported.');
+    }
+    modal.close();
+    go(['rental',id,'settings']);
   }
   function addRental() {
     modalForm('Add rental',`${field('Listing name','name','',{required:true,attrs:'maxlength="70"'})}${field('Address','address','',{required:true,attrs:'maxlength="120"'})}${moneyField('Monthly rent','rent',2100)}${select('Assigned to','assignee',activePeople(),activePeople()[0])}${field('Available on','available',D.date(7),{type:'date',required:true})}${select('Property type','type',['House','Apartment','Condo','Townhouse'],'House')}`,'Add rental',fd => {
@@ -610,37 +783,83 @@
       state.rentals.unshift(D.rental(uid('r'),required(fd,'name','a listing name'),required(fd,'address','an address'),D.photos[state.rentals.length % D.photos.length],{rent,deposit:rent,assignee:val(fd,'assignee'),incomeRatio:state.workspaceProfile.incomeRatio,notice:state.workspaceProfile.notice,applicationFee:state.workspaceProfile.applicationFee,available:val(fd,'available'),type:val(fd,'type'),listingSince:D.date()}));
       rentalFilters.search = '';
       rentalFilters.assignee = '';
-      rentalFilters.status = 'All rentals';
       commit('Rental added.','add-rental');
     });
   }
   function inquiryQuestions(r) {
-    return r?.questions.map((q,i) => select(q.prompt,`screen-${i}`,['Yes','No'],'Yes')).join('') || '';
+    return r?.questions.map((q,i) => select(q.prompt,`screen-${i}`,[['','Choose an answer'],'Yes','No'],'','required')).join('') || '';
   }
   function addLead(id) {
     const chosen = byRental(id) || state.rentals.find(r => r.active) || state.rentals[0];
-    modalForm('New inquiry',`${select('Rental','rental',state.rentals.map(r => [r.id,r.name]),chosen.id,'id="inquiry-rental"')}${field('Lead name','name','',{required:true,attrs:'maxlength="80"'})}${field('Practice email','email','',{type:'email',required:true})}${field('Practice phone','phone','(202) 555-0140',{type:'tel'})}${select('Lead source','source',[...D.sites,'Website','Referral','Other'],'Website')}${select('Channel','channel',['Web','Phone','Email'],'Web')}${field('Move-in date','moveIn',D.date(15),{type:'date',required:true})}${moneyField('Monthly income','income',7200)}${numberField('Pets','pets',0,0,20)}${check('Has a co-signer','coSigner',false)}<div class="span form-grid" id="inquiry-custom">${inquiryQuestions(chosen)}</div>`,'Save inquiry',fd => {
+    modalForm('New inquiry',`${select('Rental','rental',state.rentals.map(r => [r.id,r.name]),chosen.id,'id="inquiry-rental"')}${field('Lead name','name','',{required:true,attrs:'maxlength="80"'})}${field('Practice email','email','',{type:'email',required:true})}${field('Practice phone','phone','(202) 555-0140',{type:'tel'})}${select('Lead source','source',D.leadSources,'Website')}${select('Channel','channel',['Web','Phone','Email'],'Web')}${field('Move-in date','moveIn',D.date(15),{type:'date',required:true})}${moneyField('Monthly income','income',7200)}${numberField('Pets','pets',0,0,20)}
+      <div class="span form-grid">${D.petTypes.map(([key,label]) => check(label,key,false)).join('')}</div>
+      <div class="span form-grid inside-section">${D.screening.map(([key,,label]) => check(label,key,false)).join('')}</div>
+      <div class="span form-grid" id="inquiry-custom">${inquiryQuestions(chosen)}</div>`,'Save inquiry',fd => {
       const r = byRental(val(fd,'rental'));
-      const l = D.lead(uid('l'),r.id,required(fd,'name','a lead name'),{email:val(fd,'email'),phone:val(fd,'phone'),source:val(fd,'source'),channel:val(fd,'channel'),moveIn:val(fd,'moveIn'),income:num(fd,'income'),pets:num(fd,'pets'),coSigner:isChecked(fd,'coSigner'),created:D.date(),timeline:[{date:D.date(),text:'Practice inquiry received'}]});
-      const maxDate = D.date(r.moveDays);
+      const l = D.lead(uid('l'),r.id,required(fd,'name','a lead name'),{email:val(fd,'email'),phone:val(fd,'phone'),source:val(fd,'source'),channel:val(fd,'channel'),moveIn:val(fd,'moveIn'),income:num(fd,'income'),pets:num(fd,'pets'),created:D.date(),timeline:[{date:D.date(),text:'Practice inquiry received'}]});
+      const maxDate = Schedule.shiftDate(r.available,r.moveDays);
       const reasons = [];
-      if (l.income < r.rent*r.incomeRatio && !(r.coSigner && l.coSigner)) reasons.push(`Monthly income is below ${r.incomeRatio} × the listed rent.`);
-      if (l.moveIn > maxDate) reasons.push(`Move-in falls outside the ${r.moveDays}-day practice window.`);
+      const responses = Object.fromEntries(D.screening.map(([key]) => [key,isChecked(fd,key)]));
+      const pets = l.pets ? D.petTypes.filter(([key]) => isChecked(fd,key)) : [];
+      if (l.pets && !pets.length) throw new Error('Select the types of pets in this practice inquiry.');
+      if (r.requireIncome && l.income < r.rent*r.incomeRatio && !(r.coSigner && responses.coSigner)) reasons.push(`Monthly income is below ${r.incomeRatio} × the listed rent.`);
+      if (r.requireMoveIn && l.moveIn > maxDate) reasons.push(`Move-in is more than ${r.moveDays} days after the rental becomes available.`);
       if (l.pets && (!r.pets || l.pets > r.petMax)) reasons.push('Pet count exceeds this rental’s practice limit.');
-      l.screening = r.questions.map((q,i) => ({ prompt:q.prompt,answer:val(fd,`screen-${i}`) }));
-      r.questions.forEach((q,i) => { if (q.answer !== 'None' && q.answer !== l.screening[i].answer) reasons.push(`Review custom response: ${q.prompt}`); });
+      for (const [key,label] of pets) if (r.pets && !r[key]) reasons.push(`${label} aren’t allowed for this rental.`);
+      for (const [key,,,reason] of D.screening) if (responses[key] && !r[key]) reasons.push(reason);
+      const answers = r.questions.map((q,i) => ({ prompt:q.prompt,answer:val(fd,`screen-${i}`) }));
+      r.questions.forEach((q,i) => { if (q.answer !== 'None' && q.answer !== answers[i].answer) reasons.push(`Custom answer did not qualify: ${q.prompt}`); });
+      l.screening = [...D.screening.map(([key,,label]) => ({prompt:label,answer:responses[key] ? 'Yes' : 'No'})),...answers];
+      l.petTypes = pets.map(([,label]) => label);
       l.reasons = reasons;
       l.qualified = !reasons.length;
-      l.stage = reasons.length ? 'Needs review' : r.waitlist ? 'Waitlisted' : 'Qualified';
-      l.timeline.push({date:D.date(),text:`Practice screening: ${l.stage}`});
-      if (reasons.length) r.alert = true;
+      l.stage = reasons.length ? 'Archived' : r.waitlist ? 'Waitlisted' : 'Qualified';
+      logLead(l,reasons.length ? 'Automatically archived after prequalification' : `Practice screening · ${l.stage}`);
       state.leads.unshift(l);
+      if (reasons.length) automatedMessage(l,'Prequalification result',`This practice inquiry did not meet the listing criteria. ${reasons.join(' ')}`);
+      else if (r.waitlist) automatedMessage(l,'Wait list confirmation',r.waitMessage || 'You are on the wait list for this rental.');
+      else {
+        automatedMessage(l,'Showing invitation',`Thanks for your interest in ${r.name}. You’re prequalified and can choose an available showing time.`);
+        setFollowUp(l,'booking',Date.now()+86_400_000,'Qualified','Showing invitation reminder',`You can still choose an available tour at ${r.name}.`);
+      }
       leadFilters.search = '';
       leadFilters.stage = '';
-      commit(`Inquiry saved. ${l.stage}.`,'add-lead');
+      commit(reasons.length ? 'Inquiry archived automatically. Use Show archived to review it.' : `Inquiry saved. ${l.stage}.`,'add-lead');
     },'Enter sample answers to see how this rental’s qualification rules route the lead.');
   }
   function logLead(l,text) { l.timeline.push({date:D.date(),text}); }
+  function automatedMessage(lead,subject,message,application = '') {
+    let thread = state.threads.find(item => item.leadId === lead.id && !item.archived);
+    if (!thread) {
+      thread = {id:uid('thread'),leadId:lead.id,subject,unread:false,archived:false,entries:[]};
+      state.threads.unshift(thread);
+    }
+    thread.entries.push({from:'automation',date:D.date(),text:message,application});
+    logLead(lead,`Automatic message · ${subject}`);
+  }
+  function setFollowUp(lead,kind,due,stage,subject,message) {
+    state.followUps = state.followUps.filter(job => job.leadId !== lead.id || job.kind !== kind);
+    state.followUps.push({leadId:lead.id,kind,due,stage,subject,message});
+  }
+  function flushFollowUps() {
+    const now = Date.now();
+    const due = state.followUps.filter(job => job.due <= now);
+    if (!due.length) return;
+    try {
+      // A stale tab must never overwrite changes saved by another tab while processing reminders.
+      if (localStorage.getItem(KEY) !== storageSnapshot) return;
+    } catch { /* Keep running in memory when this browser disables storage. */ }
+    state.followUps = state.followUps.filter(job => job.due > now);
+    for (const job of due) {
+      const lead = byLead(job.leadId);
+      const r = lead && byRental(lead.rentalId);
+      if (!r?.active || r.waitlist || lead.stage !== job.stage) continue;
+      if (job.kind === 'showing' && Schedule.epoch(lead.showingDate,lead.showingTime,state.workspaceProfile.timezone) <= now) continue;
+      automatedMessage(lead,job.subject,job.message);
+    }
+    persist();
+    if (route[0] === 'messages' && !document.activeElement?.closest('form')) render();
+  }
   function leadStage(stage, id = route[1]) {
     const l = byLead(id);
     if (!l || !D.stages.includes(stage)) return;
@@ -655,61 +874,146 @@
   }
   function bookShowing() {
     const l = byLead(route[1]);
-    const r = byRental(l.rentalId);
+    const r = l && byRental(l.rentalId);
+    if (!r) return;
+    if (!r.active || r.waitlist || !l.qualified || l.stage === 'Archived') {
+      notice(!r.active ? 'Activate this rental before booking a showing.' : r.waitlist ? 'Turn off the rental’s wait list to open booking.' : 'Qualify the lead before booking a showing.');
+      return;
+    }
     const methods = [r.inPerson && 'In person',r.selfAccess && 'Self access'].filter(Boolean);
     if (!methods.length) { notice('Enable a viewing method in rental settings first.'); return; }
-    modalForm(l.showingDate ? 'Reschedule showing' : 'Schedule showing',`${field('Date','date',l.showingDate >= D.date() ? l.showingDate : D.date(Math.max(2,Math.ceil(r.notice/24)+1)),{type:'date',required:true,attrs:`min="${D.date()}"`})}${field('Time','time',l.showingTime || '11:00',{type:'time',required:true})}${select('Viewing method','method',methods,l.showingMethod || methods[0])}`,'Save showing',fd => {
+    const planner = Schedule.createPlanner(state,r,l);
+    const method = methods.includes(l.showingMethod) ? l.showingMethod : methods[0];
+    const next = l.showingDate && !planner.validate(l.showingDate,l.showingTime,method).error
+      ? {date:l.showingDate,time:l.showingTime} : planner.firstSlot(method);
+    modalForm(l.showingDate ? 'Reschedule showing':'Schedule showing',`${field('Date','date',next?.date || planner.today,{type:'date',required:true,attrs:`min="${planner.today}"`})}
+      ${field('Time','time',next?.time || '',{type:'time',required:true})}${select('Viewing method','method',methods,method)}
+      <div class="span action-row">${button('Use next available time','next-showing-slot',{classes:'btn outline small'})}</div>
+      <p id="showing-preview" class="span muted" aria-live="polite"></p>`,'Save showing',fd => {
       const method = val(fd,'method');
-      if (method === 'Self access' && r.requireId && !l.verified) throw new Error('Mark the practice ID as reviewed first, or choose an in-person tour.');
       const date = val(fd,'date'); const time = val(fd,'time');
-      const start = new Date(`${date}T${time}`).getTime();
-      const length = r.duration * 60000;
-      if (start < Date.now() + r.notice * 3600000) throw new Error(`Choose a time at least ${r.notice} hours from now.`);
-      const sameDay = atRental(r.id).filter(other => other.id !== l.id && other.stage === 'Showing scheduled' && other.showingDate === date);
-      const overlaps = sameDay.filter(other => Math.abs(new Date(`${date}T${other.showingTime}`).getTime() - start) < length);
-      if (r.limit === 'One showing per day' && sameDay.length) throw new Error('This rental allows one showing per day. Choose another day.');
-      if (overlaps.length >= r.maxShowings) throw new Error('The practice slot is full. Choose another time.');
-      l.showingDate = date; l.showingTime = time; l.showingMethod = method;
-      const request = method === 'Self access' && r.appointmentType === 'Take requests';
-      l.stage = request ? 'Showing requested' : 'Showing scheduled';
-      logLead(l,`${l.stage} for ${dayText(l.showingDate)} at ${timeText(l.showingTime)}`);
-      if (!request && r.notifyOccupants) logLead(l,'Practice viewing notice recorded for occupants');
-      commit(request ? 'Showing request saved.' : 'Showing saved.',...(l.id === 'l1' ? ['book-showing'] : []));
-    });
+      const slot = Schedule.createPlanner(state,r,l).validate(date,time,method);
+      if (slot.error) throw new Error(slot.error);
+      Object.assign(l,{showingDate:date,showingTime:time,showingMethod:method});
+      recordShowing(l,r,slot,slot.approval === 'Take requests');
+    },`Times use the workspace’s ${planner.zone} time zone.`);
+    showSlotPreview();
+  }
+  function showSlotPreview(useNext = false) {
+    const preview = $('#showing-preview',modal);
+    const l = byLead(route[1]);
+    const r = l && byRental(l.rentalId);
+    if (!preview || !r) return;
+    const form = $('#dialog-form',modal);
+    const planner = Schedule.createPlanner(state,r,l);
+    const method = form.elements.method.value;
+    if (useNext) {
+      const next = planner.firstSlot(method);
+      if (!next) {
+        form.elements.time.value = '';
+        preview.textContent = 'No available time found. Check the viewing method and availability settings.';
+        return;
+      }
+      form.elements.date.value = next.date;
+      form.elements.time.value = next.time;
+    }
+    const slot = planner.validate(form.elements.date.value,form.elements.time.value,method);
+    preview.textContent = slot.error || (slot.approval === 'Take requests'
+      ? `Requires approval from ${slot.agent}.`
+      : method === 'In person' ? `Books automatically with ${slot.agent}.` : 'Books automatically as a self-access viewing.');
+  }
+  function recordShowing(l,r,slot,requested) {
+    Object.assign(l,{showingAgent:slot.agent,showingDuration:r.duration,showingBuffer:r.buffer,stage:requested ? 'Showing requested' : 'Showing scheduled'});
+    const dateTime = `${dayText(l.showingDate)} at ${timeText(l.showingTime)} ${state.workspaceProfile.timezone}`;
+    logLead(l,`${l.stage} for ${dateTime}`);
+    if (!requested && r.notifyOccupants) logLead(l,'Practice viewing notice recorded for occupants');
+    state.followUps = state.followUps.filter(job => job.leadId !== l.id);
+    if (requested) automatedMessage(l,'Showing request received',`Your request for ${dateTime} is awaiting approval.`);
+    else {
+      automatedMessage(l,'Showing confirmation',`Your showing at ${r.name} is confirmed for ${dateTime}. ${r.instructions}`.trim());
+      const now = Date.now();
+      const remaining = slot.start - now;
+      const reminderAt = remaining >= 86_400_000 ? slot.start - 86_400_000 : now + remaining / 2;
+      setFollowUp(l,'showing',reminderAt,'Showing scheduled','Showing reminder',`Your upcoming tour at ${r.name} is ${dateTime}.`);
+    }
+    commit(requested ? 'Showing request saved.' : 'Showing confirmed.',...(!requested && l.id === 'l1' ? ['book-showing'] : []));
   }
   function finishShowing() {
     const l = byLead(route[1]);
-    if (!l?.showingDate || l.stage === 'Showing requested') return;
-    modalForm('Complete showing',`${select('Rating','rating',[['0','No rating'],'1','2','3','4','5'],String(l.rating))}${area('Feedback','feedback',l.feedback,3)}`,'Record completion',fd => {
-      l.rating = num(fd,'rating'); l.feedback = val(fd,'feedback'); l.stage = 'Viewing completed';
-      logLead(l,'Showing completed');
-      commit('Showing marked complete.',...(l.id === 'l1' ? ['finish-showing'] : []));
+    if (!l?.showingDate || !['Showing scheduled','Viewing completed','Applied'].includes(l.stage)) return;
+    const firstCompletion = l.stage === 'Showing scheduled';
+    modalForm(firstCompletion ? 'Complete showing' : 'Edit feedback',`${select('Rating','rating',[['0','No rating'],'1','2','3','4','5'],String(l.rating))}${area('Feedback','feedback',l.feedback,3)}`,firstCompletion ? 'Record completion' : 'Save feedback',fd => {
+      l.rating = num(fd,'rating');
+      l.feedback = val(fd,'feedback');
+      if (firstCompletion) {
+        const r = byRental(l.rentalId);
+        l.stage = 'Viewing completed';
+        logLead(l,'Showing completed');
+        state.followUps = state.followUps.filter(job => job.leadId !== l.id);
+        automatedMessage(l,'Viewing follow-up',`Thanks for touring ${r.name}. Please share feedback about your visit.${r.application ? ' If you’d like to move forward, you can open the practice application.' : ''}`,r.application);
+      } else logLead(l,'Showing feedback updated');
+      commit(firstCompletion ? 'Showing marked complete.' : 'Feedback saved.',...(l.id === 'l1' ? ['finish-showing'] : []));
     });
   }
   function saveAvailability(message,...events) {
-    if (route[2] !== 'settings') { commit(message,...events); return; }
     persist();
-    $('#availability-panel').outerHTML = availabilityView(byRental(route[1]));
     drawCoach();
     notice(message);
     learn(...events);
   }
-  function scheduleSlot(id, scope = 'General') {
+  function addSlot(scope,element) {
     const r = byRental(route[1]);
-    const existing = timeBlocks(r).find(a => a.id === id);
-    const row = existing || {id:uid('slot'),scope,agent:r.assignee,day:'Saturday',start:'10:00',end:'13:00',repeat:true};
-    modalForm(existing ? 'Edit time block':'Add time block',`${select('Scope','scope',['General','Rental'],row.scope)}${select('Team member','agent',activePeople(row.agent),row.agent)}${select('Day','day',D.days,row.day)}${field('Start','start',row.start,{type:'time',required:true})}${field('End','end',row.end,{type:'time',required:true})}${check('Repeat weekly','repeat',row.repeat)}`,'Save time block',fd => {
-      const start = val(fd,'start'); const end = val(fd,'end');
-      if (start >= end) throw new Error('End time must be later than start time.');
-      const newRow = {...row,scope:val(fd,'scope'),agent:val(fd,'agent'),day:val(fd,'day'),start,end,repeat:isChecked(fd,'repeat')};
-      if (existing) {
-        const oldRows = existing.scope === 'General' ? state.teamAvailability : r.availability;
-        oldRows.splice(oldRows.indexOf(existing),1);
-      }
-      const targetRows = newRow.scope === 'General' ? state.teamAvailability : r.availability;
-      targetRows.push(newRow);
-      const event = existing ? 'edit-slot' : newRow.scope === 'General' ? 'add-general-slot' : 'add-rental-slot';
-      saveAvailability('Availability saved.',...(r.id === 'r1' ? [event] : []));
+    const general = scope === 'General';
+    const slot = {id:uid('slot'),scope,agent:r.assignee,day:general ? 'Monday' : 'Saturday',start:general ? '09:00' : '14:00',end:general ? '12:00' : '16:00',repeat:true,approval:'Set appointments',capacity:r.maxShowings};
+    const group = element.closest('[data-block-group]');
+    const list = $('.availability-blocks',group);
+    list.insertAdjacentHTML('beforeend',slotEditor(slot,true));
+    $('.no-slots',group).hidden = true;
+    const editor = list.lastElementChild;
+    editor.scrollIntoView({block:'nearest'});
+    $('[data-slot-field="agent"]',editor).focus({preventScroll:true});
+  }
+  function saveSlot(editor) {
+    const r = byRental(route[1]);
+    const {slot:id,scope} = editor.dataset;
+    const collection = scope === 'General' ? state.teamAvailability : r.availability;
+    const existing = collection.find(item => item.id === id);
+    const value = key => $(`[data-slot-field="${key}"]`,editor).value;
+    const repeat = $('[data-slot-field="repeat"]',editor).checked;
+    const row = {id,scope,agent:value('agent'),day:value('day'),date:repeat ? '' : value('date'),
+      start:value('start'),end:value('end'),repeat,approval:value('approval'),capacity:Number(value('capacity'))};
+    const issue = $('.slot-error',editor);
+    const overlap = collection.some(item => item.id !== id && item.agent === row.agent && item.repeat === repeat
+      && (repeat ? item.day === row.day : item.date === row.date) && row.start < item.end && row.end > item.start);
+    let message = '';
+    if (!row.start || !row.end || row.start >= row.end) message = 'Choose a start time and a later end time.';
+    else if (!repeat && !row.date) message = 'Choose a date for the one-time block.';
+    else if (!Number.isInteger(row.capacity) || row.capacity < 1 || row.capacity > 50) message = 'Enter a capacity between 1 and 50.';
+    else if (overlap) message = 'This team member already has an overlapping time block.';
+    issue.hidden = !message;
+    issue.textContent = message;
+    if (message) return;
+    if (existing) Object.assign(existing,row);
+    else collection.push(row);
+    $('legend',editor).textContent = repeat ? `${row.day}s` : dayText(row.date);
+    $('[data-action="remove-slot"]',editor).textContent = 'Remove time block';
+    const event = existing ? 'edit-slot' : scope === 'General' ? 'add-general-slot' : 'add-rental-slot';
+    saveAvailability('Availability saved.',...(r.id === 'r1' ? [event] : []));
+  }
+  function removeSlot(editor) {
+    const {slot,scope} = editor.dataset;
+    const r = byRental(route[1]);
+    const collection = scope === 'General' ? state.teamAvailability : r.availability;
+    const removeEditor = () => {
+      const group = editor.closest('[data-block-group]');
+      editor.remove();
+      $('.no-slots',group).hidden = !!$('.slot-editor',group);
+      $('[data-action="add-slot"]',group).focus();
+    };
+    if (!collection.some(item => item.id === slot)) { removeEditor(); return; }
+    removeItem(collection,slot,'Remove time block?',scope === 'General' ? 'Remove this team time block from every rental.' : 'Remove this time block from this rental.',message => {
+      removeEditor();
+      saveAvailability(message);
     });
   }
   function scheduleReport(id) {
@@ -721,22 +1025,23 @@
       commit('Practice report schedule saved.',...(!existing ? ['add-schedule'] : []));
     },'Schedules are stored in this browser for practice.');
   }
-  function csvDownload() {
+  async function exportReport(format) {
     const id = route[1];
     const {columns,data} = rowsForReport(id,reportFilters[id] || {});
-    const escapeCell = cell => {
-      const value = String(cell ?? '');
-      const safe = /^[\s]*[=+@-]/.test(value) ? `'${value}` : value;
-      return `"${safe.replace(/"/g,'""')}"`;
-    };
-    const csv = [columns,...data].map(row => row.map(escapeCell).join(',')).join('\r\n');
-    const objectUrl = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
-    const a = document.createElement('a'); a.href = objectUrl; a.download = `leasing-lab-${reports.some(r => r[0] === id) ? id : 'report'}.csv`; a.click();
-    setTimeout(() => URL.revokeObjectURL(objectUrl),1000);
-    notice('Practice report downloaded.');
-    learn('export-report');
+    try {
+      if (format === 'print') window.print();
+      else if (format === 'copy') {
+        await window.LeasingExports.copy([columns,...data]);
+        notice('Report results copied.');
+      } else {
+        window.LeasingExports.download(format,id,reportTitle(id),[columns,...data]);
+        notice('Practice report downloaded.');
+      }
+      learn('export-report');
+    } catch (err) {
+      notice(err.message || 'The report could not be exported.');
+    }
   }
-
   function editDevice(id, model) {
     const existing = state.devices.find(d => d.id === id);
     const row = existing || {id:uid('device'),serial:'',model,rentalId:'',state:'Ready'};
@@ -752,14 +1057,27 @@
   function createCode(id, simulateSend) {
     const d = state.devices.find(row => row.id === id);
     if (!d || d.state !== 'Ready') return;
-    modalForm(simulateSend ? 'Simulate sending a code':'Generate practice code',`${field('Intended recipient','name','Practice vendor',{required:true,attrs:'maxlength="80"'})}${field('Practice email','email',simulateSend ? 'vendor@example.com':'',{type:'email',required:simulateSend})}${field('Access date','date',D.date(1),{type:'date',required:true,attrs:`min="${D.date()}"`})}${select('Code type','type',['One-time','Day access'],'One-time')}`,simulateSend ? 'Simulate send':'Generate code',fd => {
+    const today = Schedule.localParts(Date.now(),state.workspaceProfile.timezone).date;
+    const contactFields = simulateSend
+      ? field('Mobile number','mobile','(202) 555-0152',{type:'tel',required:true,attrs:'maxlength="30"'})
+        + field('Company','company','Sample Maintenance',{attrs:'maxlength="80"'})
+        + area('Message','message','Here is the practice access code for your visit.',3)
+      : '';
+    modalForm(simulateSend ? `Send ${d.model} code` : 'Generate practice code',`${field('Access date','date',Schedule.shiftDate(today,1),{type:'date',required:true,attrs:`min="${today}"`})}
+      ${select('Code type','type',['One-time','Day access'],'One-time')}${field('Recipient name','name','Practice vendor',{required:true,attrs:'maxlength="80"'})}
+      ${contactFields}`,simulateSend ? 'Simulate send' : 'Generate code',fd => {
+      const mobile = val(fd,'mobile');
+      const digits = mobile.replace(/\D/g,'').length;
+      if (simulateSend && (digits < 7 || digits > 15)) throw new Error('Enter a practice mobile number.');
       const id = uid('access');
-      const code = `SIM-${id.split('-').slice(1).join('').slice(0,8).toUpperCase()}`;
-      const row = {id,serial:d.serial,name:required(fd,'name','a recipient name'),date:val(fd,'date'),type:val(fd,'type'),code};
+      const code = `SIM-${id.slice(7,15).toUpperCase()}`;
+      const row = {id,serial:d.serial,rentalId:d.rentalId,name:required(fd,'name','a recipient name'),date:val(fd,'date'),
+        type:val(fd,'type'),code,mobile,company:val(fd,'company'),message:val(fd,'message'),
+        delivery:simulateSend ? 'Simulated SMS' : 'Get code'};
       state.accesses.push(row);
-      commit(simulateSend ? 'Simulated access request recorded.':'Practice code added to the access log.','create-code');
-      modalInfo('Practice code generated',`<p>For ${text(row.name)} on ${dayText(row.date)}.</p><code class="large-code">${text(code)}</code><p class="muted">This code works only in the practice log.</p>`);
-    },'Codes and simulated sends stay in this browser.');
+      commit(simulateSend ? 'Simulated text recorded.' : 'Practice code saved.','create-code');
+      modalInfo(simulateSend ? 'Simulated text saved' : 'Practice code generated',`<p>For ${text(row.name)}${row.mobile ? ` at ${text(row.mobile)}` : ''} on ${dayText(row.date)}.</p><code class="large-code">${text(code)}</code>${row.message ? `<p>${text(row.message)}</p>` : ''}`);
+    },'This form uses fictional data and generates a sandbox code.');
   }
   function editContact(id) {
     const existing = state.contacts.find(c => c.id === id);
@@ -817,26 +1135,28 @@
         break;
       }
       case 'close-modal': modal.close(); break;
+      case 'support-toggle': if (support.hidden) openSupport(); else closeSupport(); break;
+      case 'close-support': closeSupport(); break;
       case 'reset': confirm('Reset practice data?','This restores the sample portfolio and clears your tutorial progress in this browser.','Reset workspace',() => {
         state = D.seed(); coachList = true; workspacePages.reset();
-        Object.assign(rentalFilters,{search:'',assignee:'',inactive:false,status:'All rentals'});
+        closeSupport(false);
+        Object.assign(rentalFilters,{search:'',assignee:'',inactive:false});
         Object.assign(leadFilters,{search:'',archived:false,sort:'Newest',stage:''});
         for (const id of Object.keys(reportFilters)) delete reportFilters[id];
         accessSearch = ''; accessUnassigned = false; showingFilter = 'Upcoming';
         go(['rentals']); commit('Practice data reset.');
       }); break;
       case 'jump': scrollToCue(value); break;
+      case 'import-rentals': rentalSetup(); break;
+      case 'import-sample': importSample(); break;
       case 'add-rental': addRental(); break;
+      case 'gallery-photo': case 'gallery-add': case 'gallery-cover': case 'gallery-remove': updateGallery(key,value); break;
       case 'add-lead': addLead(value); break;
       case 'add-question': $('#question-list').insertAdjacentHTML('beforeend',questionRow()); $('#question-list .question-row:last-child input')?.focus(); break;
       case 'remove-question': element.closest('.question-row')?.remove(); break;
-      case 'schedule-slot': scheduleSlot(value,element.dataset.scope); break;
-      case 'remove-slot': {
-        const r = byRental(route[1]);
-        const slot = timeBlocks(r).find(item => item.id === value);
-        if (slot) removeItem(slot.scope === 'General' ? state.teamAvailability : r.availability,value,'Remove time block?',slot.scope === 'General' ? 'Remove this team time block from every rental.' : 'Remove this showing availability from the rental.',saveAvailability);
-        break;
-      }
+      case 'add-slot': addSlot(value,element); break;
+      case 'save-slot': saveSlot(element.closest('.slot-editor')); break;
+      case 'remove-slot': removeSlot(element.closest('.slot-editor')); break;
       case 'lead-stage': leadStage(value); break;
       case 'lead-row-stage': {
         const l = byLead(value);
@@ -850,20 +1170,23 @@
         commit('Identity check updated.'); break;
       }
       case 'book-showing': bookShowing(); break;
+      case 'next-showing-slot': showSlotPreview(true); break;
       case 'finish-showing': finishShowing(); break;
       case 'confirm-showing': {
         const l = byLead(route[1]);
         if (l.stage !== 'Showing requested') break;
-        l.stage = 'Showing scheduled';
-        logLead(l,'Practice showing request confirmed');
-        if (byRental(l.rentalId).notifyOccupants) logLead(l,'Practice viewing notice recorded for occupants');
-        commit('Showing request confirmed.');
+        const r = byRental(l.rentalId);
+        const slot = Schedule.createPlanner(state,r,l).validate(l.showingDate,l.showingTime,l.showingMethod,{confirm:true,agent:l.showingAgent || ''});
+        if (slot.error) { error(slot.error); break; }
+        recordShowing(l,r,slot,false);
         break;
       }
       case 'cancel-showing': confirm('Cancel showing?','Return this inquiry to the lead queue for rescheduling.','Cancel showing',() => {
         const l = byLead(route[1]);
         l.showingDate = ''; l.showingTime = ''; l.showingMethod = ''; l.stage = l.qualified ? 'Qualified' : 'Needs review';
-        logLead(l,'Practice showing canceled'); commit('Showing canceled.');
+        state.followUps = state.followUps.filter(job => job.leadId !== l.id);
+        automatedMessage(l,'Showing canceled','Your practice viewing was canceled. Visit the rental to choose a new time.');
+        commit('Showing canceled.');
       }); break;
       case 'toggle-feedback': {
         const l = byLead(value);
@@ -873,7 +1196,7 @@
       }
       case 'report-schedule': scheduleReport(value); break;
       case 'remove-report-schedule': removeItem(state.schedules,value,'Remove schedule?','Remove this practice delivery schedule.'); break;
-      case 'csv': csvDownload(); break;
+      case 'export-report': exportReport(value); break;
       case 'device-settings': editDevice(value); break;
       case 'device-add': editDevice('',value); break;
       case 'get-code': createCode(value,false); break;
@@ -912,14 +1235,26 @@
       }
       case 'owner-schedule': {
         const r = byRental(route[1]);
-        r.ownerReport = {enabled:isChecked(fd,'enabled'),feedback:isChecked(fd,'feedback'),day:val(fd,'day'),time:val(fd,'time'),email:val(fd,'email')};
+        r.ownerReport = {enabled:isChecked(fd,'enabled'),feedback:isChecked(fd,'feedback'),email:val(fd,'email')};
         commit('Practice delivery preferences saved.',...(r.ownerReport.enabled ? ['schedule-owner'] : [])); break;
       }
+      case 'owner-delivery':
+        state.ownerDelivery = {day:val(fd,'day'),time:val(fd,'time')};
+        commit('Shared owner report schedule saved.'); break;
       case 'report-filters': {
         const start = val(fd,'start'); const end = val(fd,'end');
         if (start && end && start > end) { error('Through date must be on or after the from date.'); break; }
-        reportFilters[route[1]] = {rental:val(fd,'rental'),source:val(fd,'source'),start,end,active:isChecked(fd,'active')};
+        reportFilters[route[1]] = {rental:val(fd,'rental'),agent:val(fd,'agent'),source:val(fd,'source'),start,end,active:isChecked(fd,'active')};
         render(); notice('Report filters applied.'); learn('filter-report'); break;
+      }
+      case 'support-message': {
+        const message = val(fd,'message');
+        if (!message) { error('Enter a practice message.'); break; }
+        state.supportMessages.push(message);
+        persist();
+        form.reset();
+        $('.support-messages',form).innerHTML = supportMessages();
+        break;
       }
     }
   });
@@ -944,24 +1279,37 @@
       const cursor = event.target.selectionStart;
       render(); const next = $('#access-search'); next?.focus(); next?.setSelectionRange(cursor,cursor);
     }
-    if (id === 'faq-search') document.querySelectorAll('[data-faq]').forEach(row => { row.hidden = !row.dataset.faq.includes(value.toLowerCase()); });
   });
   document.addEventListener('change',event => {
     const {id,value,checked} = event.target;
-    const rentalMap = { 'rental-status':['status',value], 'rental-assignee':['assignee',value], 'rental-inactive':['inactive',checked] };
+    const rentalMap = { 'rental-assignee':['assignee',value], 'rental-inactive':['inactive',checked] };
     const leadMap = { 'lead-stage':['stage',value], 'lead-sort':['sort',value], 'lead-archived':['archived',checked] };
     if (rentalMap[id]) { const [key,val] = rentalMap[id]; rentalFilters[key] = val; refreshRentalGrid(); drawCoach(); }
     if (leadMap[id]) { const [key,val] = leadMap[id]; leadFilters[key] = val; refreshLeads(); }
     if (id === 'showing-filter') { showingFilter = value; render(); $('#showing-filter')?.focus(); }
     if (id === 'unassigned') { accessUnassigned = checked; render(); $('#unassigned')?.focus(); }
     if (id === 'inquiry-rental') $('#inquiry-custom').innerHTML = inquiryQuestions(byRental(value));
+    if (event.target.dataset.availability) {
+      byRental(route[1])[event.target.dataset.availability] = checked;
+      saveAvailability('Availability preference saved.');
+    }
+    if (event.target.dataset.slotField === 'repeat') {
+      const editor = event.target.closest('.slot-editor');
+      $('[data-recurring]',editor).hidden = !checked;
+      $('[data-once]',editor).hidden = checked;
+    }
+    if (modal.contains(event.target)) showSlotPreview();
   });
-  content.addEventListener('toggle',event => { if (event.target.matches?.('details[data-faq]') && event.target.open) learn('open-answer'); },true);
+  support.addEventListener('toggle',event => { if (event.target.matches('details') && event.target.open) learn('open-answer'); },true);
+  document.addEventListener('keydown',event => {
+    if (event.key === 'Escape' && !modal.open && !support.hidden) closeSupport();
+  });
   window.addEventListener('popstate',() => go(parseRoute(location.hash),{historyEntry:false}));
   window.addEventListener('hashchange',() => { if (location.hash !== '#content') go(parseRoute(location.hash),{historyEntry:false}); });
   function renameAssignee(oldName,newName) {
     for (const r of state.rentals) if (r.assignee === oldName) r.assignee = newName;
     for (const slot of [...state.teamAvailability,...state.rentals.flatMap(r => r.availability)]) if (slot.agent === oldName) slot.agent = newName;
+    for (const l of state.leads) if (l.showingAgent === oldName) l.showingAgent = newName;
     if (rentalFilters.assignee === oldName) rentalFilters.assignee = newName;
   }
   const workspacePages = window.createLeasingWorkspace({
@@ -969,4 +1317,7 @@
     searchField,dayText,modalForm,confirm,required,val,num,isChecked,uid,commit,persist,go,logLead,learn,notice,render,renameAssignee,
   });
   go(parseRoute(location.hash),{focus:false,historyEntry:false});
+  flushFollowUps();
+  window.addEventListener('focus',flushFollowUps);
+  setInterval(flushFollowUps,30_000);
 })();

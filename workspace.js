@@ -31,7 +31,12 @@ window.createLeasingWorkspace = api => {
           button(thread.archived ? 'Restore to inbox' : 'Archive conversation','workspace-archive-thread',{value:thread.id,classes:'btn outline'})
           + button('Mark unread','workspace-unread',{value:thread.id,classes:'btn outline'}))}
         <section class="panel" data-cue="workspace-conversation">${section('Conversation','',lead ? anchor(['lead',lead.id],'Open lead',{classes:'btn outline small'}) : '')}
-        <div class="conversation">${thread.entries.map(entry => `<article class="message-entry ${entry.from === 'team' ? 'sent' : ''}"><strong>${text(entry.from === 'team' ? 'Leasing team' : lead?.name || 'Practice lead')}</strong><p>${text(entry.text)}</p><small>${dayText(entry.date)}</small></article>`).join('')}</div>
+        <div class="conversation">${thread.entries.map(entry => {
+          const automated = entry.from === 'automation';
+          const outgoing = automated || entry.from === 'team';
+          return `<article class="message-entry ${outgoing ? 'sent' : ''} ${automated ? 'automated' : ''}"><strong>${text(automated ? 'Automatic practice message' : outgoing ? 'Leasing team' : lead?.name || 'Practice lead')}</strong>
+            <p>${text(entry.text)}</p>${/^https?:\/\//i.test(entry.application || '') ? `<a class="text-link" href="${text(entry.application)}" target="_blank" rel="noopener noreferrer">Open practice application</a>` : ''}<small>${dayText(entry.date)}</small></article>`;
+        }).join('')}</div>
         <form class="reply-form" data-form="workspace-reply" data-id="${text(thread.id)}">${area('Reply','message','',3)}<button class="btn primary top-gap" type="submit">Save practice reply</button></form></section>`;
     }
     return `${heading('Messages','Review leasing conversations and practice replying.',button('New message','workspace-compose',{classes:'btn primary',symbol:'plus'}))}
