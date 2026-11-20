@@ -2,7 +2,9 @@
 
 Leasing Lab follows the rental, lead, showing, reporting and access workflows in the demo with its own interface. The app uses fictional records and keeps changes in your browser. The practice email schedules and access codes stay in the app.
 
-Open **Tutorial** in the top bar to choose one of ten lessons. **Show me where** takes you to the control for the current step. Complete the action to advance. **See demo screenshot** opens the corresponding reference frame in a separate tab. Switch to **Free practice** for the same workspace without the coach and highlights. Use **Reset practice data** from the sidebar to clear changes and lesson progress in this browser.
+Open **Tutorial** in the top bar to choose one of eleven lessons. **Show me where** takes you to the control for the current step. Complete the action to advance. **See demo screenshot** opens the corresponding reference frame in a separate tab. Switch to **Free practice** for the same workspace without the coach and highlights. Use **Account → Reset practice data** to clear changes and lesson progress in this browser.
+
+The sidebar follows the order shown in the recording: Rentals, Messages, Viewings, Access, Reports, Users, Account, Help, Rewards, and Sign Out. Rental cards keep their Leads and Settings links. **Rentals → All leads** opens the portfolio lead queue. The team, account, rewards and message pages use sample records for practice.
 
 ## Run locally
 
@@ -24,4 +26,4 @@ The practice property cards use illustrative photos from Unsplash. The sources a
 
 ## Verify the practice flows
 
-With the local server running and Playwright installed, run `node tools/check-sandbox.cjs`. The check completes all ten lessons, tests persisted changes and reset, and verifies the phone layout. Set `LEASING_URL` for a different test URL or `LEASING_CHROMIUM` for a system Chromium executable.
+With the local server running and Playwright installed, run `node tools/check-sandbox.cjs`. The check completes all eleven lessons, tests persisted changes and reset, and verifies the phone layout. Set `LEASING_URL` for a different test URL or `LEASING_CHROMIUM` for a system Chromium executable.
