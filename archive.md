@@ -1,6 +1,6 @@
 # Full frame archive
 
-The GitHub release holds 12 compressed archives. Each contains full-resolution JPEG screenshots named `frames/frame-NNNNNN.jpg`. Parts 01–11 contain 1,800 frames each. Part 12 contains the remaining 765. Times in [the frame index](index/frames.csv) are measured from the start of the recording. [GitHub release](https://github.com/huzshk0707/tenant-turner-demo/releases/tag/vimeo-688083346)
+The `frame-archive` branch holds 12 compressed archives. Each contains full-resolution JPEG screenshots named `frames/frame-NNNNNN.jpg`. Parts 01–11 contain 1,800 frames each. Part 12 contains the remaining 765. Times in [the frame index](index/frames.csv) are measured from the start of the recording. [Browse the frame-archive branch](https://github.com/huzshk0707/tenant-turner-demo/tree/frame-archive)
 
 | Part | First timestamp | Frame range |
 | --- | --- | --- |
@@ -17,10 +17,11 @@ The GitHub release holds 12 compressed archives. Each contains full-resolution J
 | `frames-11.tar.zst` | 10:00 | 018001–019800 |
 | `frames-12.tar.zst` | 11:00 | 019801–020565 |
 
-Download the parts you need from the release or use the GitHub CLI to download all of them. Run the checksum command from the download directory, then extract into a separate folder. The commands below use `tar` and `zstd`.
+Open the branch to download individual parts. To download all 12, clone just the archive branch, verify the checksums and extract into a separate folder. The commands below use Git, `tar` and `zstd`.
 
 ```sh
-gh release download vimeo-688083346 --repo huzshk0707/tenant-turner-demo --pattern 'frames-*.tar.zst' --pattern SHA256SUMS
+git clone --single-branch --depth 1 --branch frame-archive https://github.com/huzshk0707/tenant-turner-demo.git tenant-turner-frames
+cd tenant-turner-frames
 sha256sum -c SHA256SUMS
 mkdir extracted
 for part in frames-*.tar.zst; do
