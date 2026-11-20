@@ -6,3 +6,5 @@ birch: https://images.unsplash.com/photo-1568605114967-8130f3a36994
 waterline: https://images.unsplash.com/photo-1545324418-cc1a3fa10c00
 westhaven: https://images.unsplash.com/photo-1494526585095-c41746248156
 alder: https://images.unsplash.com/photo-1600607687920-4e2a09cf159d
+living-sample: https://images.unsplash.com/photo-1600210492486-724fe5c67fb0
+kitchen-sample: https://images.unsplash.com/photo-1556911220-bff31c812dba

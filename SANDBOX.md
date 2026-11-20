@@ -4,7 +4,11 @@ Leasing Lab follows the rental, lead, showing, reporting and access workflows in
 
 Open **Tutorial** in the top bar to choose one of eleven lessons. **Show me where** takes you to the control for the current step. Complete the action to advance. **See demo screenshot** opens the corresponding reference frame in a separate tab. Switch to **Free practice** for the same workspace without the coach and highlights. Use **Account → Reset practice data** to clear changes and lesson progress in this browser.
 
-The sidebar follows the order shown in the recording: Rentals, Messages, Viewings, Access, Reports, Users, Account, Help, Rewards, and Sign Out. Rental cards keep their Leads and Settings links. **Rentals → All leads** opens the portfolio lead queue. The team, account, rewards and message pages use sample records for practice.
+Open a rental’s **Leads** or **Settings** from its card. **Import rentals** offers a sample import and a manual listing form. New inquiries that fail the screening rules appear under **Show archived**. Automated replies, reminders and post-viewing follow-ups appear in **Messages**. A reminder due while the app is closed is processed the next time the workspace opens, if it is still relevant.
+
+The booking form uses the workspace time zone in **Account**. Rental-specific hours take priority on the dates they cover. General hours apply to the assigned team member, and one-time blocks override that team member’s weekly blocks in the same scope. When **Group trips** is on, the same agent can book simultaneous showings up to the slot capacity or take back-to-back appointments during a single visit.
+
+Set the shared owner report timing under **Reports → Scheduled reports**. Each rental’s **Owner report** controls its recipient and feedback. Standard reports support Copy, CSV, Excel, PDF and Print. CodeBox sends and support messages are simulated and saved in this browser.
 
 ## Run locally
 
