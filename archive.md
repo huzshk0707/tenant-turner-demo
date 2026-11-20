@@ -4,20 +4,20 @@ The `frame-archive` branch holds 12 compressed archives. Each contains full-reso
 
 | Part | First timestamp | Frame range |
 | --- | --- | --- |
-| `frames-01.tar.zst` | 00:00 | 000001–001800 |
-| `frames-02.tar.zst` | 01:00 | 001801–003600 |
-| `frames-03.tar.zst` | 02:00 | 003601–005400 |
-| `frames-04.tar.zst` | 03:00 | 005401–007200 |
-| `frames-05.tar.zst` | 04:00 | 007201–009000 |
-| `frames-06.tar.zst` | 05:00 | 009001–010800 |
-| `frames-07.tar.zst` | 06:00 | 010801–012600 |
-| `frames-08.tar.zst` | 07:00 | 012601–014400 |
-| `frames-09.tar.zst` | 08:00 | 014401–016200 |
-| `frames-10.tar.zst` | 09:00 | 016201–018000 |
-| `frames-11.tar.zst` | 10:00 | 018001–019800 |
-| `frames-12.tar.zst` | 11:00 | 019801–020565 |
+| [frames-01.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-01.tar.zst) | 00:00 | 000001–001800 |
+| [frames-02.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-02.tar.zst) | 01:00 | 001801–003600 |
+| [frames-03.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-03.tar.zst) | 02:00 | 003601–005400 |
+| [frames-04.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-04.tar.zst) | 03:00 | 005401–007200 |
+| [frames-05.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-05.tar.zst) | 04:00 | 007201–009000 |
+| [frames-06.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-06.tar.zst) | 05:00 | 009001–010800 |
+| [frames-07.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-07.tar.zst) | 06:00 | 010801–012600 |
+| [frames-08.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-08.tar.zst) | 07:00 | 012601–014400 |
+| [frames-09.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-09.tar.zst) | 08:00 | 014401–016200 |
+| [frames-10.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-10.tar.zst) | 09:00 | 016201–018000 |
+| [frames-11.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-11.tar.zst) | 10:00 | 018001–019800 |
+| [frames-12.tar.zst](https://github.com/huzshk0707/tenant-turner-demo/blob/frame-archive/frames-12.tar.zst) | 11:00 | 019801–020565 |
 
-Open the branch to download individual parts. To download all 12, clone just the archive branch, verify the checksums and extract into a separate folder. The commands below use Git, `tar` and `zstd`.
+Open an archive above and choose **Download raw file**. To download all 12, clone just the archive branch, verify the checksums and extract into a separate folder. The commands below use Git, `tar` and `zstd`.
 
 ```sh
 git clone --single-branch --depth 1 --branch frame-archive https://github.com/huzshk0707/tenant-turner-demo.git tenant-turner-frames
