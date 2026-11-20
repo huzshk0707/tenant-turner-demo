@@ -47,9 +47,23 @@ window.LeasingData = (() => {
     };
   }
 
+  function workspaceSeed() {
+    return {
+      signedOut: false,
+      team: people.map((name, i) => ({id:`team-${i+1}`,name,email:`${name.toLowerCase().replace(/ /g,'.')}@example.com`,role:i === 0 ? 'Manager' : 'Leasing agent',active:true})),
+      workspaceProfile: {name:'Brookfield Leasing',email:'office@example.com',timezone:'Eastern',incomeRatio:2.5,notice:24,applicationFee:45},
+      threads: [
+        {id:'thread-1',leadId:'l1',subject:'Weekend tour',unread:true,archived:false,entries:[{from:'lead',text:'Hi, are weekend tours available for Rosewood House?',date:date()}]},
+        {id:'thread-2',leadId:'l2',subject:'Showing confirmation',unread:false,archived:false,entries:[{from:'team',text:'Your practice viewing is booked. Please let us know if the time changes.',date:date(-2)},{from:'lead',text:'Thanks, I’ll be there.',date:date(-1)}]},
+      ],
+      referrals: [{id:'referral-1',name:'Harbor Keys Property Group',email:'harbor@example.com',status:'Draft',date:date(-4)}],
+    };
+  }
+
   function seed() {
     return {
       version: 1, mode: 'free', course: {}, lesson: '',
+      ...workspaceSeed(),
       teamAvailability: people.map((agent, index) => ({ id: `general-${index+1}`, scope: 'General', agent, day: days[index+1], start: '10:00', end: '16:00', repeat: true })),
       rentals: [
         rental('r1', 'Rosewood House', '24 Wren Lane, Brookfield', 'rosewood', { alert: true }),
@@ -86,5 +100,5 @@ window.LeasingData = (() => {
     };
   }
 
-  return { people, sites, stages, devices, days, photos, date, rental, lead, seed };
+  return { people, sites, stages, devices, days, photos, date, rental, lead, workspaceSeed, seed };
 })();

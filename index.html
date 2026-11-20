@@ -7,10 +7,11 @@
   <meta name="description" content="Practice rental leasing workflows with fictional properties, leads, and showings.">
   <title>Leasing Lab | Practice workspace</title>
   <link rel="icon" href="assets/lab.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=guided-reference">
-  <script src="data.js" defer></script>
-  <script src="lessons.js?v=guided-reference" defer></script>
-  <script src="app.js?v=guided-reference" defer></script>
+  <link rel="stylesheet" href="style.css?v=sidebar-order">
+  <script src="data.js?v=sidebar-order" defer></script>
+  <script src="lessons.js?v=sidebar-order" defer></script>
+  <script src="workspace.js?v=sidebar-order" defer></script>
+  <script src="app.js?v=sidebar-order" defer></script>
 </head>
 <body>
   <a class="skip" href="#content">Skip to content</a>
@@ -22,8 +23,7 @@
       </a>
       <nav id="primary"></nav>
       <div class="rail-bottom">
-        <button type="button" class="rail-link" data-action="reset"><span id="reset-icon"></span>Reset practice data</button>
-        <div class="account"><span class="avatar">JT</span><span><strong>Jamie Taylor</strong><small>Leasing coordinator</small></span></div>
+        <div class="account" id="practice-user"></div>
       </div>
     </aside>
     <div class="workspace">

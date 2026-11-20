@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+@font-face { font-family: 'DM Sans'; src: url('assets/fonts/dm-sans.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: 'Manrope'; src: url('assets/fonts/manrope.woff2') format('woff2'); font-weight: 400 800; font-display: swap; }
 
 :root {
   color-scheme: light;
@@ -323,3 +324,35 @@ dialog::backdrop { background: #18172c80; }
 .report-list p { margin: 4px 0 10px; }
 @media (max-width: 1199px) { .report-groups, .guided .report-groups { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 460px) { .report-groups, .guided .report-groups { grid-template-columns: 1fr; } }
+
+/* Keep the entire workspace navigation reachable on short screens. */
+.rail { overflow-y: auto; padding-top: 21px; }
+.rail nav, .rail-bottom, .brand { flex-shrink: 0; }
+.rail .brand { margin-bottom: 22px; }
+.rail nav { gap: 3px; }
+.rail nav .rail-link { padding-block: 9px; }
+.rail-link[data-nav="account"] { margin-top: 8px; }
+.rail-link[data-nav="users"] { position: relative; }
+.rail-link[data-nav="users"]::after { position: absolute; content: ''; bottom: -6px; left: 6px; right: 6px; border-top: 1px solid #45415f; }
+.breadcrumb > .workspace-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.breadcrumb strong { flex-shrink: 0; max-width: min(32vw, 300px); }
+.message-switch, .message-list, .conversation, .reply-form { padding-inline: 18px; }
+.message-switch { display: flex; gap: 7px; padding-bottom: 10px; }
+.message-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.message-row small, .message-entry small { display: block; color: var(--muted); margin-top: 3px; }
+.message-row p { margin-top: 4px; }
+.conversation { display: grid; gap: 9px; padding-bottom: 14px; }
+.message-entry { max-width: min(86%,600px); justify-self: start; background: #f1f0f6; border-radius: 10px; padding: 9px 12px; }
+.message-entry.sent { justify-self: end; background: var(--accent-soft); }
+.message-entry p { white-space: pre-wrap; }
+.reply-form { padding-bottom: 16px; }
+.session-panel { max-width: 510px; margin: 14vh auto 0; padding: 26px; }
+.session-panel .page-heading { margin-top: 12px; }
+.signed-out .rail, .signed-out .topbar { display: none; }
+.signed-out .workspace { margin-left: 0; }
+@media (max-height: 650px) {
+  .rail { padding-top: 10px; padding-bottom: 8px; }
+  .rail .brand { margin-bottom: 9px; }
+  .rail nav .rail-link { padding-block: 6px; }
+}
+@media (max-width: 685px) { .breadcrumb strong { flex-shrink: 1; } }

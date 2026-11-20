@@ -90,8 +90,19 @@ window.LeasingLessons = [
     id: 'help', name: 'Find help and review activity', icon: 'help', duration: '2 min',
     description: 'Use the viewing calendar and find answers for common practice tasks.',
     steps: [
-      ['Open the showings calendar', 'Review upcoming, past and recorded showings in one place.', 'showing-list', 'view-showings', ['showings']],
+      ['Open the showings calendar', 'Review upcoming, past and recorded showings in one place.', 'showing-list', 'view-showings', ['viewings']],
       ['Look up a question', 'Open Help and expand an answer about scheduling, access or reports.', 'help-list', 'open-answer', ['help']],
+    ],
+  },
+  {
+    id: 'workspace-tabs', name: 'Use the workspace tabs', icon: 'account', duration: '5 min',
+    description: 'Practice conversations, team users, account defaults, referrals and signing out.',
+    steps: [
+      ['Reply to a conversation', 'Open a message in the inbox and save a fictional reply.', 'workspace-inbox', 'workspace-replied', ['messages']],
+      ['Add a team member', 'Open Users and save a fictional team member and role.', 'workspace-add-user', 'workspace-added-user', ['users']],
+      ['Set new listing defaults', 'Open Account, adjust the practice application fee or another default, then save.', 'workspace-account', 'workspace-saved-account', ['account']],
+      ['Record a practice referral', 'Open Rewards and save a fictional referral.', 'workspace-add-referral', 'workspace-added-referral', ['rewards']],
+      ['Sign out of practice', 'Open Sign Out and confirm. Choose Return to practice to see your saved progress.', 'workspace-sign-out', 'workspace-signed-out', ['sign-out']],
     ],
   },
 ];

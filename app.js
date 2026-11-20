@@ -28,11 +28,19 @@
     download: 'M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4', spark: 'm12 2 2.5 6.5L21 11l-6.5 2.5L12 20l-2.5-6.5L3 11l6.5-2.5z',
     mail: 'M3 5h18v14H3z M3 6l9 7 9-7', clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2',
     more: 'M5 12h.01M12 12h.01M19 12h.01',
+    messages: 'M4 4h16v13H9l-5 4z M8 9h8m-8 4h5',
+    account: 'M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z',
+    rewards: 'M12 3v18m5-14H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7',
+    power: 'M12 2v10m6-7a9 9 0 1 1-12 0',
   };
   function icon(name, size = 20) {
     return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="${iconPaths[name] || iconPaths.help}"/></svg>`;
   }
-  const nav = [['rentals','Rentals','home'],['leads','Leads','users'],['showings','Showings','calendar'],['reports','Reports','chart'],['access','Access','lock'],['help','Help','help']];
+  const nav = [
+    ['rentals','Rentals','home'], ['messages','Messages','messages'], ['viewings','Viewings','calendar'],
+    ['access','Access','lock'], ['reports','Reports','chart'], ['users','Users','users'],
+    ['account','Account','account'], ['help','Help','help'], ['rewards','Rewards','rewards'], ['sign-out','Sign Out','power'],
+  ];
   const text = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   const cash = value => new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', maximumFractionDigits:0 }).format(Number(value || 0));
   const dayText = date => date ? new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric' }) : '—';
@@ -46,11 +54,13 @@
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY));
-      if (saved?.version === 1 && Array.isArray(saved.teamAvailability)) return saved;
+      if (saved?.version === 1 && Array.isArray(saved.teamAvailability)) return {...D.workspaceSeed(), ...saved};
     } catch { /* Start with the training data if storage is unavailable. */ }
     return D.seed();
   }
   let state = load();
+  const activePeople = (current = '') => state.team.filter(user => user.active || user.name === current).map(user => user.name);
+  const teamNames = () => state.team.map(user => user.name);
   let route = ['rentals'];
   let coachList = !state.lesson;
   let mobileMenu = false;
@@ -131,16 +141,19 @@
   function parseRoute(raw) {
     try {
       const parts = raw.replace(/^#/, '').split('/').map(decodeURIComponent);
-      if ([...nav.map(item => item[0]),'rental','lead','report'].includes(parts[0])) return parts;
+      if (parts[0] === 'showings') parts[0] = 'viewings';
+      if ([...nav.map(item => item[0]),'rental','lead','leads','report'].includes(parts[0])) return parts;
     } catch { /* Use the landing page for an invalid URL. */ }
     return ['rentals'];
   }
   function currentSection() {
-    return { rental:'rentals', lead:'leads', report:'reports' }[route[0]] || route[0];
+    return { rental:'rentals', lead:'rentals', leads:'rentals', report:'reports' }[route[0]] || route[0];
   }
   function go(parts, { focus = true, historyEntry = true } = {}) {
+    if (state.signedOut) parts = ['sign-out'];
     route = parts;
     mobileMenu = false;
+    workspacePages.enter(parts);
     if (historyEntry && location.hash !== href(parts)) history.pushState(null, '', href(parts));
     render();
     window.scrollTo(0, 0);
@@ -150,7 +163,7 @@
     if (parts[0] === 'rental' && parts[2] === 'owner') learn('view-owner-report');
     if (parts[0] === 'report' && parts[1] === 'source') learn('view-source');
     if (parts[0] === 'access' && parts[2] === 'log') learn('view-access-log');
-    if (parts[0] === 'showings') learn('view-showings');
+    if (parts[0] === 'viewings') learn('view-showings');
     if (parts[3]) scrollToCue(parts[3], false);
   }
 
@@ -187,7 +200,7 @@
     const active = state.rentals.filter(r => r.active);
     const newLeads = state.leads.filter(l => l.stage === 'New inquiry').length;
     const scheduled = state.leads.filter(l => l.stage === 'Showing scheduled').length;
-    return `${heading('Rentals','Manage listings, prospects, and showings from one workspace.',button('Add rental','add-rental',{classes:'btn primary',symbol:'plus',cue:'add-rental'}),'PORTFOLIO')}
+    return `${heading('Rentals','Manage listings, prospects, and showings from one workspace.',anchor(['leads'],'All leads',{classes:'btn outline',symbol:'users'}) + button('Add rental','add-rental',{classes:'btn primary',symbol:'plus',cue:'add-rental'}),'PORTFOLIO')}
       <div class="stats-grid">
         ${stat('Active rentals',active.length,'home','lilac',`${state.rentals.length} in portfolio`)}
         ${stat('New inquiries',newLeads,'users','sky','Awaiting review')}
@@ -197,7 +210,7 @@
       <div class="portfolio-heading"><h2>All rentals</h2><span id="rental-count" class="muted" aria-live="polite"></span></div>
       <div class="toolbar rental-toolbar"><div data-cue="rental-search">${searchField('rental-search',rentalFilters.search,'Search rentals')}</div>
         <label class="compact-field"><span class="sr-only">Status</span><select id="rental-status">${opts(['All rentals','Wait list','Review needed'],rentalFilters.status)}</select></label>
-        <label class="compact-field"><span class="sr-only">Assignee</span><select id="rental-assignee">${opts([['','All assignees'],...D.people],rentalFilters.assignee)}</select></label>
+        <label class="compact-field"><span class="sr-only">Assignee</span><select id="rental-assignee">${opts([['','All assignees'],...teamNames()],rentalFilters.assignee)}</select></label>
         <label class="inline-check"><input id="rental-inactive" type="checkbox" ${rentalFilters.inactive ? 'checked' : ''}>Show inactive</label>
       </div><div class="rental-grid" id="rental-grid"></div>`;
   }
@@ -255,7 +268,7 @@
       ${[['status','Status'],['marketing','Marketing'],['qualifying','Qualifying'],['viewing','Viewing'],['availability','Availability'],['application','Application & fees']].map(([key,label]) => button(label,'jump',{value:key,classes:'local-nav-link'})).join('')}
       </nav><form id="settings-form" data-form="rental-settings">
       <section class="panel settings-section" data-cue="status">${section('Rental status','Make the listing active and select who manages it.')}
-        <div class="form-body form-grid">${check('Active rental','active',r.active)}${select('Assigned to','assignee',D.people,r.assignee)}</div>
+        <div class="form-body form-grid">${check('Active rental','active',r.active)}${select('Assigned to','assignee',activePeople(r.assignee),r.assignee)}</div>
       </section>
       <section class="panel settings-section" data-cue="marketing">${section('Marketing','Edit the listing details prospects would see.')}
         <div class="form-body form-grid columns-3">${field('Listing name','name',r.name,{required:true,attrs:'maxlength="70"'})}${field('Address','address',r.address,{required:true,attrs:'maxlength="120"'})}${select('Property type','type',['House','Apartment','Condo','Townhouse'],r.type)}
@@ -322,7 +335,7 @@
         <div><section class="panel">${section('Lead profile')}
           <div class="form-body form-grid"><div class="read-field"><span>Email</span><strong>${text(l.email)}</strong></div><div class="read-field"><span>Phone</span><strong>${text(l.phone)}</strong></div>
           <div class="read-field"><span>Source</span><strong>${text(l.source)} · ${text(l.channel)}</strong></div><div class="read-field"><span>Identity check</span><strong>${l.verified ? 'Practice ID reviewed':'Awaiting review'}</strong></div>
-          <div class="span action-row" data-cue="lead-review">${button('Mark qualified','lead-stage',{value:'Qualified',classes:'btn outline',symbol:'check'})}${button('Needs review','lead-stage',{value:'Needs review',classes:'btn outline'})}${button(l.verified ? 'Reset ID review':'Mark practice ID reviewed','verify-id',{classes:'btn outline'})}${button(l.stage === 'Archived' ? 'Restore inquiry':'Archive lead','lead-stage',{value:l.stage === 'Archived' ? 'New inquiry':'Archived',classes:'btn text'})}</div></div>
+          <div class="span action-row" data-cue="lead-review">${button('Message lead','workspace-compose',{value:l.id,classes:'btn outline',symbol:'messages'})}${button('Mark qualified','lead-stage',{value:'Qualified',classes:'btn outline',symbol:'check'})}${button('Needs review','lead-stage',{value:'Needs review',classes:'btn outline'})}${button(l.verified ? 'Reset ID review':'Mark practice ID reviewed','verify-id',{classes:'btn outline'})}${button(l.stage === 'Archived' ? 'Restore inquiry':'Archive lead','lead-stage',{value:l.stage === 'Archived' ? 'New inquiry':'Archived',classes:'btn text'})}</div></div>
         </section>
         <section class="panel" data-cue="book-showing">${section('Showing',showing,button(l.showingDate ? 'Reschedule showing':'Schedule showing','book-showing',{classes:'btn primary',symbol:'calendar'}))}
           <div class="form-body"><div class="action-row" data-cue="finish-showing">${button('Complete showing','finish-showing',{classes:'btn outline',attrs:l.showingDate && l.stage !== 'Showing requested' ? '' : 'disabled'})}${l.stage === 'Showing requested' ? button('Confirm request','confirm-showing',{classes:'btn primary'}) : ''}${l.showingDate && ['Showing scheduled','Showing requested'].includes(l.stage) ? button('Cancel showing','cancel-showing',{classes:'btn text'}) : ''}${l.stage === 'Viewing completed' ? button('Mark applied','lead-stage',{value:'Applied',classes:'btn outline'}) : ''}</div>
@@ -342,7 +355,7 @@
   function showingsView() {
     const rows = state.leads.filter(l => l.showingDate && (showingFilter === 'All' || (showingFilter === 'Upcoming' ? ['Showing scheduled','Showing requested'].includes(l.stage) && l.showingDate >= D.date() : !['Showing scheduled','Showing requested'].includes(l.stage) || l.showingDate < D.date())))
       .sort((a,b) => `${a.showingDate}${a.showingTime}`.localeCompare(`${b.showingDate}${b.showingTime}`));
-    return `${heading('Showings','Review the practice calendar and open a lead to update a tour.')}
+    return `${heading('Viewings','Review the practice calendar and open a lead to update a tour.')}
       <section class="panel" data-cue="showing-list">${section('Viewing calendar','',`<label class="compact-field"><span class="sr-only">Showing date filter</span><select id="showing-filter">${opts(['Upcoming','Past','All'],showingFilter)}</select></label>`)}
       ${table(['Date','Time','Rental','Lead','Method','Stage'],rows.map(l => [dayText(l.showingDate),timeText(l.showingTime),text(byRental(l.rentalId)?.name || '—'),anchor(['lead',l.id],l.name,{classes:'text-link'}),text(l.showingMethod),stageChip(l.stage)]),'No showings match this view.')}</section>`;
   }
@@ -383,7 +396,7 @@
       case 'notifications': return result(['Lead','Rental','Date','Activity'],leads.flatMap(l => l.timeline.filter(e => inRange(e.date)).map(e => [l.name,name(l.rentalId),e.date,e.text])));
       case 'inventory': return result(['Device','Type','Rental','Status'],devices.map(d => [d.serial,d.model,name(d.rentalId),d.state]));
       case 'device-access': return result(['Date','Device','Recipient','Type','Practice code'],state.accesses.filter(a => devices.some(d => d.serial === a.serial) && inRange(a.date)).map(a => [a.date,a.serial,a.name,a.type,a.code]));
-      case 'staff': return result(['Team member','Rentals','Inquiries','Qualified','Scheduled','Completed'],D.people.map(p => [p,rentals.filter(r => r.assignee === p).length,...stats(leads.filter(l => byRental(l.rentalId)?.assignee === p))]));
+      case 'staff': return result(['Team member','Rentals','Inquiries','Qualified','Scheduled','Completed'],teamNames().map(p => [p,rentals.filter(r => r.assignee === p).length,...stats(leads.filter(l => byRental(l.rentalId)?.assignee === p))]));
       default: return result(['Active rentals','Total rentals','Inquiries','Qualified','Scheduled','Completed'],[[rentals.filter(r => r.active).length,rentals.length,...stats(leads)]]);
     }
   }
@@ -454,7 +467,7 @@
   function stepNumber(lesson) { return state.course[lesson.id] || 0; }
   function activeStep() { const lesson = activeLesson(); return lesson?.steps[stepNumber(lesson)]; }
   function drawCoach() {
-    coach.hidden = state.mode !== 'guided';
+    coach.hidden = state.mode !== 'guided' || state.signedOut;
     document.body.classList.toggle('guided',!coach.hidden);
     document.querySelectorAll('[data-highlight]').forEach(e => e.removeAttribute('data-highlight'));
     document.querySelectorAll('[data-action="mode"]').forEach(el => el.setAttribute('aria-pressed',String(el.dataset.value === state.mode)));
@@ -482,7 +495,7 @@
     if (step) locateCue(step[2])?.setAttribute('data-highlight','true');
   }
   function learn(...events) {
-    if (state.mode !== 'guided' || coachList) return;
+    if (state.mode !== 'guided' || state.signedOut || coachList) return;
     const lesson = activeLesson();
     const step = activeStep();
     if (!step || !events.includes(step[3])) return;
@@ -506,17 +519,20 @@
   function render() {
     const [page,id,tab] = route;
     const areaName = currentSection();
+    document.body.classList.toggle('signed-out',state.signedOut);
     $('.rail').classList.toggle('is-open',mobileMenu);
     $('#primary').innerHTML = nav.map(([key,label,symbol]) => `<a href="${href([key])}" data-nav="${key}" class="rail-link ${areaName === key ? 'selected' : ''}" ${areaName === key ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${label}</span></a>`).join('');
-    $('#reset-icon').innerHTML = icon('reset',19);
+    const me = state.team[0];
+    $('#practice-user').innerHTML = `<span class="avatar">${text(initials(me.name))}</span><span><strong>${text(me.name)}</strong><small>${text(me.role)}</small></span>`;
     const label = nav.find(item => item[0] === areaName)?.[1] || 'Rentals';
     const name = page === 'rental' ? byRental(id)?.name : page === 'lead' ? byLead(id)?.name : page === 'report' ? reportTitle(id) : '';
-    $('#breadcrumb').innerHTML = `<span class="workspace-name">Workspace</span>${icon('chevron',14)}${name ? `${anchor([areaName],label)}${icon('chevron',14)}<strong>${text(name)}</strong>`:`<strong>${label}</strong>`}`;
+    $('#breadcrumb').innerHTML = `<span class="workspace-name">${text(state.workspaceProfile.name)}</span>${icon('chevron',14)}${name ? `${anchor([areaName],label)}${icon('chevron',14)}<strong>${text(name)}</strong>`:`<strong>${label}</strong>`}`;
     switch (page) {
       case 'rental': content.innerHTML = byRental(id) ? rentalDetail(byRental(id),tab) : heading('Rental unavailable') + anchor(['rentals'],'Back to rentals',{classes:'btn outline'}); break;
       case 'leads': content.innerHTML = heading('Leads','Review inquiries and move prospects through the leasing pipeline.') + leadsView(); break;
       case 'lead': content.innerHTML = byLead(id) ? leadDetail(byLead(id)) : heading('Lead unavailable') + anchor(['leads'],'Back to leads',{classes:'btn outline'}); break;
-      case 'showings': content.innerHTML = showingsView(); break;
+      case 'viewings': content.innerHTML = showingsView(); break;
+      case 'messages': case 'users': case 'account': case 'rewards': case 'sign-out': content.innerHTML = workspacePages.view(page,id); break;
       case 'reports': content.innerHTML = reportsView(tab); break;
       case 'report': content.innerHTML = reportView(id); break;
       case 'access': content.innerHTML = accessView(tab); break;
@@ -589,9 +605,9 @@
     commit('Rental settings saved.',...(r.id === 'r1' ? events : []));
   }
   function addRental() {
-    modalForm('Add rental',`${field('Listing name','name','',{required:true,attrs:'maxlength="70"'})}${field('Address','address','',{required:true,attrs:'maxlength="120"'})}${moneyField('Monthly rent','rent',2100)}${select('Assigned to','assignee',D.people,D.people[0])}${field('Available on','available',D.date(7),{type:'date',required:true})}${select('Property type','type',['House','Apartment','Condo','Townhouse'],'House')}`,'Add rental',fd => {
+    modalForm('Add rental',`${field('Listing name','name','',{required:true,attrs:'maxlength="70"'})}${field('Address','address','',{required:true,attrs:'maxlength="120"'})}${moneyField('Monthly rent','rent',2100)}${select('Assigned to','assignee',activePeople(),activePeople()[0])}${field('Available on','available',D.date(7),{type:'date',required:true})}${select('Property type','type',['House','Apartment','Condo','Townhouse'],'House')}`,'Add rental',fd => {
       const rent = num(fd,'rent');
-      state.rentals.unshift(D.rental(uid('r'),required(fd,'name','a listing name'),required(fd,'address','an address'),D.photos[state.rentals.length % D.photos.length],{rent,deposit:rent,assignee:val(fd,'assignee'),available:val(fd,'available'),type:val(fd,'type'),listingSince:D.date()}));
+      state.rentals.unshift(D.rental(uid('r'),required(fd,'name','a listing name'),required(fd,'address','an address'),D.photos[state.rentals.length % D.photos.length],{rent,deposit:rent,assignee:val(fd,'assignee'),incomeRatio:state.workspaceProfile.incomeRatio,notice:state.workspaceProfile.notice,applicationFee:state.workspaceProfile.applicationFee,available:val(fd,'available'),type:val(fd,'type'),listingSince:D.date()}));
       rentalFilters.search = '';
       rentalFilters.assignee = '';
       rentalFilters.status = 'All rentals';
@@ -682,7 +698,7 @@
     const r = byRental(route[1]);
     const existing = timeBlocks(r).find(a => a.id === id);
     const row = existing || {id:uid('slot'),scope,agent:r.assignee,day:'Saturday',start:'10:00',end:'13:00',repeat:true};
-    modalForm(existing ? 'Edit time block':'Add time block',`${select('Scope','scope',['General','Rental'],row.scope)}${select('Team member','agent',D.people,row.agent)}${select('Day','day',D.days,row.day)}${field('Start','start',row.start,{type:'time',required:true})}${field('End','end',row.end,{type:'time',required:true})}${check('Repeat weekly','repeat',row.repeat)}`,'Save time block',fd => {
+    modalForm(existing ? 'Edit time block':'Add time block',`${select('Scope','scope',['General','Rental'],row.scope)}${select('Team member','agent',activePeople(row.agent),row.agent)}${select('Day','day',D.days,row.day)}${field('Start','start',row.start,{type:'time',required:true})}${field('End','end',row.end,{type:'time',required:true})}${check('Repeat weekly','repeat',row.repeat)}`,'Save time block',fd => {
       const start = val(fd,'start'); const end = val(fd,'end');
       if (start >= end) throw new Error('End time must be later than start time.');
       const newRow = {...row,scope:val(fd,'scope'),agent:val(fd,'agent'),day:val(fd,'day'),start,end,repeat:isChecked(fd,'repeat')};
@@ -778,6 +794,7 @@
     drawCoach();
   }
   function action(key,value,element) {
+    if (key.startsWith('workspace-')) { workspacePages.handle(key,value); return; }
     switch (key) {
       case 'mobile-nav': mobileMenu = !mobileMenu; $('.rail').classList.toggle('is-open',mobileMenu); break;
       case 'mode': setMode(value); break;
@@ -801,7 +818,7 @@
       }
       case 'close-modal': modal.close(); break;
       case 'reset': confirm('Reset practice data?','This restores the sample portfolio and clears your tutorial progress in this browser.','Reset workspace',() => {
-        state = D.seed(); coachList = true;
+        state = D.seed(); coachList = true; workspacePages.reset();
         Object.assign(rentalFilters,{search:'',assignee:'',inactive:false,status:'All rentals'});
         Object.assign(leadFilters,{search:'',archived:false,sort:'Newest',stage:''});
         for (const id of Object.keys(reportFilters)) delete reportFilters[id];
@@ -884,6 +901,7 @@
       catch (err) { const msg = $('.dialog-error',modal); if (msg) { msg.hidden = false; msg.textContent = err.message; } }
       return;
     }
+    if (form.dataset.form?.startsWith('workspace-')) { workspacePages.submit(form,fd); return; }
     switch (form.dataset.form) {
       case 'rental-settings': saveSettings(fd); break;
       case 'lead-note': {
@@ -914,6 +932,7 @@
   });
   document.addEventListener('input',event => {
     const {id,value} = event.target;
+    workspacePages.input(event);
     if (id === 'rental-search') {
       rentalFilters.search = value; refreshRentalGrid();
       if (value.toLowerCase().includes('rosewood')) learn('search-rental');
@@ -940,5 +959,14 @@
   content.addEventListener('toggle',event => { if (event.target.matches?.('details[data-faq]') && event.target.open) learn('open-answer'); },true);
   window.addEventListener('popstate',() => go(parseRoute(location.hash),{historyEntry:false}));
   window.addEventListener('hashchange',() => { if (location.hash !== '#content') go(parseRoute(location.hash),{historyEntry:false}); });
+  function renameAssignee(oldName,newName) {
+    for (const r of state.rentals) if (r.assignee === oldName) r.assignee = newName;
+    for (const slot of [...state.teamAvailability,...state.rentals.flatMap(r => r.availability)]) if (slot.agent === oldName) slot.agent = newName;
+    if (rentalFilters.assignee === oldName) rentalFilters.assignee = newName;
+  }
+  const workspacePages = window.createLeasingWorkspace({
+    read:()=>state,D,byRental,byLead,text,icon,heading,section,anchor,button,chip,table,field,numberField,moneyField,select,area,check,
+    searchField,dayText,modalForm,confirm,required,val,num,isChecked,uid,commit,persist,go,logLead,learn,notice,render,renameAssignee,
+  });
   go(parseRoute(location.hash),{focus:false,historyEntry:false});
 })();
