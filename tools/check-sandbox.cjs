@@ -10,7 +10,9 @@ const {chromium}=require('playwright');
   const base=process.env.LEASING_URL || 'http://127.0.0.1:8768/';
   await p.goto(base,{waitUntil:'domcontentloaded'});
   const btn=(name,scope=p)=>scope.getByRole('button',{name,exact:true});
-  const field=(name,scope=p.locator('main'))=>scope.getByLabel(name,{exact:true}).or(scope.getByRole('combobox',{name,exact:true}));
+  const field=(name,scope=p.locator('main'))=>scope.getByLabel(name,{exact:true})
+    .or(scope.getByRole('combobox',{name,exact:true}))
+    .or(scope.getByRole('textbox',{name,exact:true}));
   const modal=p.getByRole('dialog');
   const coach=p.locator('#coach');
   const state=()=>p.evaluate(()=>JSON.parse(localStorage.getItem('leasing-lab-v1')));
@@ -27,6 +29,7 @@ const {chromium}=require('playwright');
   assert.equal(await p.locator('[data-highlight]').count(),0);
   await btn('Tutorial').click();
   await lesson('Find and add a rental');
+  assert.match(await coach.getByRole('link',{name:/See demo screenshot/}).getAttribute('href'),/screenshots\/0000-rentals\.jpg$/);
   await where();
   await field('Search rentals').fill('Rosewood');
   await ensure('portfolio',1);
@@ -65,13 +68,16 @@ const {chromium}=require('playwright');
 
   await lesson('Set up viewing methods');
   await where(); await field('Collect interest before booking').check(); await saved(); await ensure('showings',1);
-  await where(); await field('Booking approval').selectOption('Take requests'); await saved(); await ensure('showings',2);
+  await where(); await field('Booking approval').selectOption('Take requests'); await field('Assigned viewing device').selectOption('d2'); await saved(); await ensure('showings',2);
+  assert.equal((await state()).devices.find(d=>d.id==='d2').rentalId,'r1');
   await where(); await field('Duration (minutes)').fill('25'); await saved(); await ensure('showings',3);
   console.log('Wait list, self-access, and in-person preferences passed');
 
   await lesson('Set showing availability');
-  await where(); await btn('Add time block').click(); await btn('Save time block',modal).click(); await ensure('availability',1);
-  await btn('Add time block').click(); await field('Scope',modal).selectOption('Rental'); await btn('Save time block',modal).click(); await ensure('availability',2);
+  await where(); await field('Description').fill('An unsaved edit while adjusting hours.');
+  await btn('Add general hours').click(); await btn('Save time block',modal).click(); await ensure('availability',1);
+  assert.equal(await field('Description').inputValue(),'An unsaved edit while adjusting hours.');
+  await btn('Add rental hours').click(); await btn('Save time block',modal).click(); await ensure('availability',2);
   await btn('Edit').first().click(); await field('End',modal).fill('16:30'); await btn('Save time block',modal).click(); await ensure('availability',3);
   assert.equal((await state()).teamAvailability.length,4);
   console.log('General and rental availability add and edit passed');
@@ -86,7 +92,9 @@ const {chromium}=require('playwright');
 
   await lesson('Prepare an owner report');
   await where(); await ensure('owners',1);
-  await btn('Hide from report').first().click(); await ensure('owners',2);
+  await p.locator('[data-cue="feedback-entry"]').first().click();
+  await btn('Hide from owner report').click(); await ensure('owners',2);
+  await p.getByRole('link',{name:'Back to owner report'}).click();
   await field('Enable weekly delivery').check(); await btn('Save schedule').click(); await ensure('owners',3);
   assert.equal((await state()).rentals.find(r=>r.id==='r1').ownerReport.enabled,true);
   console.log('Owner report, feedback and delivery schedule passed');
@@ -100,7 +108,7 @@ const {chromium}=require('playwright');
   console.log('Report navigation, filtering, CSV and scheduling passed');
 
   await lesson('Manage devices and access');
-  await where(); await p.getByRole('article').filter({hasText:'LAB-CB-209'}).getByRole('button',{name:'Settings'}).click(); await field('Assigned rental',modal).selectOption('r1'); await btn('Save device',modal).click(); await ensure('access',1);
+  await where(); await p.getByRole('article').filter({hasText:'LAB-CB-209'}).getByRole('button',{name:'Settings'}).click(); await field('Assigned rental',modal).selectOption('r3'); await btn('Save device',modal).click(); await ensure('access',1);
   await btn('Get code').first().click(); await btn('Generate code',modal).click(); await ensure('access',2);
   assert.match(await modal.locator('code').innerText(),/^SIM-/); await btn('Done',modal).click();
   await where(); await btn('Add contact').click(); await field('Name',modal).fill('Drew Fiction'); await field('Practice email',modal).fill('drew@example.com'); await btn('Save contact',modal).click(); await ensure('access',3);
@@ -120,6 +128,17 @@ const {chromium}=require('playwright');
   await btn('Reset practice data').click(); await btn('Reset workspace',modal).click();
   assert.equal((await state()).rentals.length,6);
   assert.equal(Object.keys((await state()).course).length,0);
+  await visit('rental/r1/leads');
+  assert.ok(await p.getByRole('columnheader',{name:'Qualified'}).isVisible());
+  assert.ok(await p.getByRole('columnheader',{name:'Last activity'}).isVisible());
+  const averyActions = p.locator('.row-actions').filter({has:p.locator('summary[aria-label="Actions for Avery Reed"]')});
+  await averyActions.locator('summary').click();
+  await btn('Archive lead',averyActions).click();
+  assert.equal((await state()).leads.find(l=>l.id==='l1').stage,'Archived');
+  await field('Show archived').check();
+  await averyActions.locator('summary').click();
+  await btn('Restore inquiry',averyActions).click();
+  assert.equal((await state()).leads.find(l=>l.id==='l1').stage,'New inquiry');
   assert.deepEqual(errors,[]);
   console.log('All 10 lessons completed. Free practice, persistence and reset passed.');
 
