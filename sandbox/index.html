@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#181936">
+  <meta name="description" content="Practice rental leasing workflows with fictional properties, leads, and showings.">
+  <title>Leasing Lab | Practice workspace</title>
+  <link rel="icon" href="assets/lab.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="data.js" defer></script>
+  <script src="lessons.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <div class="shell">
+    <aside class="rail" aria-label="Workspace navigation">
+      <a class="brand" data-nav="rentals" href="#rentals">
+        <img src="assets/lab.svg" width="38" height="38" alt="">
+        <span>Leasing Lab<small>Practice workspace</small></span>
+      </a>
+      <nav id="primary"></nav>
+      <div class="rail-bottom">
+        <button type="button" class="rail-link" data-action="reset"><span id="reset-icon"></span>Reset practice data</button>
+        <div class="account"><span class="avatar">JT</span><span><strong>Jamie Taylor</strong><small>Leasing coordinator</small></span></div>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <button type="button" class="icon-button mobile-nav" data-action="mobile-nav" aria-label="Toggle navigation">☰</button>
+        <div id="breadcrumb" class="breadcrumb"></div>
+        <div class="top-actions">
+          <span class="sandbox-label"><i></i> Sandbox</span>
+          <div class="mode-switch" aria-label="Practice mode" role="group">
+            <button type="button" data-action="mode" data-value="free">Free practice</button>
+            <button type="button" data-action="mode" data-value="guided">Tutorial</button>
+          </div>
+        </div>
+      </header>
+      <div class="work-area">
+        <main id="content" tabindex="-1"></main>
+        <aside id="coach" class="coach" aria-label="Tutorial" hidden></aside>
+      </div>
+    </div>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"></dialog>
+  <div id="notice" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

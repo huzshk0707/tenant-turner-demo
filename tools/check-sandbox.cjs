@@ -1,0 +1,138 @@
+const assert = require('node:assert/strict');
+const {chromium}=require('playwright');
+
+(async()=>{
+  const b = await chromium.launch({executablePath:process.env.LEASING_CHROMIUM || undefined});
+  const p = await b.newPage({viewport:{width:1440,height:950},acceptDownloads:true});
+  p.setDefaultTimeout(7500);
+  const errors=[];
+  p.on('pageerror',e=>errors.push(e.message));
+  const base=process.env.LEASING_URL || 'http://127.0.0.1:8768/';
+  await p.goto(base,{waitUntil:'domcontentloaded'});
+  const btn=(name,scope=p)=>scope.getByRole('button',{name,exact:true});
+  const field=(name,scope=p.locator('main'))=>scope.getByLabel(name,{exact:true}).or(scope.getByRole('combobox',{name,exact:true}));
+  const modal=p.getByRole('dialog');
+  const coach=p.locator('#coach');
+  const state=()=>p.evaluate(()=>JSON.parse(localStorage.getItem('leasing-lab-v1')));
+  const expectText=async(selector,text)=>p.waitForFunction(({selector,text})=>document.querySelector(selector)?.textContent.includes(text),{selector,text});
+  const ensure=async(lesson,count)=>await p.waitForFunction(({lesson,count})=>JSON.parse(localStorage.getItem('leasing-lab-v1')).course[lesson]===count,{lesson,count});
+  const lesson=async(name)=>{if(await btn('All lessons',coach).isVisible()) await btn('All lessons',coach).click(); await coach.getByRole('button',{name:new RegExp(name)}).click();};
+  const where=()=>btn('Show me where',coach).click();
+  const saved=()=>btn('Save settings').click();
+  const visit=async hash=>{await p.evaluate(hash=>location.hash=hash,hash); await p.waitForFunction(hash=>location.hash===`#${hash}`,hash);};
+  assert.equal(await p.locator('.rental-card').count(),5);
+  await field('Show inactive').check();
+  assert.equal(await p.locator('.rental-card').count(),6);
+  assert.equal(await coach.isVisible(),false);
+  assert.equal(await p.locator('[data-highlight]').count(),0);
+  await btn('Tutorial').click();
+  await lesson('Find and add a rental');
+  await where();
+  await field('Search rentals').fill('Rosewood');
+  await ensure('portfolio',1);
+  assert.equal(await p.locator('.rental-card').count(),1);
+  await p.getByRole('link',{name:'Open Rosewood House'}).click();
+  await ensure('portfolio',2);
+  await where();
+  await btn('Add rental').click();
+  await field('Listing name',modal).fill('Orchard Practice House');
+  await field('Address',modal).fill('18 Sample Lane, Brookfield');
+  await btn('Add rental',modal).click();
+  await ensure('portfolio',3);
+  console.log('Portfolio filtering, routing and add rental passed');
+
+  await lesson('Set up a listing');
+  await where();
+  await field('Monthly rent').fill('2425');
+  await saved(); await ensure('marketing',1);
+  await where(); await field('Zillow').uncheck(); await saved(); await ensure('marketing',2);
+  await where(); await field('Application fee').fill('55'); await saved(); await ensure('marketing',3);
+  assert.equal((await state()).rentals.find(r=>r.id==='r1').rent,2425);
+  console.log('Marketing, syndication, and fees passed');
+
+  await lesson('Prequalify applicants');
+  await where(); await field('Minimum income × rent').fill('3.0'); await saved(); await ensure('qualify',1);
+  await btn('Add question').click(); await field('Question').fill('Can you attend a tour Saturday?'); await field('Required answer').selectOption('Yes'); await saved(); await ensure('qualify',2);
+  await where(); await btn('New inquiry').click();
+  await field('Lead name',modal).fill('Sky Practice'); await field('Practice email',modal).fill('sky@example.com');
+  await field('Monthly income',modal).fill('1000');
+  await field('Can you attend a tour Saturday?',modal).selectOption('No');
+  await btn('Save inquiry',modal).click(); await ensure('qualify',3);
+  await p.getByRole('link',{name:'Sky Practice',exact:true}).click(); await ensure('qualify',4);
+  assert.equal((await state()).leads.find(l=>l.name==='Sky Practice').stage,'Needs review');
+  assert.equal((await state()).leads.find(l=>l.name==='Sky Practice').reasons.length,2);
+  console.log('Practice inquiry rules and review passed');
+
+  await lesson('Set up viewing methods');
+  await where(); await field('Collect interest before booking').check(); await saved(); await ensure('showings',1);
+  await where(); await field('Booking approval').selectOption('Take requests'); await saved(); await ensure('showings',2);
+  await where(); await field('Duration (minutes)').fill('25'); await saved(); await ensure('showings',3);
+  console.log('Wait list, self-access, and in-person preferences passed');
+
+  await lesson('Set showing availability');
+  await where(); await btn('Add time block').click(); await btn('Save time block',modal).click(); await ensure('availability',1);
+  await btn('Add time block').click(); await field('Scope',modal).selectOption('Rental'); await btn('Save time block',modal).click(); await ensure('availability',2);
+  await btn('Edit').first().click(); await field('End',modal).fill('16:30'); await btn('Save time block',modal).click(); await ensure('availability',3);
+  assert.equal((await state()).teamAvailability.length,4);
+  console.log('General and rental availability add and edit passed');
+
+  await lesson('Work a lead and book a tour');
+  await where(); await field('New note').fill('Prefers mornings.'); await btn('Add note').click(); await ensure('leads',1);
+  await btn('Mark qualified').click(); await ensure('leads',2);
+  await btn('Schedule showing').click(); await btn('Save showing',modal).click(); await ensure('leads',3);
+  await btn('Complete showing').click(); await field('Rating',modal).selectOption('4'); await field('Feedback',modal).fill('Liked the yard.'); await btn('Record completion',modal).click(); await ensure('leads',4);
+  assert.equal((await state()).leads.find(l=>l.id==='l1').stage,'Viewing completed');
+  console.log('Lead notes, qualification, scheduling and completion passed');
+
+  await lesson('Prepare an owner report');
+  await where(); await ensure('owners',1);
+  await btn('Hide from report').first().click(); await ensure('owners',2);
+  await field('Enable weekly delivery').check(); await btn('Save schedule').click(); await ensure('owners',3);
+  assert.equal((await state()).rentals.find(r=>r.id==='r1').ownerReport.enabled,true);
+  console.log('Owner report, feedback and delivery schedule passed');
+
+  await lesson('Filter and schedule reports');
+  await where(); await p.locator('[data-cue="report-source"]').click(); await ensure('reports',1);
+  await field('Rental').selectOption('r1'); await btn('Apply filters').click(); await ensure('reports',2);
+  const download=p.waitForEvent('download'); await btn('Download CSV').click(); assert.equal((await download).suggestedFilename(),'leasing-lab-source.csv'); await ensure('reports',3);
+  await where(); await btn('Add schedule').click(); await btn('Save schedule',modal).click(); await ensure('reports',4);
+  assert.equal((await state()).schedules.length,1);
+  console.log('Report navigation, filtering, CSV and scheduling passed');
+
+  await lesson('Manage devices and access');
+  await where(); await p.getByRole('article').filter({hasText:'LAB-CB-209'}).getByRole('button',{name:'Settings'}).click(); await field('Assigned rental',modal).selectOption('r1'); await btn('Save device',modal).click(); await ensure('access',1);
+  await btn('Get code').first().click(); await btn('Generate code',modal).click(); await ensure('access',2);
+  assert.match(await modal.locator('code').innerText(),/^SIM-/); await btn('Done',modal).click();
+  await where(); await btn('Add contact').click(); await field('Name',modal).fill('Drew Fiction'); await field('Practice email',modal).fill('drew@example.com'); await btn('Save contact',modal).click(); await ensure('access',3);
+  await where(); await ensure('access',4);
+  console.log('Device assignment, code generation and authorized contacts passed');
+
+  await lesson('Find help and review activity');
+  await where(); await ensure('help',1); await where(); await p.locator('summary').first().click(); await ensure('help',2);
+  await expectText('#coach','10 of 10 lessons complete');
+  await btn('Free practice').click();
+  assert.equal(await coach.isVisible(),false);
+  assert.equal(await p.locator('[data-highlight]').count(),0);
+  await p.reload({waitUntil:'domcontentloaded'});
+  assert.equal(await coach.isVisible(),false);
+  const data=await state(); assert.equal(data.mode,'free'); assert.equal(data.course.help,2); assert.equal(data.rentals.length,7);
+  await visit('rentals'); await field('Search rentals').fill('Rosewood'); assert.equal(await p.locator('[data-highlight]').count(),0);
+  await btn('Reset practice data').click(); await btn('Reset workspace',modal).click();
+  assert.equal((await state()).rentals.length,6);
+  assert.equal(Object.keys((await state()).course).length,0);
+  assert.deepEqual(errors,[]);
+  console.log('All 10 lessons completed. Free practice, persistence and reset passed.');
+
+  const mobile=await b.newPage({viewport:{width:390,height:844}});
+  await mobile.goto(base,{waitUntil:'domcontentloaded'});
+  await mobile.getByRole('button',{name:'Tutorial',exact:true}).click();
+  await mobile.getByRole('button',{name:/Find and add a rental/}).click();
+  await mobile.getByRole('button',{name:'Show me where'}).click();
+  await mobile.getByLabel('Search rentals').fill('Rosewood');
+  assert.equal(await mobile.locator('.rental-card').count(),1);
+  await mobile.getByRole('button',{name:'Tutorial step'}).click();
+  assert.match(await mobile.locator('#coach [aria-current="step"]').innerText(),/Open the rental/);
+  const dimensions=await mobile.evaluate(()=>[innerWidth,document.documentElement.scrollWidth]); assert.equal(dimensions[0],dimensions[1]);
+  console.log('390 px tutorial handoff and layout passed');
+  await b.close();
+})().catch(e=>{console.error(e);process.exit(1);});
