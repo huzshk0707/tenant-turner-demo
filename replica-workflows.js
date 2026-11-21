@@ -1,7 +1,7 @@
 'use strict';
 
 window.createReplicaWorkflows = api => {
-  const {get,el,esc,save,render,toast,modal,close,uid,date,link,copy,weekly,defaultRental,addFeedback} = api;
+  const {get,el,esc,save,render,toast,modal,close,uid,date,link,defaultRental,addFeedback} = api;
   const engine = window.ReplicaBooking;
   const fmt = (value,chosen) => `<option${String(chosen) === String(value) ? ' selected' : ''}>${esc(value)}</option>`;
   const opt = (key,value,chosen) => `<option value="${esc(key)}"${String(chosen) === String(key) ? ' selected' : ''}>${esc(value)}</option>`;
@@ -52,7 +52,7 @@ window.createReplicaWorkflows = api => {
     const url=link('qualify',r.id,l.id);
     note(l,'Practice pre-qualification invitation recorded.');
     message(r,l,`Complete practice pre-qualification: ${url}`);
-    finish('Practice invitation saved in Messages.','lead');
+    finish('Practice invitation saved in Messages.','lead-invite');
   }
   function qualify(r,l=blankLead(r),{prospect = false, thenBook = false}={}) {
     const q=r.qualifying;
@@ -60,10 +60,10 @@ window.createReplicaWorkflows = api => {
       <div class="grid-2">${prospect ? input('pq-name','Name',l.name,'text','required') : ''}
         ${input('pq-move','Move-in date',r.dateAvailable || date(10),'date','required')}${input('pq-income','Monthly income',Math.round(r.rent*3),'number','required min="0"')}
         ${input('pq-pets','Number of pets',0,'number','required min="0" max="15"')}${select('pq-type','Pet type',[['cat','Cat'],['small','Small dog'],['large','Large dog']].map(([k,v])=>opt(k,v,'cat')).join(''))}</div>
-      <div class="grid-2 practice-grid-gap">${toggle('pq-cosigner','I have a co-signer')}${toggle('pq-voucher','I have a voucher')}${toggle('pq-bankruptcy','Sample bankruptcy answer is Yes')}${toggle('pq-judgment','Sample civil judgment answer is Yes')}${toggle('pq-eviction','Sample eviction answer is Yes')}${toggle('pq-felony','Sample criminal-history answer is Yes')}${toggle('pq-credit','Sample credit score is at least 700',true)}${toggle('pq-smoking','Sample smoking answer is Yes')}</div>
+      <div class="grid-2 practice-grid-gap">${toggle('pq-cosigner','I have a co-signer')}${toggle('pq-voucher','I have a voucher')}${toggle('pq-bankruptcy','Sample bankruptcy answer is Yes')}${toggle('pq-judgment','Sample civil judgment answer is Yes')}${toggle('pq-eviction','Sample eviction answer is Yes')}${toggle('pq-felony','Sample criminal-history answer is Yes')}${input('pq-credit-score','Sample credit score',720,'number','required min="300" max="850"')}${toggle('pq-smoking','Sample smoking answer is Yes')}</div>
       ${(q.questions || []).map((question,i)=>select(`pq-custom-${i}`,question.label,['Yes','No'].map(x=>fmt(x,'Yes')).join(''))).join('')}`, 'Submit practice answers', () => {
       if (prospect) { const name=val('pq-name');if(!name) return alert('Enter a sample name.');l.name=name; }
-      const answers={moveIn:val('pq-move'),income:Number(val('pq-income')),pets:Number(val('pq-pets')),petType:val('pq-type'),cosigner:on('pq-cosigner'),voucher:on('pq-voucher'),bankruptcy:on('pq-bankruptcy'),judgment:on('pq-judgment'),eviction:on('pq-eviction'),felony:on('pq-felony'),credit:on('pq-credit'),smoking:on('pq-smoking'),custom:(q.questions || []).map((_,i)=>val(`pq-custom-${i}`))};
+      const answers={moveIn:val('pq-move'),income:Number(val('pq-income')),pets:Number(val('pq-pets')),petType:val('pq-type'),cosigner:on('pq-cosigner'),voucher:on('pq-voucher'),bankruptcy:on('pq-bankruptcy'),judgment:on('pq-judgment'),eviction:on('pq-eviction'),felony:on('pq-felony'),creditScore:Number(val('pq-credit-score')),smoking:on('pq-smoking'),custom:(q.questions || []).map((_,i)=>val(`pq-custom-${i}`))};
       const reasons=engine.screen(r,answers);
       l.score=reasons.length ? 2 : 9;
       l.archived=Boolean(reasons.length);
@@ -73,8 +73,8 @@ window.createReplicaWorkflows = api => {
       storeLead(r,l);
       const outcome=reasons.length ? `Archived: ${reasons.join(' ')}` : r.waitlist ? r.waitlistMessage : 'Pre-qualified. Choose a showing from the available hours.';
       message(r,l,outcome);
-      if (!reasons.length && !r.waitlist && (thenBook || prospect)) { save();done('lead');book(r,l); }
-      else finish(outcome,'lead');
+      if (!reasons.length && !r.waitlist && (thenBook || prospect)) { save();done('lead-screen',{qualified:true});book(r,l); }
+      else { finish(outcome);done('lead-screen',{qualified:!reasons.length}); }
     });
   }
   function book(r,l,existing=null) {
@@ -100,10 +100,12 @@ window.createReplicaWorkflows = api => {
       if(outcome.status==='Confirmed' && method==='person' && r.viewing.inPerson.notifyOccupants) note(l,'Practice occupant notice recorded.');
       finish('Practice showing saved.','showing');
     });
-    el('book-method').addEventListener('change',()=>{
+    const suggestSlot=()=>{
       const current=engine.firstSlot(get(),r,{...l,idReviewed:l.idReviewed || on('book-id')},val('book-method'),api.times,existing?.id);
       if (current) {el('book-date').value=current.date;el('book-time').value=engine.toTime(current.time);}
-    });
+    };
+    el('book-method').addEventListener('change',suggestSlot);
+    el('book-id')?.addEventListener('change',suggestSlot);
   }
   function linkedLead(v,r) { return r.leads.find(l=>v.leadId ? l.id===v.leadId : l.name===v.leadName); }
   function scheduledFor(r,l) { return get().viewingsList.find(v=>v.rentalId===r.id && (v.leadId ? v.leadId===l.id : v.leadName===l.name) && ['Confirmed','Pending Confirmation','Requested'].includes(v.status)); }
@@ -154,12 +156,16 @@ window.createReplicaWorkflows = api => {
     el('canvas').querySelectorAll('[data-show-action]').forEach(btn=>btn.onclick=()=>showingAction(btn.dataset.showAction,btn.dataset.vid));
     click('scheduleShowingBtn',()=>form('Select rental and lead',`${select('pick-rental','Rental',get().rentals.filter(r=>r.active).map(r=>opt(r.id,r.address)).join(''))}${select('pick-lead','Lead','')}`,'Continue to showing',()=>{
       const r=rental(val('pick-rental')); const l=r?.leads.find(lead=>lead.id===val('pick-lead'));
-      if (!l) return alert('Add or choose a practice lead.');
+      if (!l) return alert('Choose a qualified lead or review a lead from the rental’s Leads tab.');
       book(r,l,scheduledFor(r,l));
     }));
     // Populate the dependent list immediately when the schedule dialog opens.
     el('scheduleShowingBtn').addEventListener('click',()=>{
-      const update=()=>{const r=rental(val('pick-rental'));el('pick-lead').innerHTML=(r?.leads || []).filter(l=>!l.archived).map(l=>opt(l.id,l.name)).join('');};
+      const update=()=>{
+        const r=rental(val('pick-rental'));
+        const eligible=(r?.leads || []).filter(l=>!l.archived && (l.score>=6 || l.manualOverride));
+        el('pick-lead').innerHTML=eligible.length ? eligible.map(l=>opt(l.id,l.name)).join('') : opt('','No qualified practice leads');
+      };
       el('pick-rental').addEventListener('change',update);update();
     });
   }
@@ -186,7 +192,7 @@ window.createReplicaWorkflows = api => {
       if (val('code-date')<date()) return alert('Choose a practice date today or later.');
       const code=`SIM-${uid('code').split('-')[1].slice(0,6).toUpperCase()}`;
       get().accessEvents.unshift({id:uid('access'),device:d.serial,rentalId:d.rentalId,date:val('code-date'),type:val('code-type'),recipient:val('code-name'),company:val('code-company'),phone:send?val('code-phone'):'',message:val('code-note'),code,action:send?'Simulated send':'Generated'});
-      save();done('code');
+      save();done('code',{method:send?'Send':'Get'});
       modal('Practice access code',`<p><strong>${esc(code)}</strong> for ${esc(val('code-date'))}.</p><p>This code is recorded in the Lockbox Access Report.</p>`,button('code-done','Done'));
       click('code-done',()=>{close();render();});
     });
@@ -223,7 +229,7 @@ window.createReplicaWorkflows = api => {
       el('practice-device-list').querySelectorAll('[data-edit-device]').forEach(b=>b.onclick=()=>deviceEditor(load(b.dataset.editDevice),tab));
     };
     el('canvas').innerHTML=`<div class="filter-bar"><div class="filter-left">${select('access-user','User',opt('','anyone',f.user)+s.users.map(u=>opt(u.name,u.name,f.user)).join(''))}${toggle('access-unassigned','Show unassigned',f.unassigned)}</div>${input('practice-device-search','Search',f.search,'search')}${button('practice-add-device','+ Add device')}</div><div id="practice-device-list" class="practice-device-grid"></div>`;
-    for (const [id,key] of [['access-user','user'],['access-unassigned','unassigned'],['practice-device-search','search']]) el(id).addEventListener(id==='practice-device-search'?'input':'change',()=>{f[key]=key==='unassigned'?on(id):val(id);save();draw();});
+    for (const [id,key] of [['access-user','user'],['access-unassigned','unassigned'],['practice-device-search','search']]) el(id).addEventListener(id==='practice-device-search'?'input':'change',()=>{f[key]=key==='unassigned'?on(id):val(id);save();draw();if(key==='unassigned')done('access-filter');});
     click('practice-add-device',()=>deviceEditor(null,tab));draw();
   }
   function scheduledReports(catalog) {
@@ -251,7 +257,7 @@ window.createReplicaWorkflows = api => {
         if (b.dataset.export==='copy') {await window.LeasingExports.copy(rows);toast('Copied report rows.');}
         else if (b.dataset.export==='print') window.print();
         else window.LeasingExports.download(b.dataset.export,id,data.title,rows);
-        done('export');
+        done('export',{id});
       } catch {toast('The report could not be exported.');}
     });
   }
@@ -259,112 +265,19 @@ window.createReplicaWorkflows = api => {
     form('Sync rentals',`<p>Practice importing a rental or create a manual listing.</p>${select('import-mode','Rental source',[['sync','Sample property management import'],['manual','Add manual rental']].map(([k,v])=>opt(k,v,'sync')).join(''))}
       ${input('import-address','Practice address','29 Willow Bend','text','required')}${input('import-rent','Monthly rent',2150,'number','required min="1"')}${input('import-date','Available for move-in',date(7),'date','required')}`, 'Add practice rental',()=>{
       if (!val('import-address') || get().rentals.some(r=>r.address.toLowerCase()===val('import-address').toLowerCase())) return alert('Enter a new fictional address.');
-      get().rentals.unshift(defaultRental(val('import-address'),Number(val('import-rent')),val('import-date'),val('import-mode')==='sync'));
+      const imported=val('import-mode')==='sync';
+      get().rentals.unshift(defaultRental(val('import-address'),Number(val('import-rent')),val('import-date'),imported));
+      if(imported){get().account.pmsConnected=true;get().account.pmsLastSynced='Just now · practice';}
       finish('Practice rental added.','rental');
     });
   }
-  function userEditor(u) {
-    form(u?'Edit user':'Add user',`${input('team-name','Name',u?.name || '','text','required')}${input('team-email','Practice email',u?.email || '','email','required')}${select('team-role','Role',['Manager','Leasing agent','Viewer'].map(x=>fmt(x,u?.role || 'Leasing agent')).join(''))}${toggle('team-active','Active user',u?.active ?? true)}`,'Save user',()=>{
-      const s=get();const name=val('team-name');
-      if (!name || Object.hasOwn(Object.prototype,name) || s.users.some(x=>x.id!==u?.id && x.name.toLowerCase()===name.toLowerCase())) return alert('Enter a unique practice name.');
-      if (!on('team-active') && !s.users.some(x=>x.id!==u?.id && x.active)) return alert('Keep at least one practice user active.');
-      const old=u?.name;
-      if (old && old!==name) {
-        s.generalAvailability[name]=s.generalAvailability[old];delete s.generalAvailability[old];
-        for(const r of s.rentals){if(r.assignee===old) r.assignee=name;if(r.viewing.inPerson.showingAgent===old) r.viewing.inPerson.showingAgent=name;}
-        for(const v of s.viewingsList){if(v.agent===old) v.agent=name;if(v.type===`In-Person (${old})`) v.type=`In-Person (${name})`;}
-        if(s.selectedAvailUser===old) s.selectedAvailUser=name;
-        if(s.filters.user===old) s.filters.user=name;
-        if(s.reportFilters.agent===old) s.reportFilters.agent=name;
-        if(s.accessFilters.user===old) s.accessFilters.user=name;
-      }
-      const value={id:u?.id || uid('user'),name,email:val('team-email'),role:val('team-role'),active:on('team-active')};
-      if(u) Object.assign(u,value);
-      else {s.users.push(value);s.generalAvailability[name]={timezone:'Mountain Time (US & Canada)',weekly:weekly(),selfAccessStart:'8:00 AM',selfAccessEnd:'8:00 PM',daylightOnly:false,blockedDates:[]};}
-      finish('Practice user saved.','team');
-    });
-  }
-  function other(section) {
-    const s=get();const canvas=el('canvas');
-    if(section==='users') {
-      canvas.innerHTML=`<div class="practice-width"><div class="filter-bar"><h2 class="mat-card-title">Users</h2>${button('add-user','+ Add user')}</div><div class="mat-card practice-table">${table(['Name','Email','Role','Status','Actions'],s.users.map(u=>[esc(u.name),esc(u.email),esc(u.role),u.active?'Active':'Inactive',`<button class="btn-flat" data-user="${esc(u.id)}">Edit</button>`]),'No users.')}</div></div>`;
-      click('add-user',()=>userEditor());canvas.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>userEditor(s.users.find(u=>u.id===b.dataset.user)));return;
-    }
-    if(section==='account') {
-      canvas.innerHTML=`<section class="mat-card practice-form-width"><h2 class="mat-card-title">Account</h2><form id="profile-form">${input('profile-name','Practice company',s.profile.name,'text','required')}${input('profile-email','Office email',s.profile.email,'email','required')}${input('profile-fee','Default application fee',s.profile.fee,'number','required min="0"')}
-        <div class="practice-actions"><button type="submit" class="btn-blue">Save account</button>${button('account-reset','Reset practice data','btn-outline')}${button('account-tutorial','Tutorial','btn-outline')}</div></form></section>`;
-      el('profile-form').onsubmit=e=>{e.preventDefault();if(!val('profile-name')) return;s.profile={name:val('profile-name'),email:val('profile-email'),fee:Number(val('profile-fee'))};finish('Practice account saved.','account');};
-      click('account-reset',api.reset);click('account-tutorial',guide);return;
-    }
-    if(section==='rewards') {
-      canvas.innerHTML=`<section class="mat-card practice-width"><div class="row-inline practice-between"><h2 class="mat-card-title">Rewards</h2>${button('add-referral','Add practice referral')}</div>${table(['Organization','Practice email','Status'],s.referrals.map(row=>[esc(row.name),esc(row.email),'Recorded in practice']),'No practice referrals.')}</section>`;
-      click('add-referral',()=>form('Record a practice referral',`${input('ref-name','Organization','','text','required')}${input('ref-email','Email','','email','required')}`,'Save referral',()=>{if(!val('ref-name'))return alert('Enter a fictional organization.');s.referrals.push({name:val('ref-name'),email:val('ref-email')});finish('Practice referral saved.','rewards');}));return;
-    }
-    if(section==='signout') {
-      canvas.innerHTML=`<section class="mat-card practice-form-width"><h2 class="mat-card-title">${s.signedOut?'Signed out of practice':'Sign Out'}</h2><p>Your fictional records and progress remain in this browser.</p>${button('practice-exit',s.signedOut?'Return to practice':'Sign Out')}</section>`;
-      click('practice-exit',()=>{if(s.signedOut){s.signedOut=false;s.section='rentals';s.selectedRentalId=null;save();render();return;}
-        form('Sign Out','<p>End this practice session?</p>','Sign Out',()=>{done('signout');s.signedOut=true;finish('Signed out of practice.');});});return;
-    }
-    canvas.innerHTML=`<section class="mat-card practice-form-width"><h2 class="mat-card-title">Help</h2><details><summary>How do I get a viewing slot?</summary><p>Qualify a lead, turn off the wait list, and choose a time inside the agent’s or rental’s available hours.</p></details><details><summary>Where do access and reports go?</summary><p>Use Access to make a practice code and Reports to filter, export or schedule a fictional report.</p></details><details><summary>Where are my changes?</summary><p>Changes and tutorial progress are saved in this browser.</p></details><div class="practice-actions">${button('help-tutorial','Tutorial')}${button('help-support','Practice support','btn-outline')}</div></section>`;
-    click('help-tutorial',guide);click('help-support',()=>el('chatPopover').classList.add('open'));
-  }
-
-  const lessons=[
-    ['rentals','Rentals and settings','00:00','0000-rentals','Use the sync button for a sample import, then open a rental’s Settings.','rentals','#syncFab','rental'],
-    ['marketing','Marketing and fees','01:42','0142-marketing','Review the imported fields, update editable details, then click Save Rental Settings.','settings','#sec-marketing','settings'],
-    ['qualification','Qualify a lead','02:32','0232-qualifying','Open Leads, choose Add Lead, and submit practice answers or send the practice invitation.','leads','#addLeadBtn','lead'],
-    ['waiting','Wait list and viewing methods','03:14','0314-wait-list','Set the wait list or viewing methods and click Save Rental Settings.','settings','#sec-viewing','settings'],
-    ['availability','Showing availability','06:48','0648-rental-availability','Open Availability and save a date-specific override or adjust the weekly hours.','availability','#addOverrideModalBtn','availability'],
-    ['booking','Book a viewing','06:05','0605-in-person','Choose a qualified lead, a showing method and an available time.','upcoming','#scheduleShowingBtn','showing'],
-    ['followup','Record a viewing and follow up','08:18','0818-owner-metrics','Complete a confirmed viewing to record feedback and an application message.','upcoming','#scheduleShowingBtn','complete'],
-    ['messages','Practice a reply','07:12','0712-lead-queue','Open a conversation, write a fictional reply and press Send.','messages','#msgReplyInput','reply'],
-    ['owner','Owner report','07:45','0745-owner-schedule','Open a dated feedback entry and update its visibility.','owner','#orIncludeFb','owner'],
-    ['reports','Filter and export a report','08:53','0853-rental-activity','Open a standard report, apply filters and export or copy the results.','reports','[data-report-id]','export'],
-    ['delivery','Schedule reports','08:42','0842-scheduled-reports','Set owner delivery timing or enable a standard report, then save schedules.','scheduled','#owner-day','schedule-report'],
-    ['access','Send a practice code','09:50','0950-send-code','Open Access, choose Send or Get and save a fictional code.','access','[data-code-send]','code'],
-    ['contacts','Manage authorized contacts','10:05','1005-authorized-contacts','Add and save an authorized practice contact.','contacts','#add-contact','contact'],
-    ['team','Manage users and account settings','','','Add a fictional team member in Users. Account holds the workspace settings.','users','#add-user','team'],
-    ['refer','Record a referral','','','Add a fictional referral under Rewards.','rewards','#add-referral','rewards'],
-    ['signout','End a practice session','','','Sign out, then return to the saved practice workspace.','signout','#practice-exit','signout'],
-  ];
-  function guide() {
-    const s=get();
-    el('chatPopover').classList.remove('open');
-    modal('Practice tutorial',`<p>Choose a lesson. Free practice hides the guide.</p><div class="practice-lessons">${lessons.map(([id,title])=>`<button class="btn-outline" type="button" data-lesson="${id}">${s.guide.completed.includes(id)?'✓ ':''}${esc(title)}</button>`).join('')}</div>`,button('practice-free','Free practice','btn-ghost')+button('guide-close','Close'));
-    el('ttModalBody').querySelectorAll('[data-lesson]').forEach(b=>b.onclick=()=>{s.guide.active=b.dataset.lesson;save();close();follow();});
-    click('guide-close',close);click('practice-free',()=>{s.guide.active='';save();close();drawGuide();});
-  }
-  function follow() {
-    const lesson=lessons.find(l=>l[0]===get().guide.active);
-    if(!lesson) return;
-    api.navigate(lesson[5]);
-    const target=document.querySelector(lesson[6]);
-    if(target){target.classList.add('practice-highlight');target.scrollIntoView({block:'nearest'});}
-  }
-  function done(event) {
-    const s=get();const lesson=lessons.find(l=>l[0]===s.guide.active);
-    if(!lesson || lesson[7]!==event || s.guide.completed.includes(lesson[0])) return;
-    s.guide.completed.push(lesson[0]);save();drawGuide();
-  }
-  function drawGuide() {
-    const s=get();const panel=el('practice-guide');const lesson=!s.signedOut && lessons.find(l=>l[0]===s.guide.active);
-    panel.hidden=!lesson;
-    document.querySelectorAll('.practice-highlight').forEach(n=>n.classList.remove('practice-highlight'));
-    if(!lesson){panel.replaceChildren();return;}
-    const [,title,time,shot,hint,,selector]=lesson;
-    const completed=s.guide.completed.includes(lesson[0]);
-    panel.innerHTML=`<div class="practice-between row-inline"><strong>${completed?'Completed':'Tutorial'} · ${esc(title)}</strong><button id="practice-guide-hide" type="button" class="btn-flat" aria-label="Hide tutorial">×</button></div><p>${esc(hint)}</p>
-      <div class="practice-actions">${button('practice-guide-focus','Show me where','btn-outline')}${button('practice-guide-list','Lessons','btn-flat')}${shot?`<a href="https://github.com/huzshk0707/tenant-turner-demo/blob/main/screenshots/${shot}.jpg" target="_blank" rel="noopener noreferrer">Demo ${time}</a>`:''}</div>`;
-    if(!completed) document.querySelector(selector)?.classList.add('practice-highlight');
-    click('practice-guide-focus',follow);click('practice-guide-list',guide);
-    click('practice-guide-hide',()=>{s.guide.active='';save();drawGuide();});
-  }
+  const done = (action,detail) => api.onAction(action,detail);
   function application(r,l) {
-    form(`Practice application — ${r.address}`,`${input('application-name','Name',l?.name || '','text','required')}${input('application-email','Practice email',l?.email || '','email','required')}<p>Application fee ${esc(r.applicationFee ?? get().profile.fee)} · practice only</p>`,'Submit practice application',()=>{
+    form(`Practice application — ${r.address}`,`${input('application-name','Name',l?.name || '','text','required')}${input('application-email','Practice email',l?.email || '','email','required')}<p>Application fee ${esc(r.applicationFee ?? get().account.defaultApplicationFee)} · practice only</p>`,'Submit practice application',()=>{
       const lead=l || blankLead(r,{name:val('application-name'),email:val('application-email')});
       lead.name=val('application-name');lead.email=val('application-email');
       lead.status='Applied';lead.archived=false;storeLead(r,lead);note(lead,'Practice application received.');message(r,lead,'Your fictional application was received.');finish('Practice application saved.');
     });
   }
-  return {blankLead,invite,qualify,book,scheduledFor,note,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,other,guide,drawGuide,done,application,storeLead};
+  return {blankLead,invite,qualify,book,scheduledFor,note,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,storeLead};
 };

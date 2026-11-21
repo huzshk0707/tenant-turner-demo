@@ -27,6 +27,7 @@ window.ReplicaBooking = (() => {
     if (!rental.active) return fail('This rental is inactive.');
     if (rental.waitlist) return fail('Turn off the wait list in Settings before booking a showing.');
     if ((!lead.manualOverride && (lead.score === null || lead.score < 6)) || lead.archived) return fail('Review pre-qualification before booking, or record a manual override.');
+    if (!self && !state.users.some(user=>user.name===agent && user.active && user.canShow!==false)) return fail('Choose an active showing agent in Viewing settings.');
     if (!(self ? rental.viewing.selfAccess : ip.enabled)) return fail('This viewing method is off for this rental.');
     if (self && rental.viewing.requireId && !lead.idReviewed) return fail('Mark the practice ID reviewed before scheduling self-access.');
     if (!Number.isFinite(start) || start <= now) return fail('Choose a valid future showing time.');
@@ -66,7 +67,8 @@ window.ReplicaBooking = (() => {
       const buffer = Math.max(Number(ip.bufferMinutes) || 0,v.buffer || 0)*minute;
       return overlaps(start,end,bookingStart(v)-buffer,bookingEnd(v)+buffer);
     })) return fail('This showing conflicts with the agent’s travel buffer.');
-    const status = (block.approval || (self ? rental.viewing.viewingApproval : '')) === 'Take Requests' ? 'Requested' : !self && ip.requireConfirmation ? 'Pending Confirmation' : 'Confirmed';
+    const approval = block.approval || (self ? rental.viewing.viewingApproval : '');
+    const status = ['Take Requests','Require Manual Approval'].includes(approval) ? 'Requested' : !self && ip.requireConfirmation ? 'Pending Confirmation' : 'Confirmed';
     return {date,time,method,agent,zone,duration,buffer:self ? 0 : Number(ip.bufferMinutes) || 0,status,
       type:self ? `Self-Access (${rental.viewing.viewingType})` : `In-Person (${agent})`};
   }
@@ -96,7 +98,8 @@ window.ReplicaBooking = (() => {
     reject(q.rejectJudgment && answers.judgment,'Civil judgment answer requires review.');
     reject(q.rejectEviction && answers.eviction,'Prior eviction does not meet the practice rule.');
     reject(q.rejectFelony && answers.felony,'Criminal history answer requires review.');
-    reject(q.qCredit700 && !answers.credit,'The sample credit answer does not meet the requirement.');
+    const minimumCredit=Math.max(Number(q.minCredit) || 0,q.qCredit700 ? 700 : 0);
+    reject(minimumCredit && answers.creditScore<minimumCredit,'The sample credit answer does not meet the requirement.');
     reject(q.qNoSmoking && answers.smoking,'The sample smoking answer does not meet the requirement.');
     for (const [i,rule] of (q.questions || []).entries()) reject(answers.custom[i]!==rule.answer,`Custom question did not qualify: ${rule.label}`);
     return reasons;
