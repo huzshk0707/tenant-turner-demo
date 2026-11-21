@@ -1,0 +1,3552 @@
+(function () {
+      const STORAGE_KEY = "tt-practice-v3";
+      const COMPANY_NAME = "Brookfield Practice Management";
+      const dateOffset = window.ReplicaBooking.dateOffset;
+      const uid = (kind) => `${kind}-${crypto.randomUUID()}`;
+      const byId = (id) => document.getElementById(id);
+      const practiceLink = (...segments) => `${location.origin}${location.pathname}#${segments.map(encodeURIComponent).join('/')}`;
+      const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      const TIME_OPTIONS = [
+        "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM",
+        "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM",
+        "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
+        "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM",
+        "7:00 PM", "7:30 PM", "8:00 PM"
+      ];
+
+      const PHOTOS = {
+        grand: "assets/rosewood.jpg",
+        fifteenth: "assets/waterline.jpg",
+        maplewood: "assets/birch.jpg",
+        cedar: "assets/juniper.jpg"
+      };
+
+      const NAV_ITEMS = [
+        { id: "rentals", label: "Rentals", icon: '<path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/>' },
+        { id: "messages", label: "Messages", icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
+        { id: "viewings", label: "Viewings", icon: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>' },
+        { id: "access", label: "Access", icon: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>' },
+        { id: "reports", label: "Reports", icon: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>' },
+        { id: "users", label: "Users", icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
+        { id: "account", label: "Account", icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="9.5" r="3"/><path d="M6.8 18.2a6 6 0 0 1 10.4 0"/>' },
+        { id: "help", label: "Help", icon: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>' },
+        { id: "rewards", label: "Rewards", icon: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
+        { id: "signout", label: "Sign Out", icon: '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>' }
+      ];
+
+      const SYNDICATION_SITES = [
+        "ApartmentAdvisor", "Apartment List", "Apartments.com",
+        "Homes.com", "Realtor.com", "Rentals.com",
+        "RentalSource", "Zillow, Trulia, & HotPads", "Zumper"
+      ];
+
+      function defaultWeeklyHours(start = "9:00 AM", end = "5:00 PM", includeWeekends = false) {
+        const obj = {};
+        DAYS.forEach((d, idx) => {
+          const on = includeWeekends ? true : idx < 5;
+          obj[d] = { enabled: on, blocks: [{ start, end }] };
+        });
+        return obj;
+      }
+
+      function defaultShowingLimits() {
+        return {
+          limitUpcoming: true,
+          maxUpcoming: 5,
+          limitPerDay: true,
+          maxPerDay: 3,
+          minDaysBetweenEnabled: false,
+          minDaysBetween: 1,
+          preventDuplicates: true,
+          selfAccessAdvanceNotice: "1 hour",
+          maxDaysAdvance: 7,
+          accessWindowText: "15 minutes before to 60 minutes after appointment"
+        };
+      }
+
+      function defaultInPerson(assignee) {
+        return {
+          enabled: false,
+          showingAgent: assignee || "Jamie Taylor",
+          durationMinutes: 30,
+          clusterShowings: true,
+          bufferMinutes: 30,
+          allowGroupShowings: false,
+          maxLeadsPerSlot: 3,
+          requireConfirmation: true,
+          advanceNoticeHours: 2,
+          instructions: "Meet the leasing agent at the front entrance 5 minutes prior to your appointment."
+        };
+      }
+
+      function defaultRentalAvailability() {
+        return {
+          mode: "general", // "general" or "custom"
+          customHours: defaultWeeklyHours("8:00 AM", "7:00 PM", true),
+          overrides: [
+            { id: "ov1", date: "2026-11-26", type: "block", label: "Thanksgiving Day — No Showings", start: "8:00 AM", end: "8:00 PM" }
+          ]
+        };
+      }
+
+      const SEED = {
+        section: "rentals",
+        selectedRentalId: null,
+        detailTab: "settings",
+        activeSubnav: "status",
+        accessTab: "devices",
+        viewingsTab: "general",
+        selectedAvailUser: "Jamie Taylor",
+        calendarWeekOffset: 0,
+        filters: {
+          user: "anyone",
+          showInactives: false,
+          search: ""
+        },
+        accessFilters: {
+          search: "",
+          type: "all",
+          status: "all"
+        },
+        viewingsFilter: {
+          property: "all",
+          type: "all"
+        },
+        leadsFilter: {
+          search: "",
+          status: "all",
+          score: "all"
+        },
+        messagesFilter: {
+          search: "",
+          tab: "all"
+        },
+        selectedThreadId: "msg1",
+        activeReport: null,
+        reportFilters: {
+          range: "30d",
+          property: "all",
+          agent: "all"
+        },
+        messages: [
+          {
+            id: "msg1",
+            rentalId: "r1",
+            leadName: "Jordan Ellis",
+            phone: "(303) 555-0148",
+            email: "jordan.ellis@example.com",
+            channel: "SMS",
+            unread: true,
+            needsReply: true,
+            aiHandled: false,
+            score: 9,
+            updatedAt: "Today, 9:42 AM",
+            thread: [
+              { sender: "auto", label: "Practice automation", time: "Yesterday, 6:12 PM", text: "Thanks for your interest in 24 Wren Lane! You pre-qualified (Score 9/10). Your self-access showing is confirmed for Nov 21 at 10:00 AM." },
+              { sender: "inbound", label: "Jordan Ellis", time: "Today, 9:42 AM", text: "Hi! Quick question — is there visitor parking in the driveway for the 10:00 AM self-access tour today?" }
+            ]
+          },
+          {
+            id: "msg2",
+            rentalId: "r1",
+            leadName: "Priya Nair",
+            phone: "(303) 555-0192",
+            email: "priya.nair@example.com",
+            channel: "SMS",
+            unread: false,
+            needsReply: false,
+            aiHandled: true,
+            score: 8,
+            updatedAt: "Today, 8:15 AM",
+            thread: [
+              { sender: "inbound", label: "Priya Nair", time: "Yesterday, 8:50 PM", text: "Does 24 Wren Lane accept one small 20 lb dog?" },
+              { sender: "auto", label: "Practice automation", time: "Yesterday, 8:50 PM", text: "Yes! Up to 2 pets (cats and small dogs) are allowed at 24 Wren Lane. Would you like to book an in-person tour with Jamie Taylor?" },
+              { sender: "inbound", label: "Priya Nair", time: "Yesterday, 8:54 PM", text: "Yes please, 2:30 PM tomorrow works great." },
+              { sender: "auto", label: "Practice automation", time: "Yesterday, 8:55 PM", text: "All set! Your in-person showing is confirmed for Nov 21 at 2:30 PM." }
+            ]
+          },
+          {
+            id: "msg3",
+            rentalId: "r2",
+            leadName: "Marcus Chen",
+            phone: "(303) 555-0117",
+            email: "marcus.chen@example.com",
+            channel: "Email",
+            unread: true,
+            needsReply: true,
+            aiHandled: false,
+            score: 7,
+            updatedAt: "Yesterday, 4:05 PM",
+            thread: [
+              { sender: "auto", label: "Practice automation", time: "Nov 19, 1:15 PM", text: "You've been added to the Wait List for 16 Juniper Way, Unit 220. We'll notify you as soon as showings open." },
+              { sender: "inbound", label: "Marcus Chen", time: "Yesterday, 4:05 PM", text: "Hello, do you have an estimate on when Unit 220 will be ready for tours? Hoping to move by Dec 15." }
+            ]
+          },
+          {
+            id: "msg4",
+            rentalId: "r3",
+            leadName: "Elena Morales",
+            phone: "(303) 555-0183",
+            email: "elena.morales@example.com",
+            channel: "SMS",
+            unread: false,
+            needsReply: false,
+            aiHandled: true,
+            score: 10,
+            updatedAt: "Nov 19, 5:20 PM",
+            thread: [
+              { sender: "auto", label: "Practice automation", time: "Nov 19, 4:30 PM", text: "Thanks for touring 81 Alder Court! How did the home look? Reply with feedback or apply here." },
+              { sender: "inbound", label: "Elena Morales", time: "Nov 19, 5:20 PM", text: "Loved the front porch and updated kitchen! Sending my application tonight." }
+            ]
+          },
+          {
+            id: "msg5",
+            rentalId: "r4",
+            leadName: "Devon Brooks",
+            phone: "(303) 555-0164",
+            email: "devon.brooks@example.com",
+            channel: "Call Center",
+            unread: false,
+            needsReply: false,
+            aiHandled: false,
+            score: 9,
+            updatedAt: "Nov 18, 2:10 PM",
+            thread: [
+              { sender: "auto", label: "24/7 Call Center", time: "Nov 18, 1:55 PM", text: "Inbound call captured for 39 Cedar Walk. Pre-qualification completed over phone (Score 9/10)." },
+              { sender: "outbound", label: "Casey Nguyen", time: "Nov 18, 2:10 PM", text: "Thanks for applying, Devon! Our leasing team is reviewing your application now." }
+            ]
+          }
+        ],
+        devices: [
+          { id: "d1", type: "CodeBox", serial: "LAB-CB-482910", rentalId: "r1", battery: "94% (9V Lithium)", adminCode: "SIM-849201", vendorCode: "SIM-41289", shackleCode: "SIM-73915", lastSync: "Today, 8:15 AM" },
+          { id: "d2", type: "SentriLock", serial: "LAB-SL-993014", rentalId: "r2", battery: "88%", adminCode: "SIM-602914", vendorCode: "SIM-58102", shackleCode: "SIM-29401", lastSync: "Today, 7:40 AM" },
+          { id: "d3", type: "Lockbox", serial: "LAB-LB-204118", rentalId: "r3", battery: "Mechanical", adminCode: "N/A", vendorCode: "SIM-3394", shackleCode: "SIM-8812", lastSync: "Manual Combo" },
+          { id: "d4", type: "CodeBox", serial: "LAB-CB-773205", rentalId: "r4", battery: "91% (9V Lithium)", adminCode: "SIM-518290", vendorCode: "SIM-62014", shackleCode: "SIM-19482", lastSync: "Yesterday, 6:10 PM" },
+          { id: "d5", type: "SentriLock", serial: "LAB-SL-112904", rentalId: "r5", battery: "76%", adminCode: "SIM-391044", vendorCode: "SIM-77410", shackleCode: "SIM-50291", lastSync: "Nov 18, 2:05 PM" },
+          { id: "d6", type: "CodeBox", serial: "LAB-CB-551902", rentalId: "", battery: "100% (New)", adminCode: "SIM-910283", vendorCode: "SIM-24819", shackleCode: "SIM-66301", lastSync: "In Office Inventory" },
+          { id: "d7", type: "SentriLock", serial: "LAB-SL-884210", rentalId: "", battery: "82%", adminCode: "SIM-741852", vendorCode: "SIM-19304", shackleCode: "SIM-48219", lastSync: "In Office Inventory" }
+        ],
+        generalAvailability: {
+          "Jamie Taylor": {
+            timezone: "Mountain Time (US & Canada)",
+            weekly: defaultWeeklyHours("9:00 AM", "5:00 PM", false),
+            selfAccessStart: "8:00 AM",
+            selfAccessEnd: "8:00 PM",
+            daylightOnly: true,
+            blockedDates: [
+              { id: "bd1", date: "2026-11-26", allDay: true, start: "8:00 AM", end: "8:00 PM", reason: "Thanksgiving Holiday" },
+              { id: "bd2", date: "2026-11-27", allDay: false, start: "12:00 PM", end: "5:00 PM", reason: "Office Half-Day" }
+            ]
+          },
+          "Casey Nguyen": {
+            timezone: "Mountain Time (US & Canada)",
+            weekly: defaultWeeklyHours("10:00 AM", "6:00 PM", true),
+            selfAccessStart: "7:30 AM",
+            selfAccessEnd: "7:30 PM",
+            daylightOnly: true,
+            blockedDates: [
+              { id: "bd3", date: "2026-11-26", allDay: true, start: "8:00 AM", end: "8:00 PM", reason: "Thanksgiving Holiday" }
+            ]
+          }
+        },
+        calendarSync: {
+          googleConnected: true,
+          googleEmail: "jamie.taylor@example.com",
+          office365Connected: false,
+          checkConflicts: true,
+          writeShowingsToCalendar: true
+        },
+        viewingsList: [
+          { id: "v1", rentalId: "r1", leadName: "Jordan Ellis", leadPhone: "(303) 555-0148", date: "2026-11-21", time: "10:00 AM", type: "Self-Access (CodeBox)", status: "Confirmed" },
+          { id: "v2", rentalId: "r1", leadName: "Priya Nair", leadPhone: "(303) 555-0192", date: "2026-11-21", time: "2:30 PM", type: "In-Person (Jamie Taylor)", status: "Confirmed" },
+          { id: "v3", rentalId: "r3", leadName: "Elena Morales", leadPhone: "(303) 555-0183", date: "2026-11-22", time: "11:00 AM", type: "Self-Access (Lockbox)", status: "Pending Confirmation" },
+          { id: "v4", rentalId: "r4", leadName: "Devon Brooks", leadPhone: "(303) 555-0164", date: "2026-11-23", time: "4:00 PM", type: "Self-Access (CodeBox)", status: "Confirmed" }
+        ],
+        rentals: [
+          {
+            id: "r1",
+            address: "24 Wren Lane",
+            photo: PHOTOS.grand,
+            active: true,
+            assignee: "Jamie Taylor",
+            waitlist: false,
+            waitlistMessage: "Coming soon!",
+            device: "CodeBox",
+            serialNumber: "LAB-CB-482910",
+            alerts: 0,
+            leaseTerm: "One Year",
+            rent: 2795,
+            deposit: 2795,
+            dateAvailable: "2026-12-01",
+            propertyType: "Single Family House",
+            bedrooms: 4,
+            bathrooms: "3.0",
+            sqft: 2876,
+            customTitle: "Spacious 4 Bed Home with Two-Car Garage",
+            description: "Bright two-story home with open kitchen, landscaped yard, and easy access to parks and schools.",
+            syndication: {
+              "ApartmentAdvisor": true, "Apartment List": true, "Apartments.com": true,
+              "Homes.com": true, "Realtor.com": true, "Rentals.com": false,
+              "RentalSource": true, "Zillow, Trulia, & HotPads": true, "Zumper": true
+            },
+            qualifying: {
+              reqMoveIn: true, moveInDays: 90,
+              reqIncome: true, incomeRatio: 3,
+              allowCosigner: true,
+              allowVouchers: true,
+              allowPets: true, maxPets: 2, allowCats: true, allowSmallDogs: true, allowLargeDogs: false,
+              rejectBankruptcy: true, rejectEviction: true, rejectFelony: false,
+              qCredit700: true, qNoSmoking: false
+            },
+            viewing: {
+              selfAccess: true,
+              viewingType: "CodeBox",
+              viewingApproval: "Set Appointments",
+              instructions: "Sample instructions: arrive at the front entrance.",
+              requireId: true,
+              inPerson: Object.assign(defaultInPerson("Jamie Taylor"), { enabled: true }),
+              limits: defaultShowingLimits()
+            },
+            availability: defaultRentalAvailability(),
+            leads: [
+              { name: "Jordan Ellis", status: "Scheduled", phone: "(303) 555-0148", source: "Zillow" },
+              { name: "Priya Nair", status: "Prequalified", phone: "(303) 555-0192", source: "Apartments.com" }
+            ]
+          },
+          {
+            id: "r2",
+            address: "16 Juniper Way, Unit 220",
+            photo: PHOTOS.fifteenth,
+            active: true,
+            assignee: "Casey Nguyen",
+            waitlist: true,
+            waitlistMessage: "Coming soon! Join the wait list to be notified first.",
+            device: "SentriLock",
+            serialNumber: "LAB-SL-993014",
+            alerts: 2,
+            leaseTerm: "One Year",
+            rent: 2150,
+            deposit: 2150,
+            dateAvailable: "2026-12-15",
+            propertyType: "Apartment / Condo",
+            bedrooms: 2,
+            bathrooms: "2.0",
+            sqft: 1140,
+            customTitle: "Downtown Brick Loft with Private Balcony",
+            description: "Corner 2-bedroom unit with hardwood floors, stainless appliances, and walkable transit access.",
+            syndication: {
+              "ApartmentAdvisor": true, "Apartment List": true, "Apartments.com": true,
+              "Homes.com": false, "Realtor.com": true, "Rentals.com": true,
+              "RentalSource": false, "Zillow, Trulia, & HotPads": true, "Zumper": true
+            },
+            qualifying: {
+              reqMoveIn: true, moveInDays: 60,
+              reqIncome: true, incomeRatio: 3,
+              allowCosigner: true,
+              allowVouchers: false,
+              allowPets: true, maxPets: 1, allowCats: true, allowSmallDogs: true, allowLargeDogs: false,
+              rejectBankruptcy: true, rejectEviction: true, rejectFelony: true,
+              qCredit700: true, qNoSmoking: true
+            },
+            viewing: {
+              selfAccess: true,
+              viewingType: "SentriLock",
+              viewingApproval: "Set Appointments",
+              instructions: "Sample instructions: meet at the lobby for the second-floor tour.",
+              requireId: true,
+              inPerson: defaultInPerson("Casey Nguyen"),
+              limits: defaultShowingLimits()
+            },
+            availability: defaultRentalAvailability(),
+            leads: [
+              { name: "Marcus Chen", status: "Wait List", phone: "(303) 555-0117", source: "Zumper" }
+            ]
+          },
+          {
+            id: "r3",
+            address: "81 Alder Court",
+            photo: PHOTOS.maplewood,
+            active: true,
+            assignee: "Jamie Taylor",
+            waitlist: false,
+            waitlistMessage: "Coming soon!",
+            device: "Lockbox",
+            serialNumber: "LAB-LB-204118",
+            alerts: 1,
+            leaseTerm: "One Year",
+            rent: 2350,
+            deposit: 2350,
+            dateAvailable: "2026-11-28",
+            propertyType: "Single Family House",
+            bedrooms: 3,
+            bathrooms: "2.0",
+            sqft: 1840,
+            customTitle: "Craftsman Ranch with Detached Garage",
+            description: "Single-level craftsman home with covered front porch, mature shade trees, and updated kitchen.",
+            syndication: {
+              "ApartmentAdvisor": false, "Apartment List": true, "Apartments.com": true,
+              "Homes.com": true, "Realtor.com": true, "Rentals.com": false,
+              "RentalSource": true, "Zillow, Trulia, & HotPads": true, "Zumper": false
+            },
+            qualifying: {
+              reqMoveIn: true, moveInDays: 90,
+              reqIncome: true, incomeRatio: 2.5,
+              allowCosigner: false,
+              allowVouchers: true,
+              allowPets: false, maxPets: 0, allowCats: false, allowSmallDogs: false, allowLargeDogs: false,
+              rejectBankruptcy: false, rejectEviction: true, rejectFelony: false,
+              qCredit700: false, qNoSmoking: true
+            },
+            viewing: {
+              selfAccess: true,
+              viewingType: "Lockbox",
+              viewingApproval: "Set Appointments",
+              instructions: "Lockbox is hanging on the front door handle.",
+              requireId: true,
+              inPerson: defaultInPerson("Jamie Taylor"),
+              limits: defaultShowingLimits()
+            },
+            availability: defaultRentalAvailability(),
+            leads: [
+              { name: "Elena Morales", status: "Toured", phone: "(303) 555-0183", source: "Realtor.com" }
+            ]
+          },
+          {
+            id: "r4",
+            address: "39 Cedar Walk",
+            photo: PHOTOS.cedar,
+            active: true,
+            assignee: "Casey Nguyen",
+            waitlist: false,
+            waitlistMessage: "Coming soon!",
+            device: "CodeBox",
+            serialNumber: "LAB-CB-773205",
+            alerts: 0,
+            leaseTerm: "One Year",
+            rent: 2495,
+            deposit: 2495,
+            dateAvailable: "2026-12-05",
+            propertyType: "Townhouse",
+            bedrooms: 3,
+            bathrooms: "2.5",
+            sqft: 1960,
+            customTitle: "Modern End-Unit Townhome",
+            description: "Contemporary 3-bedroom townhome with stone facade, attached garage, and quartz countertops.",
+            syndication: {
+              "ApartmentAdvisor": true, "Apartment List": true, "Apartments.com": true,
+              "Homes.com": true, "Realtor.com": true, "Rentals.com": true,
+              "RentalSource": true, "Zillow, Trulia, & HotPads": true, "Zumper": true
+            },
+            qualifying: {
+              reqMoveIn: true, moveInDays: 45,
+              reqIncome: true, incomeRatio: 3,
+              allowCosigner: true,
+              allowVouchers: true,
+              allowPets: true, maxPets: 2, allowCats: true, allowSmallDogs: true, allowLargeDogs: true,
+              rejectBankruptcy: true, rejectEviction: true, rejectFelony: false,
+              qCredit700: true, qNoSmoking: false
+            },
+            viewing: {
+              selfAccess: true,
+              viewingType: "CodeBox",
+              viewingApproval: "Set Appointments",
+              instructions: "Use visitor parking along Cedar Ridge Ln. CodeBox is on the left porch column.",
+              requireId: true,
+              inPerson: Object.assign(defaultInPerson("Casey Nguyen"), { enabled: true, allowGroupShowings: true, maxLeadsPerSlot: 4 }),
+              limits: defaultShowingLimits()
+            },
+            availability: Object.assign(defaultRentalAvailability(), { mode: "custom" }),
+            leads: [
+              { name: "Devon Brooks", status: "Applied", phone: "(303) 555-0164", source: "Zillow" }
+            ]
+          },
+          {
+            id: "r5",
+            address: "62 Sparrow Drive",
+            photo: PHOTOS.maplewood,
+            active: false,
+            assignee: "Jamie Taylor",
+            waitlist: false,
+            waitlistMessage: "Coming soon!",
+            device: "SentriLock",
+            serialNumber: "LAB-SL-112904",
+            alerts: 0,
+            leaseTerm: "One Year",
+            rent: 2200,
+            deposit: 2200,
+            dateAvailable: "2027-01-01",
+            propertyType: "Single Family House",
+            bedrooms: 3,
+            bathrooms: "2.0",
+            sqft: 1650,
+            customTitle: "Westhaven 3 Bed Cottage (Inactive)",
+            description: "Currently leased; toggle Rental is active to re-list for upcoming availability.",
+            syndication: {
+              "ApartmentAdvisor": false, "Apartment List": false, "Apartments.com": false,
+              "Homes.com": false, "Realtor.com": false, "Rentals.com": false,
+              "RentalSource": false, "Zillow, Trulia, & HotPads": false, "Zumper": false
+            },
+            qualifying: {
+              reqMoveIn: true, moveInDays: 90,
+              reqIncome: true, incomeRatio: 3,
+              allowCosigner: true,
+              allowVouchers: false,
+              allowPets: false, maxPets: 0, allowCats: false, allowSmallDogs: false, allowLargeDogs: false,
+              rejectBankruptcy: true, rejectEviction: true, rejectFelony: false,
+              qCredit700: false, qNoSmoking: false
+            },
+            viewing: {
+              selfAccess: false,
+              viewingType: "SentriLock",
+              viewingApproval: "Set Appointments",
+              instructions: "",
+              requireId: true,
+              inPerson: defaultInPerson("Jamie Taylor"),
+              limits: defaultShowingLimits()
+            },
+            availability: defaultRentalAvailability(),
+            leads: []
+          }
+        ]
+      };
+
+      function defaultOwnerReport(r) {
+        const slug = (r.address || "property").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
+        return {
+          autoSend: true,
+          dayOfWeek: "Friday",
+          sendTime: "10:00 AM",
+          emails: `owner.${slug.slice(0, 18)}@example.com, ${(r.assignee || "jamie.taylor").toLowerCase().replace(/\s+/g, ".")}@example.com`,
+          includeFeedback: true,
+          onMarketDate: "2026-11-05",
+          lastSent: "Nov 14, 2026 at 10:00 AM",
+          base7d: { leads: 4, prequalified: 3, scheduled: 2, viewings: 1 },
+          baseTotal: { leads: 11, prequalified: 8, scheduled: 5, viewings: 3 },
+          feedback: [
+            {
+              id: "fb_" + r.id + "_1",
+              date: "Nov 19, 2026",
+              lead: "J.E.",
+              interest: "Very Interested",
+              comment: "Clean interior, bright natural light, and great neighborhood feel. Planning to apply this weekend.",
+              visible: true
+            },
+            {
+              id: "fb_" + r.id + "_2",
+              date: "Nov 17, 2026",
+              lead: "R.K.",
+              interest: "Somewhat Interested",
+              comment: "Liked the layout overall, though yard maintenance was still wrapping up during the tour.",
+              visible: true
+            }
+          ]
+        };
+      }
+
+      function enrichLeadObject(l, idx, r) {
+        const scoreMap = {
+          "Scheduled": 9,
+          "Prequalified": 8,
+          "Pre-Qualified": 8,
+          "Toured": 10,
+          "Viewed": 10,
+          "Applied": 9,
+          "Wait List": 7,
+          "Disqualified": 2,
+          "Unscored": null
+        };
+        const emailSlug = (l.name || "lead").toLowerCase().replace(/[^a-z0-9]+/g, ".");
+        if (!l.id) l.id = `lead_${r.id}_${idx + 1}`;
+        if (!l.email) l.email = `${emailSlug}@example.com`;
+        if (!l.leadType) l.leadType = "Tenant lead";
+        if (l.score === undefined) l.score = (l.status in scoreMap) ? scoreMap[l.status] : 8;
+        if (l.status === "Prequalified") l.status = "Pre-Qualified";
+        if (l.status === "Toured") l.status = "Viewed";
+        if (!l.moveInDate) l.moveInDate = r.dateAvailable || "2026-12-01";
+        if (!l.monthlyIncome) l.monthlyIncome = Math.round((r.rent || 2200) * 3.2);
+        if (!l.pets) l.pets = r.qualifying && r.qualifying.allowPets ? "1 small dog (20 lbs)" : "None";
+        if (l.manualOverride === undefined) l.manualOverride = false;
+        if (!l.createdAt) l.createdAt = "Nov 19, 2026";
+        if (!Array.isArray(l.notes)) {
+          l.notes = [
+            { time: l.createdAt, text: `Lead captured from ${l.source || "Online Listing"}.` },
+            ...(l.score !== null ? [{ time: "Nov 20, 2026", text: `Completed pre-qualification questionnaire (Score ${l.score}/10).` }] : [])
+          ];
+        }
+        return l;
+      }
+
+      function ensureStep4RentalFields(r) {
+        if (!r.ownerReport) r.ownerReport = defaultOwnerReport(r);
+        if (!Array.isArray(r.leads)) r.leads = [];
+        // Add an extra realistic unscored/disqualified lead on r1 if only the initial 2 exist
+        if (r.id === "r1" && r.leads.length === 2 && !r._step4Seeded) {
+          r.leads.push(
+            { id: "lead_r1_3", name: "Tanya Vance", email: "tanya.vance@example.com", phone: "(303) 555-0133", source: "Call Center", leadType: "Tenant lead", status: "Unscored", score: null, moveInDate: "2026-12-10", monthlyIncome: 0, pets: "Not provided", manualOverride: false, createdAt: "Today, 9:10 AM", notes: [{ time: "Today, 9:10 AM", text: "Inbound call captured; pre-qualifying SMS sent automatically." }] },
+            { id: "lead_r1_4", name: "Derek Holloway", email: "derek.holloway@example.com", phone: "(303) 555-0177", source: "Zillow", leadType: "Tenant lead", status: "Disqualified", score: 2, moveInDate: "2027-03-01", monthlyIncome: 5200, pets: "2 large dogs", manualOverride: false, createdAt: "Nov 18, 2026", notes: [{ time: "Nov 18, 2026", text: "Blocked from scheduling: income below 3x rent & large dogs not permitted." }] }
+          );
+          r._step4Seeded = true;
+        }
+        r.leads = r.leads.map((l, idx) => enrichLeadObject(l, idx, r));
+      }
+
+      function workspaceDefaults() {
+        return {accessTab:'CodeBox',accessFilters:{search:'',user:'',unassigned:true},reportTab:'standard',
+          reportFilters:{property:'all',agent:'all',from:'',through:'',active:false,search:''},
+          ownerDelivery:{day:'Tuesday',time:'9:00 AM'}, standardDelivery:{}, accessEvents:[], signedOut:false,
+          profile:{name:COMPANY_NAME,email:'office@example.com',fee:50}, guide:{active:'',completed:[]},
+          support:[],
+          contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}],
+          users:[{id:'u1',name:'Jamie Taylor',email:'jamie@example.com',role:'Manager',active:true},{id:'u2',name:'Casey Nguyen',email:'casey@example.com',role:'Leasing agent',active:true}], referrals:[]};
+      }
+      function cloneSeed() {
+        const s = Object.assign(JSON.parse(JSON.stringify(SEED)),workspaceDefaults());
+        s.viewingsFilter.status='upcoming';
+        s.viewingsTab='upcoming';
+        s.calendarSync.googleConnected=false;
+        s.calendarSync.googleEmail='calendar@example.com';
+        s.devices.push({id:'d8',type:'PointCentral',serial:'LAB-PC-516',rentalId:'',battery:'Practice device',lastSync:'Not connected'});
+        const extras=[['r6','38 Grove Place','westhaven',''],['r7','72 Marina View, Unit 6','waterline','SentriLock'],['r8','95 Willow Grove','alder','Lockbox']];
+        for(const [id,address,photo,device] of extras) {
+          const row=structuredClone(s.rentals[4]);
+          s.rentals.push({...row,id,address,customTitle:address,active:true,device,serialNumber:'',photo:`assets/${photo}.jpg`,leads:[]});
+        }
+        s.rentals.forEach((r,i)=>{
+          ensureStep4RentalFields(r);
+          r.imported=true;r.dateAvailable=dateOffset(5+i);r.listed=dateOffset(-18-i*4);
+          r.applicationFee=s.profile.fee;r.adminFee=0;r.applicationLink=practiceLink('apply',r.id);
+          r.availability.overrides=[];r.qualifying.questions=[];r.ownerReport.onMarketDate=r.listed;
+          for(const l of r.leads){l.createdDate=dateOffset(-2);l.archived=l.status==='Disqualified';l.idReviewed=l.score>=6;}
+        });
+        for(const a of Object.values(s.generalAvailability)) a.blockedDates=[];
+        s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewed';}});
+        s.rentals[0].ownerReport.feedback[0].leadId=s.rentals[0].leads[0].id;
+        s.rentals[0].ownerReport.feedback[0].date=dateOffset(-1);
+        return s;
+      }
+      function newRental(address,rent,available,imported) {
+        const r=structuredClone(cloneSeed().rentals[0]);
+        const id=uid('rental');
+        const assignee=state.users.find(u=>u.active)?.name || state.users[0].name;
+        Object.assign(r,{id,address,rent,deposit:rent,dateAvailable:available,listed:dateOffset(),active:true,assignee,
+          waitlist:false,alerts:0,serialNumber:'',device:'',imported,leads:[],customTitle:address,
+          applicationFee:state.profile.fee,applicationLink:practiceLink('apply',id)});
+        r.viewing.inPerson.showingAgent=assignee;
+        r.ownerReport=defaultOwnerReport(r);r.ownerReport.feedback=[];r.ownerReport.base7d={};r.ownerReport.baseTotal={};
+        return r;
+      }
+
+      function copyToClipboardSafe(text, successMsg) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => showToast(successMsg)).catch(() => fallbackCopy(text, successMsg));
+        } else {
+          fallbackCopy(text, successMsg);
+        }
+      }
+      function fallbackCopy(text, successMsg) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); showToast(successMsg); } catch (e) { showToast("Link ready: " + text); }
+        document.body.removeChild(ta);
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return cloneSeed();
+          const parsed = JSON.parse(raw);
+          const merged = Object.assign(cloneSeed(), parsed);
+          if (Array.isArray(merged.rentals)) {
+            merged.rentals = merged.rentals.map(r => {
+              if (!r.viewing.inPerson) r.viewing.inPerson = defaultInPerson(r.assignee);
+              if (!r.viewing.limits) r.viewing.limits = defaultShowingLimits();
+              if (!r.availability) r.availability = defaultRentalAvailability();
+              ensureStep4RentalFields(r);
+              return r;
+            });
+          }
+          return merged;
+        } catch (e) {
+          return cloneSeed();
+        }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+          // ignore storage errors
+        }
+      }
+
+      let state = loadState();
+      let toastTimer = null;
+      let settingsDraft = null;
+      let modalFocus = null;
+
+      function showToast(msg) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove("show"), 2500);
+      }
+
+      function esc(str) {
+        return String(str ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function openModal(title, bodyHtml, footHtml) {
+        document.getElementById("ttModalTitle").textContent = title;
+        document.getElementById("ttModalBody").innerHTML = bodyHtml;
+        document.getElementById("ttModalFoot").innerHTML = footHtml;
+        const m = byId('ttModal');
+        if (!m.classList.contains('open')) modalFocus=document.activeElement;
+        m.classList.add('open');
+        requestAnimationFrame(()=>{
+          if (m.classList.contains('open')) m.querySelector('input:not([type="hidden"]), select, textarea, #ttModalClose')?.focus();
+        });
+        m.setAttribute("aria-hidden", "false");
+      }
+
+      function closeModal() {
+        const m = document.getElementById("ttModal");
+        m.classList.remove("open");
+        m.setAttribute("aria-hidden", "true");
+        if(modalFocus?.isConnected) modalFocus.focus();
+        modalFocus=null;
+      }
+
+      function assignDeviceToRental(deviceId, newRentalId) {
+        const dev = state.devices.find(d => d.id === deviceId);
+        if (!dev) return;
+
+        // If another device was assigned to newRentalId, unassign it
+        if (newRentalId) {
+          state.devices.forEach(d => {
+            if (d.id !== dev.id && d.rentalId === newRentalId) {
+              d.rentalId = "";
+            }
+          });
+        }
+
+        // Clear old rental if dev moved away
+        if (dev.rentalId && dev.rentalId !== newRentalId) {
+          const oldRental = state.rentals.find(r => r.id === dev.rentalId);
+          if (oldRental && oldRental.serialNumber === dev.serial) {
+            oldRental.serialNumber = "";
+          }
+        }
+
+        dev.rentalId = newRentalId || "";
+        if (newRentalId) {
+          const targetRental = state.rentals.find(r => r.id === newRentalId);
+          if (targetRental) {
+            targetRental.device = dev.type;
+            targetRental.viewing.viewingType = dev.type;
+            targetRental.serialNumber = dev.serial;
+          }
+        }
+        saveState();
+      }
+
+      function closeMobileSidebar() {
+        document.getElementById("sidebar").classList.remove("open");
+        document.getElementById("sidebarBackdrop").classList.remove("open");
+      }
+
+      function renderSidebar() {
+        const nav = document.getElementById("navStack");
+        nav.innerHTML = NAV_ITEMS.map(item => `
+          <button class="nav-item ${state.section === item.id ? "active" : ""}" data-nav="${item.id}" type="button">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">${item.icon}</svg>
+            <span>${item.label}</span>
+          </button>
+        `).join("");
+
+        nav.querySelectorAll("[data-nav]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const target = btn.dataset.nav;
+            closeMobileSidebar();
+            if (state.signedOut) return;
+            settingsDraft=null;
+            state.section = target;
+            state.selectedRentalId = null;
+            saveState();
+            render();
+          });
+        });
+      }
+
+      function renderHeader() {
+        const header = document.getElementById("topHeader");
+        const rental = state.selectedRentalId
+          ? state.rentals.find(r => r.id === state.selectedRentalId)
+          : null;
+
+        if (state.section === "rentals" && rental) {
+          const tabNames = {
+            leads: "Leads",
+            owner: "Owner Report",
+            availability: "Availability",
+            settings: "Settings"
+          };
+          header.innerHTML = `
+            <div class="top-header-inner">
+              <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
+              <button id="backRentalsBtn" class="back-arrow-btn" type="button" aria-label="Back to Rentals">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+              </button>
+              <div>
+                <div class="company-name">${esc(state.profile.name)}</div>
+                <h1 class="page-title">${esc(rental.address)} - ${tabNames[state.detailTab] || "Settings"}</h1>
+              </div>
+            </div>
+            <div class="header-tabs">
+              <button class="header-tab ${state.detailTab === "leads" ? "active" : ""}" data-tab="leads" type="button">LEADS</button>
+              <button class="header-tab ${state.detailTab === "owner" ? "active" : ""}" data-tab="owner" type="button">OWNER REPORT</button>
+              <button class="header-tab ${state.detailTab === "availability" ? "active" : ""}" data-tab="availability" type="button">AVAILABILITY</button>
+              <button class="header-tab ${state.detailTab === "settings" ? "active" : ""}" data-tab="settings" type="button">SETTINGS</button>
+            </div>
+          `;
+
+          document.getElementById("backRentalsBtn").addEventListener("click", () => {
+            state.selectedRentalId = null;
+            saveState();
+            render();
+          });
+
+          header.querySelectorAll("[data-tab]").forEach(btn => {
+            btn.addEventListener("click", () => {
+              state.detailTab = btn.dataset.tab;
+              saveState();
+              render();
+            });
+          });
+        } else if (state.section === "viewings") {
+          header.innerHTML = `
+            <div class="top-header-inner">
+              <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
+              <div>
+                <div class="company-name">${esc(state.profile.name)}</div>
+                <h1 class="page-title">Viewings</h1>
+              </div>
+            </div>
+            <div class="header-tabs">
+              <button class="header-tab ${state.viewingsTab === "upcoming" ? "active" : ""}" data-vtab="upcoming" type="button">UPCOMING VIEWINGS</button>
+              <button class="header-tab ${state.viewingsTab === "general" ? "active" : ""}" data-vtab="general" type="button">GENERAL AVAILABILITY</button>
+              <button class="header-tab ${state.viewingsTab === "calsync" ? "active" : ""}" data-vtab="calsync" type="button">CALENDAR SYNC</button>
+            </div>
+          `;
+          header.querySelectorAll("[data-vtab]").forEach(btn => {
+            btn.addEventListener("click", () => {
+              state.viewingsTab = btn.dataset.vtab;
+              saveState();
+              render();
+            });
+          });
+        } else if (state.section === "access") {
+          header.innerHTML = `
+            <div class="top-header-inner">
+              <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
+              <div>
+                <div class="company-name">${esc(state.profile.name)}</div>
+                <h1 class="page-title">Access</h1>
+              </div>
+            </div>
+            <div class="header-tabs">
+              ${[['CodeBox','CODEBOX'],['SentriLock','SENTRILOCK'],['PointCentral','POINTCENTRAL'],['contacts','AUTHORIZED CONTACTS']].map(([id,label])=>`<button class="header-tab ${state.accessTab===id?'active':''}" data-atab="${id}" type="button">${label}</button>`).join('')}
+            </div>
+          `;
+          header.querySelectorAll("[data-atab]").forEach(btn => {
+            btn.addEventListener("click", () => {
+              state.accessTab = btn.dataset.atab;
+              saveState();
+              render();
+            });
+          });
+        } else {
+          const navObj = NAV_ITEMS.find(n => n.id === state.section);
+          const title = navObj ? navObj.label : "Rentals";
+          header.innerHTML = `
+            <div class="top-header-inner">
+              <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
+              <div>
+                <div class="company-name">${esc(state.profile.name)}</div>
+                <h1 class="page-title">${title}</h1>
+              </div>
+            </div>
+            ${state.section === 'reports' ? `<div class="header-tabs"><button class="header-tab ${state.reportTab==='standard'?'active':''}" data-report-tab="standard" type="button">STANDARD</button><button class="header-tab ${state.reportTab==='scheduled'?'active':''}" data-report-tab="scheduled" type="button">SCHEDULED</button></div>` : ''}
+            ${state.section === "rentals" ? `
+              <button id="syncFab" class="sync-fab" type="button" title="Sync rentals from property management software" aria-label="Sync rentals">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+              </button>
+            ` : ""}
+          `;
+
+          byId('syncFab')?.addEventListener('click',wf.importRental);
+          header.querySelectorAll('[data-report-tab]').forEach(btn=>btn.onclick=()=>{state.reportTab=btn.dataset.reportTab;state.activeReport=null;saveState();render();});
+        }
+
+        const mobBtn = document.getElementById("mobileMenuBtn");
+        if (mobBtn) {
+          mobBtn.addEventListener("click", () => {
+            document.getElementById("sidebar").classList.toggle("open");
+            document.getElementById("sidebarBackdrop").classList.toggle("open");
+          });
+        }
+      }
+
+      function renderRentalsList() {
+        const canvas = document.getElementById("canvas");
+        const q = state.filters.search.trim().toLowerCase();
+        const users = Array.from(new Set(state.rentals.map(r => r.assignee)));
+
+        const visible = state.rentals.filter(r => {
+          if (!state.filters.showInactives && !r.active) return false;
+          if (state.filters.user !== "anyone" && r.assignee !== state.filters.user) return false;
+          if (q && !(r.address.toLowerCase().includes(q) || r.device.toLowerCase().includes(q) || r.assignee.toLowerCase().includes(q))) {
+            return false;
+          }
+          return true;
+        });
+
+        canvas.innerHTML = `
+          <div class="filter-bar">
+            <div class="filter-left">
+              <div class="mat-field">
+                <label class="mat-label" for="userFilter">User</label>
+                <select id="userFilter" class="mat-select">
+                  <option value="anyone" ${state.filters.user === "anyone" ? "selected" : ""}>anyone</option>
+                  ${users.map(u => `<option value="${esc(u)}" ${state.filters.user === u ? "selected" : ""}>${esc(u)}</option>`).join("")}
+                </select>
+              </div>
+
+              <label class="mat-switch" style="padding-bottom:6px;">
+                <input id="showInactivesInput" type="checkbox" ${state.filters.showInactives ? "checked" : ""} />
+                <span class="switch-track"></span>
+                <span>Show inactives</span>
+              </label>
+            </div>
+
+            <div class="search-box">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#757575" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input id="searchInput" type="search" placeholder="Search" value="${esc(state.filters.search)}" />
+            </div>
+          </div>
+
+          ${visible.length === 0 ? `
+            <div class="mat-card" style="text-align:center; padding:32px;">
+              <div style="font-size:16px; margin-bottom:8px;">No rentals match your current filters.</div>
+              <button id="clearFiltersBtn" class="btn-blue" type="button">Reset Filters</button>
+            </div>
+          ` : `
+            <div class="rentals-grid">
+              ${visible.map(r => `
+                <article class="prop-card ${r.active ? "" : "inactive-card"}">
+                  <div class="prop-photo-wrap" data-open-settings="${r.id}">
+                    <img src="${esc(r.photo)}" alt="${esc(r.address)}" />
+                    <div class="prop-badges">
+                      ${r.waitlist ? `
+                        <span class="tt-badge badge-waitlist">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="10" y1="15" x2="10" y2="9"></line>
+                            <line x1="14" y1="15" x2="14" y2="9"></line>
+                          </svg>
+                          Wait List
+                        </span>
+                      ` : ""}
+                      <span class="tt-badge badge-device">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                          <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+                          <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+                        </svg>
+                        ${esc(r.device)}
+                      </span>
+                      ${r.alerts > 0 ? `
+                        <span class="tt-badge badge-alert">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                          </svg>
+                          ${r.alerts} ${r.alerts === 1 ? "Alert" : "Alerts"}
+                        </span>
+                      ` : ""}
+                    </div>
+                    <div class="prop-scrim">${esc(r.address)}</div>
+                  </div>
+                  <div class="prop-footer">
+                    <span class="status-dot ${r.active ? "" : "off"}" title="${r.active ? "Active" : "Inactive"}"></span>
+                    <button class="card-link-btn" data-open-leads="${r.id}" type="button">LEADS</button>
+                    <button class="card-link-btn" data-open-avail="${r.id}" type="button">AVAIL</button>
+                    <button class="card-link-btn" data-open-settings="${r.id}" type="button">SETTINGS</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          `}
+        `;
+
+        document.getElementById("userFilter").addEventListener("change", e => {
+          state.filters.user = e.target.value;
+          saveState();
+          renderRentalsList();
+        });
+
+        document.getElementById("showInactivesInput").addEventListener("change", e => {
+          state.filters.showInactives = e.target.checked;
+          saveState();
+          renderRentalsList();
+        });
+
+        const searchEl = document.getElementById("searchInput");
+        searchEl.addEventListener("input", e => {
+          state.filters.search = e.target.value;
+          saveState();
+          renderRentalsList();
+          const re = document.getElementById("searchInput");
+          if (re) {
+            re.focus();
+            re.setSelectionRange(re.value.length, re.value.length);
+          }
+        });
+
+        const clearBtn = document.getElementById("clearFiltersBtn");
+        if (clearBtn) {
+          clearBtn.addEventListener("click", () => {
+            state.filters = { user: "anyone", showInactives: false, search: "" };
+            saveState();
+            renderRentalsList();
+          });
+        }
+
+        canvas.querySelectorAll("[data-open-settings]").forEach(el => {
+          el.addEventListener("click", () => {
+            state.selectedRentalId = el.dataset.openSettings;
+            state.detailTab = "settings";
+            state.activeSubnav = "status";
+            saveState();
+            render();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
+        });
+
+        canvas.querySelectorAll("[data-open-leads]").forEach(el => {
+          el.addEventListener("click", () => {
+            state.selectedRentalId = el.dataset.openLeads;
+            state.detailTab = "leads";
+            saveState();
+            render();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
+        });
+
+        canvas.querySelectorAll("[data-open-avail]").forEach(el => {
+          el.addEventListener("click", () => {
+            state.selectedRentalId = el.dataset.openAvail;
+            state.detailTab = "availability";
+            saveState();
+            render();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
+        });
+      }
+
+      function agentOptions(selected) {
+        return state.users.filter(u=>u.active || u.name===selected).map(u=>`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`).join('');
+      }
+      function renderRentalSettings(original) {
+        if (!settingsDraft || settingsDraft.id!==original.id) settingsDraft=structuredClone(original);
+        const r=settingsDraft;
+        const canvas = document.getElementById("canvas");
+        const maxInstr = 200;
+        const remaining = Math.max(0, maxInstr - (r.viewing.instructions || "").length);
+        const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
+        const lim = r.viewing.limits || defaultShowingLimits();
+        const ipRemaining = Math.max(0, maxInstr - (ip.instructions || "").length);
+
+        const assignedDev = state.devices.find(d => d.serial === r.serialNumber);
+        const selectableDevices = state.devices.filter(d => !d.rentalId || d.rentalId === r.id);
+
+        canvas.innerHTML = `
+          <div class="settings-layout">
+            <!-- Left Sticky Sub-Navigation -->
+            <nav class="subnav-sticky" aria-label="Settings sections">
+              <button class="subnav-link ${state.activeSubnav === "status" ? "active" : ""}" data-jump="status" type="button">Status</button>
+              <button class="subnav-link ${state.activeSubnav === "marketing" ? "active" : ""}" data-jump="marketing" type="button">Marketing</button>
+              <button class="subnav-link ${state.activeSubnav === "qualifying" ? "active" : ""}" data-jump="qualifying" type="button">Qualifying</button>
+              <button class="subnav-link ${state.activeSubnav === "viewing" ? "active" : ""}" data-jump="viewing" type="button">Viewing</button>
+              <button class="subnav-link ${state.activeSubnav === "fees" ? "active" : ""}" data-jump="fees" type="button">Application &amp; Fees</button>
+            </nav>
+
+            <!-- Right Main Column Cards -->
+            <div class="settings-stack">
+              <!-- 1. STATUS CARD (0125-rental-settings.jpg) -->
+              <section id="sec-status" class="mat-card">
+                <h2 class="mat-card-title">Status</h2>
+                <div class="grid-2" style="align-items:center;">
+                  <div class="row-inline">
+                    <span class="status-dot ${r.active ? "" : "off"}"></span>
+                    <label class="mat-switch">
+                      <input id="stActive" type="checkbox" ${r.active ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>${r.active ? "Rental is active" : "Rental is inactive"}</span>
+                    </label>
+                  </div>
+                  <div class="mat-field">
+                    <div class="row-inline" style="justify-content:space-between;">
+                      <label class="mat-label" for="stAssignee">This rental is assigned to</label>
+                      <span class="help-q" title="Leads and notifications for this property route to the assigned user.">?</span>
+                    </div>
+                    <select id="stAssignee" class="mat-select">
+                      ${agentOptions(r.assignee)}
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <!-- 2. MARKETING CARD (0125, 0142, 0200, 0215) -->
+              <section id="sec-marketing" class="mat-card">
+                <h2 class="mat-card-title">Marketing</h2>
+
+                <div class="sub-heading first">Lease Details</div>
+                <div class="grid-2">
+                  <div class="mat-field">
+                    <label class="mat-label" for="mkTerm">Lease Term</label>
+                    <select id="mkTerm" class="mat-select">
+                      <option value="One Year" ${r.leaseTerm === "One Year" ? "selected" : ""}>One Year</option>
+                      <option value="6 Months" ${r.leaseTerm === "6 Months" ? "selected" : ""}>6 Months</option>
+                      <option value="Month-to-Month" ${r.leaseTerm === "Month-to-Month" ? "selected" : ""}>Month-to-Month</option>
+                    </select>
+                  </div>
+                  <div class="imported-box">
+                    <div class="imported-head"><span>Rent</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-val">${r.imported ? `$ ${r.rent}` : `<input class="mat-input" aria-label="Rent" id="field-rent" type="number" value="${esc(r.rent)}" min="0" step="any">`}</div>
+                  </div>
+                  <div class="imported-box">
+                    <div class="imported-head"><span>Deposit</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-val">${r.imported ? `$ ${r.deposit}` : `<input class="mat-input" aria-label="Deposit" id="field-deposit" type="number" value="${esc(r.deposit)}" min="0" step="any">`}</div>
+                  </div>
+                  <div class="imported-box">
+                    <div class="imported-head"><span>Date Available for Move-in</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-val">${r.imported ? `${esc(r.dateAvailable)}` : `<input class="mat-input" aria-label="Date Available for Move-in" id="field-dateAvailable" type="date" value="${esc(r.dateAvailable)}">`}</div>
+                  </div>
+                </div>
+
+                <div class="sub-heading">Property Details</div>
+                <div class="grid-2" style="margin-bottom:14px;">
+                  <div class="mat-field">
+                    <label class="mat-label" for="mkType">Property Type</label>
+                    <select id="mkType" class="mat-select">
+                      <option value="Single Family House" ${r.propertyType === "Single Family House" ? "selected" : ""}>Single Family House</option>
+                      <option value="Townhouse" ${r.propertyType === "Townhouse" ? "selected" : ""}>Townhouse</option>
+                      <option value="Apartment / Condo" ${r.propertyType === "Apartment / Condo" ? "selected" : ""}>Apartment / Condo</option>
+                    </select>
+                  </div>
+                  <div class="grid-3" style="gap:8px;">
+                    <div class="imported-box">
+                      <div class="imported-head"><span>Beds</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
+                      <div class="imported-val">${r.imported ? `${r.bedrooms}` : `<input class="mat-input" aria-label="Beds" id="field-bedrooms" type="number" value="${esc(r.bedrooms)}" min="0" step="any">`}</div>
+                    </div>
+                    <div class="imported-box">
+                      <div class="imported-head"><span>Baths</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
+                      <div class="imported-val">${r.imported ? `${esc(r.bathrooms)}` : `<input class="mat-input" aria-label="Baths" id="field-bathrooms" type="number" value="${esc(r.bathrooms)}" min="0" step="any">`}</div>
+                    </div>
+                    <div class="imported-box">
+                      <div class="imported-head"><span>Sq Ft</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
+                      <div class="imported-val">${r.imported ? `${r.sqft}` : `<input class="mat-input" aria-label="Sq Ft" id="field-sqft" type="number" value="${esc(r.sqft)}" min="0" step="any">`}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mat-field" style="margin-bottom:14px;">
+                  <label class="mat-label" for="mkTitle">Descriptive Title</label>
+                  <input id="mkTitle" class="mat-input" type="text" value="${esc(r.customTitle)}" />
+                </div>
+                <div class="mat-field" style="margin-bottom:16px;">
+                  <label class="mat-label" for="mkDesc">Description</label>
+                  <textarea id="mkDesc" class="mat-textarea">${esc(r.description)}</textarea>
+                </div>
+
+                <div class="sub-heading">Photos</div>
+                <div class="grid-4" style="margin-bottom:16px;">
+                  <div class="photo-thumb-item"><img src="${esc(r.photo)}" alt="Exterior photo 1"/></div>
+                  <div class="photo-thumb-item"><img src="assets/kitchen-sample.jpg" alt="Practice kitchen"/></div>
+                  <div class="photo-thumb-item"><img src="assets/living-sample.jpg" alt="Practice interior"/></div>
+                  <div class="photo-thumb-item"><img src="${PHOTOS.cedar}" alt="Exterior photo 4"/></div>
+                </div>
+
+                <div class="accordion-row">
+                  <button class="accordion-btn" type="button"><span>Amenities</span><span>▾</span></button>
+                  <div class="accordion-body">Central A/C, Dishwasher, Washer/Dryer Hookups, Attached Garage, Fenced Yard</div>
+                </div>
+                <div class="accordion-row">
+                  <button class="accordion-btn" type="button"><span>Utilities Included</span><span>▾</span></button>
+                  <div class="accordion-body">Trash &amp; HOA exterior maintenance included; tenant pays water, gas, and electric.</div>
+                </div>
+                <div class="accordion-row">
+                  <button class="accordion-btn" type="button"><span>Address</span><span>▾</span></button>
+                  <div class="accordion-body">${esc(r.address)} (Imported from PMS)</div>
+                </div>
+
+                <div class="sub-heading">Syndication</div>
+                <div class="grid-3">
+                  ${SYNDICATION_SITES.map(site => `
+                    <div class="row-inline" style="justify-content:space-between;">
+                      <label class="mat-switch">
+                        <input class="syn-toggle" data-site="${esc(site)}" type="checkbox" ${r.syndication[site] ? "checked" : ""} />
+                        <span class="switch-track"></span>
+                        <span style="font-size:13px;">${esc(site)}</span>
+                      </label>
+                      <span class="help-q" title="Syndicate this listing to ${esc(site)}">?</span>
+                    </div>
+                  `).join("")}
+                </div>
+              </section>
+
+              <!-- 3. QUALIFYING CARD (0232-qualifying.jpg, 0253-custom-questions.jpg) -->
+              <section id="sec-qualifying" class="mat-card">
+                <h2 class="mat-card-title">Qualifying</h2>
+
+                <div class="sub-heading first">Restrictions</div>
+                <div class="toggle-list">
+                  <div class="row-inline">
+                    <label class="mat-switch">
+                      <input id="qReqMoveIn" type="checkbox" ${r.qualifying.reqMoveIn ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Require move-in within</span>
+                    </label>
+                    <input id="qMoveInDays" class="inline-num" type="number" min="7" max="180" value="${r.qualifying.moveInDays}" />
+                    <span>days of date available</span>
+                  </div>
+
+                  <div class="row-inline">
+                    <label class="mat-switch">
+                      <input id="qReqIncome" type="checkbox" ${r.qualifying.reqIncome ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Require an income to rent ratio of at least</span>
+                    </label>
+                    <input id="qIncomeRatio" class="inline-num" type="number" min="1" max="5" step="0.5" value="${r.qualifying.incomeRatio}" />
+                    <span>times rent</span>
+                  </div>
+
+                  <label class="mat-switch">
+                    <input id="qCosigner" type="checkbox" ${r.qualifying.allowCosigner ? "checked" : ""} />
+                    <span class="switch-track"></span>
+                    <span>Allow leads with a co-signer</span>
+                  </label>
+
+                  <label class="mat-switch">
+                    <input id="qVouchers" type="checkbox" ${r.qualifying.allowVouchers ? "checked" : ""} />
+                    <span class="switch-track"></span>
+                    <span>Allow leads with government housing vouchers</span>
+                  </label>
+
+                  <div>
+                    <label class="mat-switch">
+                      <input id="qPets" type="checkbox" ${r.qualifying.allowPets ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Allow leads with pets</span>
+                    </label>
+                    ${r.qualifying.allowPets ? `
+                      <div class="blue-subpanel">
+                        <div class="mat-field" style="max-width:200px;">
+                          <label class="mat-label" for="qMaxPets">Maximum Number of Pets</label>
+                          <input id="qMaxPets" class="mat-input" type="number" min="1" max="6" value="${r.qualifying.maxPets || 2}" />
+                        </div>
+                        <label class="mat-switch">
+                          <input id="qCats" type="checkbox" ${r.qualifying.allowCats ? "checked" : ""} />
+                          <span class="switch-track"></span>
+                          <span>Allow cats</span>
+                        </label>
+                        <label class="mat-switch">
+                          <input id="qSmallDogs" type="checkbox" ${r.qualifying.allowSmallDogs ? "checked" : ""} />
+                          <span class="switch-track"></span>
+                          <span>Allow small dogs (under 20 lbs)</span>
+                        </label>
+                        <label class="mat-switch">
+                          <input id="qLargeDogs" type="checkbox" ${r.qualifying.allowLargeDogs ? "checked" : ""} />
+                          <span class="switch-track"></span>
+                          <span>Allow large dogs</span>
+                        </label>
+                      </div>
+                    ` : ""}
+                  </div>
+
+                  <label class="mat-switch">
+                    <input id="qBankruptcy" type="checkbox" ${r.qualifying.rejectBankruptcy ? "checked" : ""} />
+                    <span class="switch-track"></span>
+                    <span>Reject leads with a bankruptcy</span>
+                  </label>
+
+                  <label class="mat-switch">
+                    <input id="qEviction" type="checkbox" ${r.qualifying.rejectEviction ? "checked" : ""} />
+                    <span class="switch-track"></span>
+                    <span>Reject leads with an eviction</span>
+                  </label>
+
+                  <label class="mat-switch">
+                    <input id="qFelony" type="checkbox" ${r.qualifying.rejectFelony ? "checked" : ""} />
+                    <span class="switch-track"></span>
+                    <span>Reject leads with a felony</span>
+                  </label>
+                </div>
+
+                <div class="sub-heading">Custom Questions</div>
+                <div class="toggle-list">
+                  <div>
+                    <label class="mat-switch">
+                      <input id="cqCredit" type="checkbox" ${r.qualifying.qCredit700 ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Is your credit score over 700?</span>
+                    </label>
+                    ${r.qualifying.qCredit700 ? `
+                      <div class="blue-subpanel" style="gap:6px; font-size:13.5px; color:var(--muted);">
+                        <div>1. Yes</div>
+                        <div>2. no <span style="color:var(--alert-red); font-weight:500;">(knockout)</span></div>
+                      </div>
+                    ` : ""}
+                  </div>
+
+                  <div>
+                    <label class="mat-switch">
+                      <input id="cqSmoke" type="checkbox" ${r.qualifying.qNoSmoking ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Do you understand this is a strictly non-smoking property?</span>
+                    </label>
+                    ${r.qualifying.qNoSmoking ? `
+                      <div class="blue-subpanel" style="gap:6px; font-size:13.5px; color:var(--muted);">
+                        <div>1. Yes</div>
+                        <div>2. No <span style="color:var(--alert-red); font-weight:500;">(knockout)</span></div>
+                      </div>
+                    ` : ""}
+                  </div>
+                </div>
+                <label class="mat-switch"><input id="qJudgment" type="checkbox" ${r.qualifying.rejectJudgment?'checked':''}><span class="switch-track"></span><span>Civil judgment restriction</span></label>
+                <div class="sub-heading">Custom Questions</div>
+                <div class="practice-actions"><button type="button" class="btn-outline" id="add-custom-question">+ Add question</button></div>
+                ${r.qualifying.questions.map((q,i)=>`<div class="grid-3 practice-grid-gap"><input class="mat-input" aria-label="Question" data-question-label="${i}" value="${esc(q.label)}"><select class="mat-select" aria-label="Required answer" data-question-answer="${i}"><option>Yes</option><option ${q.answer==='No'?'selected':''}>No</option></select><button class="btn-flat" type="button" data-question-remove="${i}">Remove</button></div>`).join('')}
+              </section>
+
+              <!-- 4. VIEWING CARD (0314-wait-list.jpg, 0548-device-assignment.jpg, 0605-in-person.jpg, 0620-showing-limit.jpg) -->
+              <section id="sec-viewing" class="mat-card">
+                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
+                  <h2 class="mat-card-title" style="margin:0;">Viewing</h2>
+                  <button id="jumpToRentalAvailBtn" class="btn-flat btn-sm" type="button">Edit Availability Schedule →</button>
+                </div>
+
+                <div class="sub-heading first">Viewing Methods</div>
+                <div class="toggle-list">
+                  <!-- Wait List -->
+                  <div>
+                    <label class="mat-switch">
+                      <input id="vwWaitlist" type="checkbox" ${r.waitlist ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Wait List (don't allow viewings yet)</span>
+                    </label>
+                    ${r.waitlist ? `
+                      <div class="blue-subpanel">
+                        <div class="mat-field">
+                          <div class="row-inline" style="justify-content:space-between;">
+                            <label class="mat-label" for="vwWaitMsg">Message to prospective tenants (optional)</label>
+                            <span class="help-q" title="Displayed to leads when they join the wait list.">?</span>
+                          </div>
+                          <input id="vwWaitMsg" class="mat-input" type="text" value="${esc(r.waitlistMessage)}" />
+                        </div>
+                      </div>
+                    ` : ""}
+                  </div>
+
+                  <!-- Self-Access Viewings & Device Assignment (0548-device-assignment.jpg) -->
+                  <div>
+                    <label class="mat-switch">
+                      <input id="vwSelfAccess" type="checkbox" ${r.viewing.selfAccess ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Self-Access Viewings</span>
+                    </label>
+                    ${r.viewing.selfAccess ? `
+                      <div class="blue-subpanel">
+                        <div class="grid-2">
+                          <div class="mat-field">
+                            <label class="mat-label" for="vwType">Viewing Type</label>
+                            <select id="vwType" class="mat-select">
+                              <option value="CodeBox" ${r.viewing.viewingType === "CodeBox" ? "selected" : ""}>CodeBox</option>
+                              <option value="SentriLock" ${r.viewing.viewingType === "SentriLock" ? "selected" : ""}>SentriLock</option>
+                              <option value="Lockbox" ${r.viewing.viewingType === "Lockbox" ? "selected" : ""}>Lockbox</option>
+                            </select>
+                          </div>
+                          <div class="mat-field">
+                            <label class="mat-label" for="vwApproval">Viewing Approval</label>
+                            <select id="vwApproval" class="mat-select">
+                              <option value="Set Appointments" ${r.viewing.viewingApproval === "Set Appointments" ? "selected" : ""}>Set Appointments</option>
+                              <option value="Require Manual Approval" ${r.viewing.viewingApproval === "Require Manual Approval" ? "selected" : ""}>Require Manual Approval</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div class="grid-2" style="align-items:end;">
+                          <div class="mat-field">
+                            <div class="row-inline" style="justify-content:space-between;">
+                              <label class="mat-label" for="vwAssignedDevice">Assigned Access Device (from Inventory)</label>
+                              <span class="help-q" title="Assign an available lockbox or electronic access device from your Access inventory.">?</span>
+                            </div>
+                            <select id="vwAssignedDevice" class="mat-select">
+                              <option value="">-- Unassigned --</option>
+                              ${selectableDevices.map(d => `
+                                <option value="${d.id}" ${assignedDev && assignedDev.id === d.id ? "selected" : ""}>
+                                  ${esc(d.type)} — ${esc(d.serial)} (${esc(d.battery)})
+                                </option>
+                              `).join("")}
+                            </select>
+                          </div>
+                          <div class="row-inline" style="justify-content:flex-start;">
+                            <div class="mat-field" style="flex:1;">
+                              <label class="mat-label" for="vwSerial">Self-Access ${esc(r.viewing.viewingType)} Serial Number</label>
+                              <input id="vwSerial" class="mat-input" type="text" value="${esc(r.serialNumber)}" />
+                            </div>
+                            <button id="manageDevicesLink" class="btn-flat btn-sm" type="button">Manage Devices</button>
+                          </div>
+                        </div>
+
+                        <div class="mat-field">
+                          <label class="mat-label" for="vwInstr">Self-Access Viewing Instructions (optional)</label>
+                          <textarea id="vwInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(r.viewing.instructions)}</textarea>
+                          <div id="vwCounter" class="char-counter">${remaining} remaining</div>
+                        </div>
+
+                        <label class="mat-switch">
+                          <input id="vwReqId" type="checkbox" ${r.viewing.requireId ? "checked" : ""} />
+                          <span class="switch-track"></span>
+                          <span>Require government ID to be uploaded?</span>
+                        </label>
+                      </div>
+                    ` : ""}
+                  </div>
+
+                  <!-- In-Person Viewings (0605-in-person.jpg) -->
+                  <div>
+                    <label class="mat-switch">
+                      <input id="vwInPerson" type="checkbox" ${ip.enabled ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>In-Person Viewings</span>
+                    </label>
+                    ${ip.enabled ? `
+                      <div class="blue-subpanel">
+                        <div class="grid-2">
+                          <div class="mat-field">
+                            <div class="row-inline" style="justify-content:space-between;">
+                              <label class="mat-label" for="ipAgent">Showing Agent</label>
+                              <span class="help-q" title="In-person showings will use this user's General Availability unless overridden on the Availability tab.">?</span>
+                            </div>
+                            <select id="ipAgent" class="mat-select">
+                              ${agentOptions(ip.showingAgent)}
+                              <option value="Any Available Agent" ${ip.showingAgent === "Any Available Agent" ? "selected" : ""}>Any Available Agent</option>
+                            </select>
+                          </div>
+                          <div class="mat-field">
+                            <label class="mat-label" for="ipDuration">Showing Duration</label>
+                            <select id="ipDuration" class="mat-select">
+                              <option value="15" ${ip.durationMinutes === 15 ? "selected" : ""}>15 minutes</option>
+                              <option value="30" ${ip.durationMinutes === 30 ? "selected" : ""}>30 minutes</option>
+                              <option value="45" ${ip.durationMinutes === 45 ? "selected" : ""}>45 minutes</option>
+                              <option value="60" ${ip.durationMinutes === 60 ? "selected" : ""}>60 minutes</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div class="grid-2">
+                          <div class="mat-field">
+                            <label class="mat-label" for="ipBuffer">Travel Buffer Between Showings</label>
+                            <select id="ipBuffer" class="mat-select">
+                              <option value="0" ${ip.bufferMinutes === 0 ? "selected" : ""}>None</option>
+                              <option value="15" ${ip.bufferMinutes === 15 ? "selected" : ""}>15 minutes</option>
+                              <option value="30" ${ip.bufferMinutes === 30 ? "selected" : ""}>30 minutes</option>
+                              <option value="45" ${ip.bufferMinutes === 45 ? "selected" : ""}>45 minutes</option>
+                              <option value="60" ${ip.bufferMinutes === 60 ? "selected" : ""}>60 minutes</option>
+                            </select>
+                          </div>
+                          <div class="mat-field">
+                            <label class="mat-label" for="ipNotice">Minimum Advance Notice</label>
+                            <select id="ipNotice" class="mat-select">
+                              <option value="1" ${ip.advanceNoticeHours === 1 ? "selected" : ""}>1 hour</option>
+                              <option value="2" ${ip.advanceNoticeHours === 2 ? "selected" : ""}>2 hours</option>
+                              <option value="4" ${ip.advanceNoticeHours === 4 ? "selected" : ""}>4 hours</option>
+                              <option value="12" ${ip.advanceNoticeHours === 12 ? "selected" : ""}>12 hours</option>
+                              <option value="24" ${ip.advanceNoticeHours === 24 ? "selected" : ""}>24 hours</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div class="row-inline">
+                          <label class="mat-switch">
+                            <input id="ipCluster" type="checkbox" ${ip.clusterShowings ? "checked" : ""} />
+                            <span class="switch-track"></span>
+                            <span>Cluster showings near existing appointments</span>
+                          </label>
+                          <span class="help-q" title="Prioritizes time slots adjacent to already booked showings to minimize driving.">?</span>
+                        </div>
+
+                        <div class="row-inline">
+                          <label class="mat-switch">
+                            <input id="ipGroup" type="checkbox" ${ip.allowGroupShowings ? "checked" : ""} />
+                            <span class="switch-track"></span>
+                            <span>Allow group showings (up to</span>
+                          </label>
+                          <input id="ipMaxLeads" class="inline-num" type="number" min="2" max="15" value="${ip.maxLeadsPerSlot || 3}" ${ip.allowGroupShowings ? "" : "disabled"} />
+                          <span>leads per time slot)</span>
+                        </div>
+
+                        <label class="mat-switch">
+                          <input id="ipConfirm" type="checkbox" ${ip.requireConfirmation ? "checked" : ""} />
+                          <span class="switch-track"></span>
+                          <span>Require leads to confirm 2 hours before appointment (auto-cancel no-responses)</span>
+                        </label>
+
+                        <label class="mat-switch"><input id="ipNotify" type="checkbox" ${ip.notifyOccupants?'checked':''}><span class="switch-track"></span><span>Record practice notice for current occupants</span></label>
+                        <div class="mat-field">
+                          <label class="mat-label" for="ipInstr">In-Person Viewing Instructions (optional)</label>
+                          <textarea id="ipInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(ip.instructions)}</textarea>
+                          <div id="ipCounter" class="char-counter">${ipRemaining} remaining</div>
+                        </div>
+                      </div>
+                    ` : ""}
+                  </div>
+                </div>
+
+                <!-- Showing Limits (0620-showing-limit.jpg) -->
+                <div class="sub-heading">Showing Limits &amp; Scheduling Rules</div>
+                <div class="toggle-list">
+                  <div class="row-inline">
+                    <label class="mat-switch">
+                      <input id="limUpcoming" type="checkbox" ${lim.limitUpcoming ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Limit total upcoming showings to</span>
+                    </label>
+                    <input id="limMaxUpcoming" class="inline-num" type="number" min="1" max="50" value="${lim.maxUpcoming}" />
+                    <span>active appointments</span>
+                    <span class="help-q" title="Automatically pauses new bookings once this number of upcoming showings is reached.">?</span>
+                  </div>
+
+                  <div class="row-inline">
+                    <label class="mat-switch">
+                      <input id="limPerDay" type="checkbox" ${lim.limitPerDay ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Limit showings per day to</span>
+                    </label>
+                    <input id="limMaxPerDay" class="inline-num" type="number" min="1" max="20" value="${lim.maxPerDay}" />
+                    <span>showings per day</span>
+                  </div>
+
+                  <div class="row-inline">
+                    <label class="mat-switch">
+                      <input id="limMinDays" type="checkbox" ${lim.minDaysBetweenEnabled ? "checked" : ""} />
+                      <span class="switch-track"></span>
+                      <span>Require at least</span>
+                    </label>
+                    <input id="limMinDaysVal" class="inline-num" type="number" min="1" max="14" value="${lim.minDaysBetween}" />
+                    <span>day(s) between showings</span>
+                  </div>
+
+                  <label class="mat-switch">
+                    <input id="limNoDupes" type="checkbox" ${lim.preventDuplicates ? "checked" : ""} />
+                    <span class="switch-track"></span>
+                    <span>Prevent duplicate active showings from the same lead</span>
+                  </label>
+
+                  <div class="grid-2" style="margin-top:4px;">
+                    <div class="mat-field">
+                      <label class="mat-label" for="limSelfNotice">Minimum Advance Notice (Self-Access)</label>
+                      <select id="limSelfNotice" class="mat-select">
+                        ${["None (Immediate)", "30 minutes", "1 hour", "2 hours", "4 hours", "24 hours"].map(opt => `
+                          <option value="${opt}" ${lim.selfAccessAdvanceNotice === opt ? "selected" : ""}>${opt}</option>
+                        `).join("")}
+                      </select>
+                    </div>
+                    <div class="mat-field">
+                      <label class="mat-label" for="limMaxAdv">How Far in Advance Leads Can Schedule (Days)</label>
+                      <input id="limMaxAdv" class="mat-input" type="number" min="1" max="30" value="${lim.maxDaysAdvance}" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- 5. APPLICATION & FEES CARD -->
+              <section id="sec-fees" class="mat-card">
+                <h2 class="mat-card-title">Application &amp; Fees</h2>
+                <div class="grid-3">
+                  <label class="mat-field"><span class="mat-label">Application Link</span><input id="appLink" class="mat-input" type="url" value="${esc(r.applicationLink)}"></label>
+                  <label class="mat-field"><span class="mat-label">Application Fee</span><input id="appFee" class="mat-input" type="number" min="0" value="${r.applicationFee ?? state.profile.fee}"></label>
+                  <label class="mat-field"><span class="mat-label">Lease Admin Fee</span><input id="adminFee" class="mat-input" type="number" min="0" value="${r.adminFee || 0}"></label>
+                </div>
+              </section>
+              <div class="practice-actions"><button id="saveSettingsBtn" class="btn-orange" type="button">Save Rental Settings</button><button id="cancelSettingsBtn" class="btn-ghost" type="button">Cancel</button><span id="setting-error" class="practice-error" role="alert"></span></div>
+
+            </div>
+          </div>
+        `;
+
+        // Left sub-nav anchor jumps
+        canvas.querySelectorAll("[data-jump]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            state.activeSubnav = btn.dataset.jump;
+            canvas.querySelectorAll("[data-jump]").forEach(b => b.classList.toggle("active", b === btn));
+            const target = document.getElementById("sec-" + btn.dataset.jump);
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        });
+
+        // Accordions
+        canvas.querySelectorAll(".accordion-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            btn.parentElement.classList.toggle("open");
+          });
+        });
+
+        // Live bindings
+        const bindCheck = (id, fn, rerender = false) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener("change", () => {
+            fn(el.checked);
+            if (rerender) renderRentalSettings(r);
+          });
+        };
+
+        const bindVal = (id, fn, rerender = false) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener("change", () => {
+            fn(el.value);
+            if (rerender) renderRentalSettings(r);
+          });
+        };
+
+        bindCheck("stActive", v => { r.active = v; }, true);
+        bindVal("stAssignee", v => { r.assignee = v; });
+        bindVal("mkTerm", v => { r.leaseTerm = v; });
+        bindVal("mkType", v => { r.propertyType = v; });
+        bindVal("mkTitle", v => { r.customTitle = v; });
+        bindVal("mkDesc", v => { r.description = v; });
+
+        canvas.querySelectorAll(".syn-toggle").forEach(cb => {
+          cb.addEventListener("change", () => {
+            r.syndication[cb.dataset.site] = cb.checked;
+          });
+        });
+
+        bindCheck("qReqMoveIn", v => { r.qualifying.reqMoveIn = v; });
+        bindVal("qMoveInDays", v => { r.qualifying.moveInDays = Number(v) || 90; });
+        bindCheck("qReqIncome", v => { r.qualifying.reqIncome = v; });
+        bindVal("qIncomeRatio", v => { r.qualifying.incomeRatio = Number(v) || 3; });
+        bindCheck("qCosigner", v => { r.qualifying.allowCosigner = v; });
+        bindCheck("qVouchers", v => { r.qualifying.allowVouchers = v; });
+        bindCheck("qPets", v => { r.qualifying.allowPets = v; }, true);
+        bindVal("qMaxPets", v => { r.qualifying.maxPets = Number(v) || 1; });
+        bindCheck("qCats", v => { r.qualifying.allowCats = v; });
+        bindCheck("qSmallDogs", v => { r.qualifying.allowSmallDogs = v; });
+        bindCheck("qLargeDogs", v => { r.qualifying.allowLargeDogs = v; });
+        bindCheck("qBankruptcy", v => { r.qualifying.rejectBankruptcy = v; });
+        bindCheck("qEviction", v => { r.qualifying.rejectEviction = v; });
+        bindCheck("qFelony", v => { r.qualifying.rejectFelony = v; });
+        bindCheck("cqCredit", v => { r.qualifying.qCredit700 = v; }, true);
+        bindCheck("cqSmoke", v => { r.qualifying.qNoSmoking = v; }, true);
+
+        // Viewing: Wait List & Self-Access & Device Assignment
+        bindCheck("vwWaitlist", v => { r.waitlist = v; }, true);
+        bindVal("vwWaitMsg", v => { r.waitlistMessage = v; });
+        bindCheck("vwSelfAccess", v => { r.viewing.selfAccess = v; }, true);
+        bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v; }, true);
+        bindVal("vwApproval", v => { r.viewing.viewingApproval = v; });
+        bindVal("vwSerial", v => { r.serialNumber = v; });
+        bindCheck("vwReqId", v => { r.viewing.requireId = v; });
+
+        const devSel=byId('vwAssignedDevice');
+        devSel?.addEventListener('change',()=>{
+          const device=state.devices.find(d=>d.id===devSel.value);
+          r.serialNumber=device?.serial || '';
+          if(device){r.device=device.type;r.viewing.viewingType=device.type;}
+          renderRentalSettings(r);
+        });
+
+        const manageDevBtn = document.getElementById("manageDevicesLink");
+        if (manageDevBtn) {
+          manageDevBtn.addEventListener("click", () => {
+            state.section = "access";
+            state.accessTab = ["SentriLock","PointCentral"].includes(r.device) ? r.device : "CodeBox";
+            state.selectedRentalId = null;
+            render();
+          });
+        }
+
+        const jumpAvailBtn = document.getElementById("jumpToRentalAvailBtn");
+        if (jumpAvailBtn) {
+          jumpAvailBtn.addEventListener("click", () => {
+            state.detailTab = "availability";
+            render();
+          });
+        }
+
+        const instrEl = document.getElementById("vwInstr");
+        if (instrEl) {
+          instrEl.addEventListener("input", () => {
+            r.viewing.instructions = instrEl.value;
+            const rem = Math.max(0, maxInstr - instrEl.value.length);
+            const counter = document.getElementById("vwCounter");
+            if (counter) counter.textContent = `${rem} remaining`;
+          });
+        }
+
+        // Viewing: In-Person Showings (0605-in-person.jpg)
+        bindCheck("vwInPerson", v => { ip.enabled = v; r.viewing.inPerson = ip; }, true);
+        bindVal("ipAgent", v => { ip.showingAgent = v; });
+        bindVal("ipDuration", v => { ip.durationMinutes = Number(v) || 30; });
+        bindVal("ipBuffer", v => { ip.bufferMinutes = Number(v) || 0; });
+        bindVal("ipNotice", v => { ip.advanceNoticeHours = Number(v) || 2; });
+        bindCheck("ipCluster", v => { ip.clusterShowings = v; });
+        bindCheck("ipGroup", v => { ip.allowGroupShowings = v; }, true);
+        bindVal("ipMaxLeads", v => { ip.maxLeadsPerSlot = Number(v) || 3; });
+        bindCheck("ipConfirm", v => { ip.requireConfirmation = v; });
+        bindCheck('ipNotify',v=>{ip.notifyOccupants=v;});
+
+        const ipInstrEl = document.getElementById("ipInstr");
+        if (ipInstrEl) {
+          ipInstrEl.addEventListener("input", () => {
+            ip.instructions = ipInstrEl.value;
+            const rem = Math.max(0, maxInstr - ipInstrEl.value.length);
+            const counter = document.getElementById("ipCounter");
+            if (counter) counter.textContent = `${rem} remaining`;
+          });
+        }
+
+        // Viewing: Showing Limits (0620-showing-limit.jpg)
+        bindCheck("limUpcoming", v => { lim.limitUpcoming = v; });
+        bindVal("limMaxUpcoming", v => { lim.maxUpcoming = Number(v) || 5; });
+        bindCheck("limPerDay", v => { lim.limitPerDay = v; });
+        bindVal("limMaxPerDay", v => { lim.maxPerDay = Number(v) || 3; });
+        bindCheck("limMinDays", v => { lim.minDaysBetweenEnabled = v; });
+        bindVal("limMinDaysVal", v => { lim.minDaysBetween = Number(v) || 1; });
+        bindCheck("limNoDupes", v => { lim.preventDuplicates = v; });
+        bindVal("limSelfNotice", v => { lim.selfAccessAdvanceNotice = v; });
+        bindVal("limMaxAdv", v => { lim.maxDaysAdvance = Number(v) || 7; });
+
+        for (const key of ['rent','deposit','dateAvailable','bedrooms','bathrooms','sqft']) bindVal('field-'+key,v=>{r[key]=key==='dateAvailable'?v:Number(v);});
+        bindVal('appLink',v=>{r.applicationLink=v;});
+        bindVal('appFee',v=>{r.applicationFee=Number(v);});
+        bindVal('adminFee',v=>{r.adminFee=Number(v);});
+        bindCheck('qJudgment',v=>{r.qualifying.rejectJudgment=v;});
+        byId('add-custom-question')?.addEventListener('click',()=>{
+          r.qualifying.questions.push({label:'',answer:'Yes'});renderRentalSettings(r);
+        });
+        canvas.querySelectorAll('[data-question-label]').forEach(n=>n.oninput=()=>{r.qualifying.questions[Number(n.dataset.questionLabel)].label=n.value;});
+        canvas.querySelectorAll('[data-question-answer]').forEach(n=>n.onchange=()=>{r.qualifying.questions[Number(n.dataset.questionAnswer)].answer=n.value;});
+        canvas.querySelectorAll('[data-question-remove]').forEach(n=>n.onclick=()=>{r.qualifying.questions.splice(Number(n.dataset.questionRemove),1);renderRentalSettings(r);});
+        byId('saveSettingsBtn').onclick=()=>{
+          if ([...canvas.querySelectorAll('input[type=number],input[type=date],input[type=url]')].some(input=>!input.checkValidity()) || !r.dateAvailable) {
+            byId('setting-error').textContent='Check the dates, amounts and application URL.';return;
+          }
+          const current=state.rentals.find(item=>item.id===r.id);
+          const oldWaitlist=current.waitlist;
+          const selected=state.devices.find(d=>d.serial===r.serialNumber);
+          for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'');
+          r.qualifying.questions=r.qualifying.questions.filter(q=>q.label.trim());
+          // Availability and lead operations can update independently of this edit form.
+          const {availability,leads,ownerReport}=current;
+          Object.assign(current,r,{availability,leads,ownerReport});
+          if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id);
+          if(oldWaitlist && !r.waitlist) current.leads.filter(l=>l.status==='Wait List').forEach(l=>{
+            l.status='Pre-Qualified';wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
+          });
+          settingsDraft=null;saveState();render();wf.done('settings');
+          showToast(`Saved rental settings for ${r.address}`);
+        };
+        byId('cancelSettingsBtn').onclick=()=>{settingsDraft=null;render();showToast('Unsaved rental changes discarded.');};
+      }
+
+      function renderWeeklyScheduleEditor(weeklyObj, prefix, onChange) {
+        return DAYS.map(day => {
+          const d = weeklyObj[day] || { enabled: false, blocks: [{ start: "9:00 AM", end: "5:00 PM" }] };
+          return `
+            <div class="sched-day-row">
+              <label class="mat-switch" style="padding-top:4px;">
+                <input type="checkbox" class="${prefix}-day-toggle" data-day="${day}" ${d.enabled ? "checked" : ""} />
+                <span class="switch-track"></span>
+                <span style="font-weight:500;">${day}</span>
+              </label>
+              <div>
+                ${!d.enabled ? `<div style="color:#9E9E9E; font-size:13px; padding-top:4px;">Unavailable</div>` : `
+                  <div class="sched-blocks">
+                    ${d.blocks.map((blk, idx) => `
+                      <div class="sched-block-line">
+                        <select class="time-select ${prefix}-start" data-day="${day}" data-idx="${idx}">
+                          ${TIME_OPTIONS.map(t => `<option value="${t}" ${blk.start === t ? "selected" : ""}>${t}</option>`).join("")}
+                        </select>
+                        <span style="color:var(--subtle); font-size:13px;">to</span>
+                        <select class="time-select ${prefix}-end" data-day="${day}" data-idx="${idx}">
+                          ${TIME_OPTIONS.map(t => `<option value="${t}" ${blk.end === t ? "selected" : ""}>${t}</option>`).join("")}
+                        </select>
+                        ${prefix==='rc'?`<label>Approval <select class="time-select rc-approval" data-day="${day}" data-idx="${idx}"><option value="">Rental default</option><option ${blk.approval==='Take Requests'?'selected':''}>Take Requests</option><option ${blk.approval==='Set Appointments'?'selected':''}>Set Appointments</option></select></label><label>Max per slot <input class="inline-num rc-capacity" type="number" min="1" max="15" data-day="${day}" data-idx="${idx}" value="${esc(blk.capacity ?? '')}"></label>`:''}
+                        ${d.blocks.length > 1 ? `<button type="button" class="icon-x-btn ${prefix}-rm" data-day="${day}" data-idx="${idx}" title="Remove time block">×</button>` : ""}
+                        ${idx === d.blocks.length - 1 ? `<button type="button" class="btn-flat btn-sm ${prefix}-add" data-day="${day}">+ Add hours</button>` : ""}
+                      </div>
+                    `).join("")}
+                  </div>
+                `}
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function bindWeeklyScheduleEditor(container, weeklyObj, prefix, onRerender) {
+        container.querySelectorAll(`.${prefix}-day-toggle`).forEach(cb => {
+          cb.addEventListener("change", () => {
+            const day = cb.dataset.day;
+            weeklyObj[day].enabled = cb.checked;
+            if (cb.checked && (!weeklyObj[day].blocks || weeklyObj[day].blocks.length === 0)) {
+              weeklyObj[day].blocks = [{ start: "9:00 AM", end: "5:00 PM" }];
+            }
+            saveState();
+            onRerender();
+          });
+        });
+
+        container.querySelectorAll(`.${prefix}-start`).forEach(sel => {
+          sel.addEventListener("change", () => {
+            weeklyObj[sel.dataset.day].blocks[Number(sel.dataset.idx)].start = sel.value;
+            saveState();
+            onRerender();
+          });
+        });
+
+        container.querySelectorAll(`.${prefix}-end`).forEach(sel => {
+          sel.addEventListener("change", () => {
+            weeklyObj[sel.dataset.day].blocks[Number(sel.dataset.idx)].end = sel.value;
+            saveState();
+            onRerender();
+          });
+        });
+
+        if(prefix==='rc') {
+          container.querySelectorAll('.rc-approval,.rc-capacity').forEach(control=>control.onchange=()=>{
+            if(!control.checkValidity()) {control.reportValidity();return;}
+            const block=weeklyObj[control.dataset.day].blocks[Number(control.dataset.idx)];
+            if(control.matches('.rc-approval')) block.approval=control.value;
+            else block.capacity=control.value ? Number(control.value) : null;
+            saveState();
+          });
+        }
+        container.querySelectorAll(`.${prefix}-add`).forEach(btn => {
+          btn.addEventListener("click", () => {
+            weeklyObj[btn.dataset.day].blocks.push({ start: "1:00 PM", end: "5:00 PM" });
+            saveState();
+            onRerender();
+          });
+        });
+
+        container.querySelectorAll(`.${prefix}-rm`).forEach(btn => {
+          btn.addEventListener("click", () => {
+            weeklyObj[btn.dataset.day].blocks.splice(Number(btn.dataset.idx), 1);
+            saveState();
+            onRerender();
+          });
+        });
+      }
+
+      function getWeekDates(offsetWeeks) {
+        const today=dateOffset();
+        const monday=window.LeasingSchedule.shiftDate(today,offsetWeeks*7-((new Date(`${today}T12:00:00Z`).getUTCDay()+6)%7));
+        return DAYS.map((dayName,i)=>{
+          const iso=window.LeasingSchedule.shiftDate(monday,i);
+          const label=new Date(`${iso}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+          return {iso,label,dayName,shortDow:dayName.slice(0,3),isToday:iso===today};
+        });
+      }
+
+      // Per-Rental Availability Tab (0648-rental-availability.jpg)
+      function renderRentalAvailability(r) {
+        const canvas = document.getElementById("canvas");
+        const avail = r.availability || defaultRentalAvailability();
+        r.availability = avail;
+        const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
+        const agentName = (ip.showingAgent && state.generalAvailability[ip.showingAgent]) ? ip.showingAgent : r.assignee;
+        const genAvail = state.generalAvailability[agentName] || Object.values(state.generalAvailability)[0];
+        const activeWeekly = avail.mode === "custom" ? avail.customHours : genAvail.weekly;
+        const weekDates = getWeekDates(state.calendarWeekOffset);
+        const weekRangeLabel = `${weekDates[0].label} – ${weekDates[6].label}, ${weekDates[6].iso.slice(0,4)}`;
+
+        canvas.innerHTML = `
+          <div style="max-width:1080px; display:flex; flex-direction:column; gap:20px;">
+            <!-- Mode & Active Methods Card -->
+            <section class="mat-card">
+              <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
+                <h2 class="mat-card-title" style="margin:0;">Availability Schedule — ${esc(r.address)}</h2>
+                <button id="availEditMethodsBtn" class="btn-flat btn-sm" type="button">Edit Viewing Methods →</button>
+              </div>
+              <div class="row-inline" style="margin-bottom:12px;">
+                <span style="font-size:13px; color:var(--muted);">Active methods:</span>
+                ${r.waitlist ? `<span class="pill pill-red">Wait List Active (Showings Paused)</span>` : ""}
+                ${r.viewing.selfAccess ? `<span class="pill pill-green">Self-Access (${esc(r.viewing.viewingType)})</span>` : `<span class="pill pill-gray">Self-Access Off</span>`}
+                ${ip.enabled ? `<span class="pill pill-blue">In-Person (${esc(ip.showingAgent)})</span>` : `<span class="pill pill-gray">In-Person Off</span>`}
+              </div>
+
+              <div class="mode-radio-row">
+                <label class="mode-radio-card ${avail.mode === "general" ? "selected" : ""}">
+                  <input type="radio" name="availMode" value="general" ${avail.mode === "general" ? "checked" : ""} style="margin-top:3px;" />
+                  <div>
+                    <div style="font-weight:500;">Use General Availability (${esc(agentName)})</div>
+                    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
+                      Inherits recurring hours from ${esc(agentName)}'s General Availability and default self-access window (${esc(genAvail.selfAccessStart)} – ${esc(genAvail.selfAccessEnd)}).
+                    </div>
+                  </div>
+                </label>
+                <label class="mode-radio-card ${avail.mode === "custom" ? "selected" : ""}">
+                  <input type="radio" name="availMode" value="custom" ${avail.mode === "custom" ? "checked" : ""} style="margin-top:3px;" />
+                  <div>
+                    <div style="font-weight:500;">Custom Availability for This Rental</div>
+                    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
+                      Override General Availability with custom showing hours specific to ${esc(r.address)}.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </section>
+
+            <!-- Weekly Calendar Preview (0648-rental-availability.jpg) -->
+            <section class="mat-card">
+              <div class="cal-toolbar">
+                <div class="row-inline">
+                  <h2 class="mat-card-title" style="margin:0;">Showing Calendar</h2>
+                  <span class="pill pill-gray">${weekRangeLabel}</span>
+                </div>
+                <div class="row-inline">
+                  <button id="calPrevWeek" class="btn-outline btn-sm" type="button">‹ Prev</button>
+                  <button id="calTodayWeek" class="btn-outline btn-sm" type="button">Today</button>
+                  <button id="calNextWeek" class="btn-outline btn-sm" type="button">Next ›</button>
+                  <button id="addOverrideModalBtn" class="btn-blue btn-sm" type="button">+ Date Override</button>
+                </div>
+              </div>
+
+              <div class="cal-legend" style="margin-bottom:12px;">
+                <span><span class="cal-legend-dot" style="background:var(--green);"></span>Self-Access Window</span>
+                <span><span class="cal-legend-dot" style="background:var(--blue-accent);"></span>In-Person Window</span>
+                <span><span class="cal-legend-dot" style="background:var(--orange);"></span>Scheduled Showing</span>
+                <span><span class="cal-legend-dot" style="background:var(--alert-red);"></span>Blocked Date</span>
+              </div>
+
+              <div class="week-grid">
+                ${weekDates.map(wd => {
+                  const rentalOverride = (avail.overrides || []).find(o => o.date === wd.iso);
+                  const userBlocked = (genAvail.blockedDates || []).find(b => b.date === wd.iso && b.allDay);
+                  const dayCfg = activeWeekly[wd.dayName];
+                  const dayBookings = state.viewingsList.filter(v => v.rentalId === r.id && v.date === wd.iso && !['Canceled','No-show'].includes(v.status));
+
+                  let slotsHtml = "";
+                  if (r.waitlist) {
+                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Wait List</strong><br/>Showings paused</div>`;
+                  } else if (rentalOverride && rentalOverride.type === "block") {
+                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked</strong><br/>${esc(rentalOverride.label)}</div>`;
+                  } else if (avail.mode === "general" && userBlocked) {
+                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked</strong><br/>${esc(userBlocked.reason)}</div>`;
+                  } else {
+                    if (rentalOverride && rentalOverride.type === "open") {
+                      slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>Special Open</strong><br/>${esc(rentalOverride.start)} – ${esc(rentalOverride.end)}</div>`;
+                    } else {
+                      if (r.viewing.selfAccess) {
+                        const saWindow = avail.mode === "custom"
+                          ? (dayCfg && dayCfg.enabled ? dayCfg.blocks.map(b => `${b.start} – ${b.end}`).join(", ") : null)
+                          : `${genAvail.selfAccessStart} – ${genAvail.selfAccessEnd}`;
+                        if (saWindow) {
+                          slotsHtml += `<div class="cal-slot cal-slot-self"><strong>Self-Access</strong><br/>${esc(saWindow)}</div>`;
+                        }
+                      }
+                      if (ip.enabled && dayCfg && dayCfg.enabled) {
+                        dayCfg.blocks.forEach(b => {
+                          slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>In-Person</strong><br/>${esc(b.start)} – ${esc(b.end)}</div>`;
+                        });
+                      }
+                    }
+                  }
+
+                  dayBookings.forEach(bk => {
+                    slotsHtml += `<div class="cal-slot cal-slot-booked" data-booking="${bk.id}"><strong>${esc(bk.time)}</strong> · ${esc(bk.leadName)}<br/>${esc(bk.type)}</div>`;
+                  });
+
+                  if (!slotsHtml) {
+                    slotsHtml = `<div class="cal-slot-empty">No showings</div>`;
+                  }
+
+                  return `
+                    <div class="week-col">
+                      <div class="week-col-head ${wd.isToday ? "is-today" : ""}">
+                        <div class="week-col-dow">${wd.shortDow}</div>
+                        <div class="week-col-date">${wd.label}</div>
+                      </div>
+                      <div class="week-col-body">${slotsHtml}</div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </section>
+
+            <!-- Custom Weekly Hours Editor (shown when mode === "custom") -->
+            ${avail.mode === "custom" ? `
+              <section class="mat-card" id="customHoursCard">
+                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
+                  <h2 class="mat-card-title" style="margin:0;">Custom Weekly Hours for ${esc(r.address)}</h2>
+                  <button id="copyGenToCustomBtn" class="btn-outline btn-sm" type="button">Copy from General Availability</button>
+                </div>
+                ${renderWeeklyScheduleEditor(avail.customHours, "rc")}
+              </section>
+            ` : `
+              <section class="mat-card">
+                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
+                  <h2 class="mat-card-title" style="margin:0;">Inherited General Availability (${esc(agentName)})</h2>
+                  <button id="openGenAvailFromRental" class="btn-flat btn-sm" type="button">Edit General Availability →</button>
+                </div>
+                <div class="grid-3">
+                  ${DAYS.map(d => {
+                    const cfg = genAvail.weekly[d];
+                    return `
+                      <div class="imported-box">
+                        <div class="imported-head"><span>${d}</span><span class="imported-tag">${cfg.enabled ? "Open" : "Off"}</span></div>
+                        <div class="imported-val" style="font-size:13px;">${cfg.enabled ? cfg.blocks.map(b => `${b.start} – ${b.end}`).join(", ") : "Unavailable"}</div>
+                      </div>
+                    `;
+                  }).join("")}
+                </div>
+              </section>
+            `}
+
+            <!-- Date-Specific Overrides & Blackouts -->
+            <section class="mat-card">
+              <div class="row-inline" style="justify-content:space-between; margin-bottom:12px;">
+                <h2 class="mat-card-title" style="margin:0;">Date-Specific Overrides &amp; Blackout Dates</h2>
+                <button id="saveRentalAvailBtn" class="btn-blue btn-sm" type="button">Save Availability</button>
+              </div>
+              ${(avail.overrides || []).length === 0 ? `
+                <p style="color:var(--muted); margin:0;">No date-specific overrides set for this rental. Click <strong>+ Date Override</strong> above to block a date or add a special open house window.</p>
+              ` : `
+                <table class="tt-table">
+                  <thead><tr><th>Date</th><th>Rule</th><th>Hours / Note</th><th></th></tr></thead>
+                  <tbody>
+                    ${avail.overrides.map(o => `
+                      <tr>
+                        <td><strong>${esc(o.date)}</strong></td>
+                        <td><span class="pill ${o.type === "block" ? "pill-red" : "pill-blue"}">${o.type === "block" ? "Blocked" : "Special Open"}</span></td>
+                        <td>${o.type === "block" ? esc(o.label) : `${esc(o.start)} – ${esc(o.end)} (${esc(o.label)})`}</td>
+                        <td style="text-align:right;"><button type="button" class="btn-danger-flat rm-override-btn" data-oid="${o.id}">Remove</button></td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              `}
+            </section>
+          </div>
+        `;
+
+        canvas.querySelectorAll('input[name="availMode"]').forEach(radio => {
+          radio.addEventListener("change", () => {
+            avail.mode = radio.value;
+            saveState();
+            renderRentalAvailability(r);
+          });
+        });
+
+        document.getElementById("availEditMethodsBtn").addEventListener("click", () => {
+          state.detailTab = "settings";
+          state.activeSubnav = "viewing";
+          saveState();
+          render();
+          setTimeout(() => {
+            const el = document.getElementById("sec-viewing");
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 60);
+        });
+
+        document.getElementById("calPrevWeek").addEventListener("click", () => {
+          state.calendarWeekOffset -= 1;
+          renderRentalAvailability(r);
+        });
+        document.getElementById("calTodayWeek").addEventListener("click", () => {
+          state.calendarWeekOffset = 0;
+          renderRentalAvailability(r);
+        });
+        document.getElementById("calNextWeek").addEventListener("click", () => {
+          state.calendarWeekOffset += 1;
+          renderRentalAvailability(r);
+        });
+
+        document.getElementById("addOverrideModalBtn").addEventListener("click", () => {
+          openModal(
+            "Add Date Override",
+            `
+              <div class="mat-field">
+                <label class="mat-label" for="ovDate">Date</label>
+                <input id="ovDate" class="mat-input" type="date" value="${dateOffset(3)}" />
+              </div>
+              <div class="mat-field">
+                <label class="mat-label" for="ovType">Override Type</label>
+                <select id="ovType" class="mat-select">
+                  <option value="block">Block Date (No Showings)</option>
+                  <option value="open">Special Open Window (e.g., Open House)</option>
+                </select>
+              </div>
+              <div id="ovTimeRow" class="grid-2" style="display:none;">
+                <div class="mat-field">
+                  <label class="mat-label" for="ovStart">Start Time</label>
+                  <select id="ovStart" class="mat-select">${TIME_OPTIONS.map(t => `<option value="${t}" ${t === "10:00 AM" ? "selected" : ""}>${t}</option>`).join("")}</select>
+                </div>
+                <div class="mat-field">
+                  <label class="mat-label" for="ovEnd">End Time</label>
+                  <select id="ovEnd" class="mat-select">${TIME_OPTIONS.map(t => `<option value="${t}" ${t === "2:00 PM" ? "selected" : ""}>${t}</option>`).join("")}</select>
+                </div>
+              </div>
+              <div class="mat-field">
+                <label class="mat-label" for="ovLabel">Label / Reason</label>
+                <input id="ovLabel" class="mat-input" type="text" placeholder="e.g., Maintenance crew or Saturday Open House" value="Maintenance / Make-Ready" />
+              </div>
+            `,
+            `
+              <button type="button" class="btn-flat" id="ovCancelBtn">Cancel</button>
+              <button type="button" class="btn-blue" id="ovSaveBtn">Add Override</button>
+            `
+          );
+
+          const typeSel = document.getElementById("ovType");
+          const timeRow = document.getElementById("ovTimeRow");
+          typeSel.addEventListener("change", () => {
+            timeRow.style.display = typeSel.value === "open" ? "grid" : "none";
+          });
+
+          document.getElementById("ovCancelBtn").addEventListener("click", closeModal);
+          document.getElementById("ovSaveBtn").addEventListener("click", () => {
+            const dateVal = document.getElementById("ovDate").value;
+            if (!dateVal) {showToast('Choose a date.');return;}
+            if (avail.overrides.some(o=>o.date===dateVal)) {showToast('Remove the existing override before adding a different one for that date.');return;}
+            const start=byId('ovStart').value,end=byId('ovEnd').value;
+            if(typeSel.value==='open' && window.ReplicaBooking.toTime(start)>=window.ReplicaBooking.toTime(end)){showToast('End time must follow start time.');return;}
+            avail.overrides.push({
+              id: "ov" + Date.now(),
+              date: dateVal,
+              type: typeSel.value,
+              start: typeSel.value==='open'?start:'',
+              end: typeSel.value==='open'?end:'',
+              label: document.getElementById("ovLabel").value.trim() || (typeSel.value === "block" ? "Blocked" : "Special Window")
+            });
+            saveState();
+            closeModal();
+            renderRentalAvailability(r);
+            showToast("Added date override for " + dateVal);wf.done('availability');
+          });
+        });
+
+        if (avail.mode === "custom") {
+          const customCard = document.getElementById("customHoursCard");
+          bindWeeklyScheduleEditor(customCard, avail.customHours, "rc", () => renderRentalAvailability(r));
+          document.getElementById("copyGenToCustomBtn").addEventListener("click", () => {
+            avail.customHours = JSON.parse(JSON.stringify(genAvail.weekly));
+            saveState();
+            renderRentalAvailability(r);
+            showToast("Copied hours from " + agentName + "'s General Availability");
+          });
+        } else {
+          const openGen = document.getElementById("openGenAvailFromRental");
+          if (openGen) {
+            openGen.addEventListener("click", () => {
+              state.section = "viewings";
+              state.viewingsTab = "general";
+              state.selectedAvailUser = agentName;
+              state.selectedRentalId = null;
+              saveState();
+              render();
+            });
+          }
+        }
+
+        canvas.querySelectorAll(".rm-override-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            avail.overrides = avail.overrides.filter(o => o.id !== btn.dataset.oid);
+            saveState();
+            renderRentalAvailability(r);
+            showToast("Removed date override");
+          });
+        });
+
+        canvas.querySelectorAll("[data-booking]").forEach(el => {
+          el.addEventListener("click", () => {
+            const bk = state.viewingsList.find(v => v.id === el.dataset.booking);
+            if (!bk) return;
+            openModal(
+              "Scheduled Showing Details",
+              `
+                <div><strong>Property:</strong> ${esc(r.address)}</div>
+                <div><strong>Lead:</strong> ${esc(bk.leadName)} (${esc(bk.leadPhone)})</div>
+                <div><strong>When:</strong> ${esc(bk.date)} at ${esc(bk.time)}</div>
+                <div><strong>Method:</strong> ${esc(bk.type)}</div>
+                <div><strong>Status:</strong> <span class="pill pill-green">${esc(bk.status)}</span></div>
+              `,
+              `<button type="button" class="btn-blue" id="bkCloseBtn">Close</button>`
+            );
+            document.getElementById("bkCloseBtn").addEventListener("click", closeModal);
+          });
+        });
+
+        document.getElementById("saveRentalAvailBtn").addEventListener("click", () => {
+          saveState();
+          showToast("Saved availability for " + r.address);wf.done("availability");
+        });
+      }
+
+      function scoreBadgeHtml(score) {
+        if (score === null || score === undefined || score === "") {
+          return `<span class="score-pill score-none">Unscored</span>`;
+        }
+        const n = Number(score);
+        const cls = n >= 6 ? "score-high" : "score-low";
+        return `<span class="score-pill ${cls}">${n} / 10</span>`;
+      }
+
+      function leadStatusClass(status) {
+        const k = String(status || "").toLowerCase().replace(/[^a-z]/g, "");
+        if (k === "scheduled") return "st-scheduled";
+        if (k === "prequalified") return "st-prequalified";
+        if (k === "viewed" || k === "toured") return "st-viewed";
+        if (k === "applied") return "st-applied";
+        if (k === "waitlist") return "st-waitlist";
+        if (k === "disqualified") return "st-disqualified";
+        return "st-unscored";
+      }
+
+      function openAddLeadModal(r) {
+        const tenantLink = `${practiceLink("qualify", r.id)}`;
+        const agentLink = `${tenantLink}/agent`;
+        openModal(
+          `Add Lead — ${r.address}`,
+          `
+            <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;">Log direct phone, walk-in, or Craigslist inquiries so all communication and Owner Reports stay accurate.</p>
+            <div class="grid-2" style="margin-bottom:10px;">
+              <div>
+                <label class="field-label" for="alFirst">First Name *</label>
+                <input id="alFirst" class="mat-input" type="text" placeholder="e.g., Morgan" />
+              </div>
+              <div>
+                <label class="field-label" for="alLast">Last Name *</label>
+                <input id="alLast" class="mat-input" type="text" placeholder="e.g., Alvarez" />
+              </div>
+            </div>
+            <div class="grid-2" style="margin-bottom:10px;">
+              <div>
+                <label class="field-label" for="alEmail">Email Address</label>
+                <input id="alEmail" class="mat-input" type="email" placeholder="morgan.alvarez@example.com" />
+              </div>
+              <div>
+                <label class="field-label" for="alPhone">Phone</label>
+                <input id="alPhone" class="mat-input" type="tel" placeholder="(303) 555-0199" />
+              </div>
+            </div>
+            <div class="grid-2" style="margin-bottom:10px;">
+              <div>
+                <label class="field-label" for="alType">Lead type *</label>
+                <select id="alType" class="mat-select">
+                  <option value="Tenant lead">Tenant lead</option>
+                  <option value="Agent lead">Agent lead</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="alSource">Lead Source</label>
+                <select id="alSource" class="mat-select">
+                  <option value="Phone / Walk-in">Phone / Walk-in</option>
+                  <option value="Craigslist">Craigslist</option>
+                  <option value="Zillow">Zillow</option>
+                  <option value="Apartments.com">Apartments.com</option>
+                  <option value="Website">Website</option>
+                  <option value="Referral">Referral</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label class="field-label" for="alAction">Action *</label>
+              <select id="alAction" class="mat-select">
+                <option value="invite">Invite lead to pre-qualify and schedule</option>
+                <option value="self_qualify">Pre-qualify and schedule lead myself</option>
+                <option value="skip_schedule">Skip pre-qualification and just schedule</option>
+              </select>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px solid #ECEFF1;">
+              <button id="copyTenantLinkModalBtn" class="btn-outline" type="button">COPY TENANT LEAD LINK</button>
+              <button id="copyAgentLinkModalBtn" class="btn-outline" type="button">COPY AGENT LEAD LINK</button>
+            </div>
+          `,
+          `
+            <button id="alCancelBtn" class="btn-ghost" type="button">Cancel</button>
+            <button id="alSaveBtn" class="btn-blue" type="button">SAVE</button>
+          `
+        );
+
+        const actionSel = document.getElementById("alAction");
+        document.getElementById("copyTenantLinkModalBtn").addEventListener("click", () => {
+          copyToClipboardSafe(tenantLink, "Copied Tenant Lead Link to clipboard");
+        });
+        document.getElementById("copyAgentLinkModalBtn").addEventListener("click", () => {
+          copyToClipboardSafe(agentLink, "Copied Agent Lead Link to clipboard");
+        });
+        document.getElementById("alCancelBtn").addEventListener("click", closeModal);
+        document.getElementById("alSaveBtn").addEventListener("click", () => {
+          const first = document.getElementById("alFirst").value.trim();
+          const last = document.getElementById("alLast").value.trim();
+          if (!first || !last) {
+            showToast("Please enter both First Name and Last Name");
+            return;
+          }
+          const fullName = `${first} ${last}`;
+          const email = document.getElementById("alEmail").value.trim() || `${first.toLowerCase()}.${last.toLowerCase()}@example.com`;
+          const phone = document.getElementById("alPhone").value.trim() || "(303) 555-0199";
+          const leadType = document.getElementById("alType").value;
+          const source = document.getElementById("alSource").value;
+          const action = actionSel.value;
+
+          if (byId('alEmail').value && !byId('alEmail').checkValidity()) {showToast('Enter a valid practice email.');return;}
+          const lead=wf.blankLead(r,{name:fullName,email,phone,source,leadType,manualOverride:action==='skip_schedule'});
+          if(action==='invite') wf.invite(r,lead);
+          else if(action==='self_qualify') wf.qualify(r,lead,{thenBook:true});
+          else wf.book(r,lead);
+        });
+      }
+
+      function openLeadDetailModal(r, leadId) {
+        const lead = r.leads.find(l => l.id === leadId);
+        if (!lead) return;
+        const canSchedule = (lead.score !== null && lead.score >= 6) || lead.manualOverride;
+        const minIncome = Math.round((r.rent || 2200) * (r.qualifying ? r.qualifying.incomeRatio : 3));
+        openModal(
+          `${lead.name} — Lead Profile`,
+          `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+              <div>
+                <strong style="font-size:15px;">${esc(lead.name)}</strong>
+                <span class="type-badge ${lead.leadType === "Agent lead" ? "agent" : ""}">${esc(lead.leadType)}</span>
+                <div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${esc(lead.phone)} • ${esc(lead.email)}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                ${scoreBadgeHtml(lead.score)}
+                <span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span>
+              </div>
+            </div>
+
+            <div class="qual-grid">
+              <div class="qual-item">
+                <div class="qual-item-label">Lead Source</div>
+                <div class="qual-item-val">${esc(lead.source)}</div>
+              </div>
+              <div class="qual-item">
+                <div class="qual-item-label">Desired Move-In</div>
+                <div class="qual-item-val">${esc(lead.moveInDate)}</div>
+              </div>
+              <div class="qual-item">
+                <div class="qual-item-label">Stated Monthly Income</div>
+                <div class="qual-item-val">${lead.monthlyIncome ? "$" + Number(lead.monthlyIncome).toLocaleString() + "/mo" : "Not submitted"} <span style="font-weight:400;color:var(--muted);">(Req: $${minIncome.toLocaleString()})</span></div>
+              </div>
+              <div class="qual-item">
+                <div class="qual-item-label">Pets</div>
+                <div class="qual-item-val">${esc(lead.pets)}</div>
+              </div>
+            </div>
+
+            <div class="grid-2" style="margin:12px 0;">
+              <div>
+                <label class="field-label" for="ldStatusSel">Lead Status</label>
+                <select id="ldStatusSel" class="mat-select">
+                  ${["Unscored", "Pre-Qualified", "Scheduled", "Viewed", "Applied", "Wait List", "Disqualified"].map(st =>
+                    `<option value="${st}" ${lead.status === st ? "selected" : ""}>${st}</option>`
+                  ).join("")}
+                </select>
+              </div>
+              <div style="display:flex;align-items:flex-end;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+                  <input id="ldOverrideChk" type="checkbox" ${lead.manualOverride ? "checked" : ""} />
+                  Manual override (allow scheduling regardless of score)
+                </label>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;">
+              <button id="ldInviteBtn" class="btn-outline" type="button">Send Pre-Qual Invite</button>
+              <button id="ldScheduleBtn" class="btn-blue" type="button" ${canSchedule ? "" : 'title="Enable manual override to schedule disqualified/unscored lead"'}>Schedule Showing</button>
+              <button id="ldQualifyBtn" type="button" class="btn-outline">Review Pre-qualification</button><button id="ldApplyBtn" class="btn-outline" type="button">Send Application Link</button>
+              <button id="ldMsgBtn" class="btn-ghost" type="button">Open in Messages</button>
+            </div>
+
+            <div style="margin-top:14px;border-top:1px solid #ECEFF1;padding-top:12px;">
+              <div class="field-label" style="margin-bottom:6px;">Activity & Notes</div>
+              <div id="ldNotesList" style="max-height:140px;overflow-y:auto;margin-bottom:8px;">
+                ${(lead.notes || []).map(n => `
+                  <div style="font-size:12.5px;padding:6px 8px;background:#F8FAFC;border-left:3px solid #0277BD;margin-bottom:6px;border-radius:2px;">
+                    <span style="color:var(--muted);font-size:11px;">${esc(n.time)}</span> — ${esc(n.text)}
+                  </div>
+                `).join("")}
+              </div>
+              <div style="display:flex;gap:8px;">
+                <input id="ldNoteInput" class="mat-input" type="text" placeholder="Add internal note or follow-up log..." />
+                <button id="ldAddNoteBtn" class="btn-ghost" type="button">Log Note</button>
+              </div>
+            </div>
+          `,
+          `<button id="ldCloseBtn" class="btn-blue" type="button">Done</button>`
+        );
+
+        document.getElementById("ldStatusSel").addEventListener("change", e => {
+          lead.status = e.target.value;
+          lead.archived = lead.status==='Disqualified';
+          lead.notes.unshift({ time: "Just now", text: `Status updated to ${lead.status}.` });
+          saveState();
+          render();
+          openLeadDetailModal(r, lead.id);
+        });
+
+        document.getElementById("ldOverrideChk").addEventListener("change", e => {
+          lead.manualOverride = e.target.checked;
+          lead.notes.unshift({ time: "Just now", text: lead.manualOverride ? "Agent enabled manual scheduling override." : "Manual scheduling override removed." });
+          saveState();
+          openLeadDetailModal(r, lead.id);
+        });
+
+        byId('ldInviteBtn').onclick=()=>wf.invite(r,lead);
+        byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
+        byId('ldApplyBtn').onclick=()=>{
+          wf.message(r,lead,`Practice application: ${practiceLink('apply',r.id,lead.id)}`);
+          saveState();showToast('Practice application link added to Messages.');
+        };
+        byId('ldQualifyBtn').onclick=()=>wf.qualify(r,lead);
+
+        document.getElementById("ldMsgBtn").addEventListener("click", () => {
+          let thread = state.messages.find(m => m.leadName === lead.name && m.rentalId === r.id);
+          if (!thread) {
+            thread = {
+              id: "msg_" + Date.now(),
+              rentalId: r.id,
+              leadName: lead.name,
+              phone: lead.phone,
+              email: lead.email,
+              channel: "SMS",
+              unread: false,
+              needsReply: false,
+              aiHandled: false,
+              score: lead.score,
+              updatedAt: "Just now",
+              thread: [{ sender: "auto", label: "Practice automation", time: "Just now", text: `Conversation started for ${r.address}.` }]
+            };
+            state.messages.unshift(thread);
+          }
+          state.selectedThreadId = thread.id;
+          state.section = "messages";
+          state.selectedRentalId = null;
+          saveState();
+          closeModal();
+          render();
+        });
+
+        document.getElementById("ldAddNoteBtn").addEventListener("click", () => {
+          const inp = document.getElementById("ldNoteInput");
+          const val = inp.value.trim();
+          if (!val) return;
+          lead.notes.unshift({ time: "Just now", text: val });
+          saveState();
+          openLeadDetailModal(r, lead.id);
+        });
+
+        document.getElementById("ldCloseBtn").addEventListener("click", closeModal);
+      }
+
+      function renderRentalLeads(r) {
+        const canvas = document.getElementById("canvas");
+        const lf = state.leadsFilter || { search: "", status: "all", score: "all" };
+        const q = (lf.search || "").trim().toLowerCase();
+
+        const totalLeads = r.leads.length;
+        const qualifiedCount = r.leads.filter(l => l.score !== null && l.score >= 6).length;
+        const scheduledCount = r.leads.filter(l => ["Scheduled", "Viewed", "Applied"].includes(l.status)).length;
+        const blockedOrUnscored = r.leads.filter(l => l.score === null || l.score < 6).length;
+
+        const filtered = r.leads.filter(l => {
+          if (!lf.archived && l.archived) return false;
+          if (lf.status !== "all" && l.status !== lf.status) return false;
+          if (lf.score === "qualified" && !(l.score !== null && l.score >= 6)) return false;
+          if (lf.score === "low" && !(l.score !== null && l.score < 6)) return false;
+          if (lf.score === "unscored" && l.score !== null) return false;
+          if (q) {
+            const hay = `${l.name} ${l.email} ${l.phone} ${l.source} ${l.status}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        const tenantLink = `${practiceLink("qualify", r.id)}`;
+        const agentLink = `${tenantLink}/agent`;
+
+        canvas.innerHTML = `
+          <div style="max-width:1120px;">
+            <div class="kpi-strip">
+              <div class="kpi-tile">
+                <div class="kpi-tile-label">Total Leads</div>
+                <div class="kpi-tile-value">${totalLeads}</div>
+                <div class="kpi-tile-sub">Online, call center & manual</div>
+              </div>
+              <div class="kpi-tile">
+                <div class="kpi-tile-label">Pre-Qualified (6–10)</div>
+                <div class="kpi-tile-value" style="color:#2E7D32;">${qualifiedCount}</div>
+                <div class="kpi-tile-sub">Eligible to book showings</div>
+              </div>
+              <div class="kpi-tile">
+                <div class="kpi-tile-label">Scheduled / Viewed / Applied</div>
+                <div class="kpi-tile-value" style="color:#0277BD;">${scheduledCount}</div>
+                <div class="kpi-tile-sub">Active tour pipeline</div>
+              </div>
+              <div class="kpi-tile">
+                <div class="kpi-tile-label">Unscored / Blocked (&lt;6)</div>
+                <div class="kpi-tile-value" style="color:#E65100;">${blockedOrUnscored}</div>
+                <div class="kpi-tile-sub">Auto follow-up or restricted</div>
+              </div>
+            </div>
+
+            <div class="leads-toolbar">
+              <div class="field-group" style="flex:1;min-width:200px;">
+                <label for="leadSearchInput">Search Leads</label>
+                <input id="leadSearchInput" class="mat-input" type="search" placeholder="Name, phone, email, or source" value="${esc(lf.search)}" />
+              </div>
+              <div class="field-group">
+                <label for="leadStatusFilter">Status</label>
+                <select id="leadStatusFilter" class="mat-select">
+                  <option value="all" ${lf.status === "all" ? "selected" : ""}>All statuses</option>
+                  ${["Unscored", "Pre-Qualified", "Scheduled", "Viewed", "Applied", "Wait List", "Disqualified"].map(st =>
+                    `<option value="${st}" ${lf.status === st ? "selected" : ""}>${st}</option>`
+                  ).join("")}
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="leadScoreFilter">Pre-Qual Score</label>
+                <select id="leadScoreFilter" class="mat-select">
+                  <option value="all" ${lf.score === "all" ? "selected" : ""}>All scores</option>
+                  <option value="qualified" ${lf.score === "qualified" ? "selected" : ""}>Qualified (6–10)</option>
+                  <option value="low" ${lf.score === "low" ? "selected" : ""}>Disqualified (0–5)</option>
+                  <option value="unscored" ${lf.score === "unscored" ? "selected" : ""}>Unscored</option>
+                </select>
+              </div>
+              <div class="leads-toolbar-actions">
+                <button id="copyTenantLinkBtn" class="btn-outline" type="button" title="Copy pre-qualification link for prospective tenants">Copy Tenant Link</button>
+                <button id="copyAgentLinkBtn" class="btn-ghost" type="button" title="Copy showing link for showing/leasing agents">Copy Agent Link</button>
+                <label class="mat-switch"><input id="show-archived-leads" type="checkbox" ${lf.archived?"checked":""}><span class="switch-track"></span><span>Show archived</span></label><button id="addLeadBtn" class="btn-orange" type="button">+ ADD LEAD</button>
+              </div>
+            </div>
+
+            <div class="mat-card" style="padding:0;overflow:hidden;">
+              ${filtered.length === 0 ? `
+                <div style="padding:36px 24px;text-align:center;color:var(--muted);">
+                  <p style="margin:0 0 12px;font-size:14px;">${r.leads.length === 0 ? "As tenant leads inquire about your rental through our online service and call center they will show up here." : "No leads match your current filter."}</p>
+                  <button id="emptyAddLeadBtn" class="btn-orange" type="button">+ ADD LEAD</button>
+                </div>
+              ` : `
+                <div class="table-scroll">
+                  <table class="tt-table" style="margin:0;">
+                    <thead>
+                      <tr>
+                        <th>Lead</th>
+                        <th>Score (0–10)</th>
+                        <th>Status</th>
+                        <th>Source</th>
+                        <th>Move-In / Income</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${filtered.map(l => `
+                        <tr class="lead-row-clickable" data-lead-row="${esc(l.id)}">
+                          <td>
+                            <strong>${esc(l.name)}</strong>
+                            <span class="type-badge ${l.leadType === "Agent lead" ? "agent" : ""}">${l.leadType === "Agent lead" ? "Agent" : "Tenant"}</span>
+                            <div style="font-size:12px;color:var(--muted);">${esc(l.phone)} • ${esc(l.email)}</div>
+                          </td>
+                          <td>${scoreBadgeHtml(l.score)}</td>
+                          <td><span class="status-chip ${leadStatusClass(l.status)}">${esc(l.status)}</span></td>
+                          <td>${esc(l.source)}<div style="font-size:11.5px;color:var(--muted);">${esc(l.createdAt)}</div></td>
+                          <td>
+                            <div style="font-size:12.5px;">${esc(l.moveInDate)}</div>
+                            <div style="font-size:11.5px;color:var(--muted);">${l.monthlyIncome ? "$" + Number(l.monthlyIncome).toLocaleString() + "/mo" : "Pending income"}</div>
+                          </td>
+                          <td>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                              <button class="btn-outline" type="button" data-lead-view="${esc(l.id)}" style="padding:4px 9px;font-size:11.5px;">Details</button>
+                              <button class="btn-ghost" type="button" data-lead-msg="${esc(l.id)}" style="padding:4px 9px;font-size:11.5px;">Message</button>
+                            </div>
+                          </td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+
+        document.getElementById("leadSearchInput").addEventListener("input", e => {
+          state.leadsFilter.search = e.target.value;
+          saveState();
+          renderRentalLeads(r);
+          const el = document.getElementById("leadSearchInput");
+          if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+        });
+        document.getElementById("leadStatusFilter").addEventListener("change", e => {
+          state.leadsFilter.status = e.target.value;
+          saveState();
+          renderRentalLeads(r);
+        });
+        document.getElementById("leadScoreFilter").addEventListener("change", e => {
+          state.leadsFilter.score = e.target.value;
+          saveState();
+          renderRentalLeads(r);
+        });
+        document.getElementById("copyTenantLinkBtn").addEventListener("click", () => {
+          copyToClipboardSafe(tenantLink, "Copied Tenant Lead Link");
+        });
+        document.getElementById("copyAgentLinkBtn").addEventListener("click", () => {
+          copyToClipboardSafe(agentLink, "Copied Agent Lead Link");
+        });
+        byId('show-archived-leads').onchange=e=>{lf.archived=e.target.checked;saveState();renderRentalLeads(r);};
+        document.getElementById("addLeadBtn").addEventListener("click", () => openAddLeadModal(r));
+        const emptyAdd = document.getElementById("emptyAddLeadBtn");
+        if (emptyAdd) emptyAdd.addEventListener("click", () => openAddLeadModal(r));
+
+        canvas.querySelectorAll("[data-lead-view]").forEach(btn => {
+          btn.addEventListener("click", e => {
+            e.stopPropagation();
+            openLeadDetailModal(r, btn.dataset.leadView);
+          });
+        });
+        canvas.querySelectorAll("[data-lead-row]").forEach(tr => {
+          tr.addEventListener("click", () => openLeadDetailModal(r, tr.dataset.leadRow));
+        });
+        canvas.querySelectorAll("[data-lead-msg]").forEach(btn => {
+          btn.addEventListener("click", e => {
+            e.stopPropagation();
+            const lead = r.leads.find(l => l.id === btn.dataset.leadMsg);
+            if (!lead) return;
+            let thread = state.messages.find(m => m.leadName === lead.name && m.rentalId === r.id);
+            if (!thread) {
+              thread = {
+                id: "msg_" + Date.now(),
+                rentalId: r.id,
+                leadName: lead.name,
+                phone: lead.phone,
+                email: lead.email,
+                channel: "SMS",
+                unread: false,
+                needsReply: false,
+                aiHandled: false,
+                score: lead.score,
+                updatedAt: "Just now",
+                thread: [{ sender: "auto", label: "Practice automation", time: "Just now", text: `Started conversation for ${r.address}.` }]
+              };
+              state.messages.unshift(thread);
+            }
+            state.selectedThreadId = thread.id;
+            state.section = "messages";
+            state.selectedRentalId = null;
+            saveState();
+            render();
+          });
+        });
+      }
+
+      function renderRentalOwnerReport(r) {
+        const canvas = document.getElementById("canvas");
+        ensureStep4RentalFields(r);
+        const or = r.ownerReport;
+        or.dayOfWeek=state.ownerDelivery.day;
+        or.sendTime=state.ownerDelivery.time;
+
+        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && !['Canceled','No-show'].includes(v.status));
+        const since=dateOffset(-6);
+        const totals=(leads,visits)=>({leads:leads.length,prequalified:leads.filter(l=>Number(l.score)>=6&&!l.archived).length,scheduled:visits.length,viewings:visits.filter(v=>v.status==='Viewed').length});
+        const m7=totals(r.leads.filter(l=>l.createdDate>=since),tours.filter(v=>v.date>=since&&v.date<=dateOffset()));
+        const mTot=totals(r.leads,tours);
+
+        const visibleFeedback = or.feedback.filter(f => f.visible);
+
+        canvas.innerHTML = `
+          <div class="owner-report-grid">
+            <div class="mat-card">
+              <h2 class="mat-card-title" style="margin-bottom:14px;">Owner Report Settings</h2>
+              <div class="toggle-row" style="margin-bottom:14px;">
+                <div>
+                  <div style="font-weight:600;font-size:13.5px;">Send owner report automatically</div>
+                  <div style="font-size:12px;color:var(--muted);">Weekly practice delivery schedule</div>
+                </div>
+                <label class="mat-switch">
+                  <input id="orAutoSend" type="checkbox" ${or.autoSend ? "checked" : ""} />
+                  <span class="mat-slider"></span>
+                </label>
+              </div>
+
+              <div class="grid-2" style="margin-bottom:14px;">
+                <div>
+                  <label class="field-label" for="orDay">Send Each</label>
+                  <select id="orDay" class="mat-select" ${or.autoSend ? "" : "disabled"}>
+                    ${DAYS.map(d => `<option value="${d}" ${or.dayOfWeek === d ? "selected" : ""}>${d}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label class="field-label" for="orTime">At Time</label>
+                  <select id="orTime" class="mat-select" ${or.autoSend ? "" : "disabled"}>
+                    ${["8:00 AM", "9:00 AM", "10:00 AM", "12:00 PM", "3:00 PM", "5:00 PM"].map(t =>
+                      `<option value="${t}" ${or.sendTime === t ? "selected" : ""}>${t}</option>`
+                    ).join("")}
+                  </select>
+                </div>
+              </div>
+
+              <div style="margin-bottom:14px;">
+                <label class="field-label" for="orEmails">Email Addresses (comma-separated)</label>
+                <textarea id="orEmails" class="mat-textarea" rows="2" placeholder="owner@example.com, agent@example.com">${esc(or.emails)}</textarea>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">Include owner, leasing agent, or PM emails separated by commas.</div>
+              </div>
+
+              <div class="toggle-row" style="margin-bottom:16px;">
+                <div>
+                  <div style="font-weight:600;font-size:13.5px;">Include showing feedback</div>
+                  <div style="font-size:12px;color:var(--muted);">Suppress individual comments on the right before sending</div>
+                </div>
+                <label class="mat-switch">
+                  <input id="orIncludeFb" type="checkbox" ${or.includeFeedback ? "checked" : ""} />
+                  <span class="mat-slider"></span>
+                </label>
+              </div>
+
+              <div style="font-size:12px;color:var(--muted);background:#F5F7F9;padding:9px 11px;border-radius:4px;margin-bottom:14px;">
+                <strong>Schedule:</strong> ${or.autoSend ? `Each ${esc(or.dayOfWeek)} at ${esc(or.sendTime)}` : "Manual delivery only"}<br/>
+                <strong>Last Sent:</strong> ${esc(or.lastSent)}
+              </div>
+
+              <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                <button id="orSendNowBtn" class="btn-blue" type="button">SEND REPORT NOW</button>
+                <button id="orCopyLinkBtn" class="btn-outline" type="button">COPY REPORT LINK</button>
+              </div>
+            </div>
+
+            <div class="or-preview-card">
+              <div class="or-preview-banner">
+                <div>
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;opacity:0.88;">Live Owner Report Preview</div>
+                  <div style="font-size:17px;font-weight:600;margin-top:2px;">${esc(state.profile.name)}</div>
+                </div>
+                <span style="background:rgba(255,255,255,0.18);padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;">Report Date: Nov 21, 2026</span>
+              </div>
+
+              <div class="or-preview-body">
+                <div class="or-prop-head">
+                  <img class="or-prop-thumb" src="${esc(r.photo)}" alt="${esc(r.address)}" />
+                  <div>
+                    <div style="font-size:17px;font-weight:700;color:#263238;">${esc(r.address)}</div>
+                    <div style="font-size:13px;color:var(--muted);margin-top:2px;">
+                      $${Number(r.rent).toLocaleString()}/mo • ${r.bedrooms} bd / ${r.bathrooms} ba • ${Number(r.sqft).toLocaleString()} sq ft
+                    </div>
+                    <div style="font-size:12px;color:#546E7A;margin-top:4px;">
+                      <strong>On Market Since:</strong> ${esc(or.onMarketDate)} &nbsp;|&nbsp; <strong>Assigned Agent:</strong> ${esc(r.assignee)}
+                    </div>
+                  </div>
+                </div>
+
+                <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0 0 8px;">Leasing Metrics</h3>
+                <table class="or-metrics-table">
+                  <thead>
+                    <tr>
+                      <th>Metric</th>
+                      <th class="num">Last 7 Days</th>
+                      <th class="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><strong>Leads</strong></td><td class="num">${m7.leads}</td><td class="num">${mTot.leads}</td></tr>
+                    <tr><td><strong>Pre-Qualified</strong></td><td class="num">${m7.prequalified}</td><td class="num">${mTot.prequalified}</td></tr>
+                    <tr><td><strong>Scheduled</strong></td><td class="num">${m7.scheduled}</td><td class="num">${mTot.scheduled}</td></tr>
+                    <tr><td><strong>Viewings</strong></td><td class="num">${m7.viewings}</td><td class="num">${mTot.viewings}</td></tr>
+                  </tbody>
+                </table>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                  <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0;">
+                    Showing Feedback (${or.includeFeedback ? `${visibleFeedback.length} included` : "Hidden from report"})
+                  </h3>
+                  <button id="orAddFbBtn" class="btn-ghost" type="button">+ Add Sample Feedback</button>
+                </div>
+
+                ${!or.includeFeedback ? `
+                  <p style="font-size:13px;color:var(--muted);font-style:italic;margin:0;">Feedback section is currently toggled OFF and will be omitted from the owner email.</p>
+                ` : or.feedback.length === 0 ? `
+                  <p style="font-size:13px;color:var(--muted);margin:0;">No prospect feedback collected yet.</p>
+                ` : or.feedback.map(fb => `
+                  <div class="fb-item ${fb.visible ? "" : "suppressed"}">
+                    <div class="fb-head">
+                      <span><strong>${esc(fb.lead)}</strong> • <button class="btn-flat" type="button" data-feedback-detail="${esc(fb.id)}">${esc(fb.date)}</button> • <span style="color:#0277BD;font-weight:600;">${esc(fb.interest)}</span></span>
+                      <button class="btn-ghost" type="button" data-toggle-fb="${esc(fb.id)}" style="padding:3px 8px;font-size:11px;">
+                        ${fb.visible ? "Suppress from Owner" : "Restore to Report"}
+                      </button>
+                    </div>
+                    <div style="font-size:13px;color:#263238;">${esc(fb.comment)}</div>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          </div>
+        `;
+
+        document.getElementById("orAutoSend").addEventListener("change", e => {
+          or.autoSend = e.target.checked;
+          saveState();
+          renderRentalOwnerReport(r);
+        });
+        document.getElementById("orDay").addEventListener("change", e => {
+          state.ownerDelivery.day = e.target.value;
+          saveState();
+          renderRentalOwnerReport(r);
+        });
+        document.getElementById("orTime").addEventListener("change", e => {
+          state.ownerDelivery.time = e.target.value;
+          saveState();
+          renderRentalOwnerReport(r);
+        });
+        document.getElementById("orEmails").addEventListener("input", e => {
+          or.emails = e.target.value;
+          saveState();
+        });
+        document.getElementById("orIncludeFb").addEventListener("change", e => {
+          or.includeFeedback = e.target.checked;
+          saveState();
+          renderRentalOwnerReport(r);
+        });
+        document.getElementById("orSendNowBtn").addEventListener("click", () => {
+          const recips = (or.emails || "").split(",").map(s => s.trim()).filter(Boolean);
+          if (recips.length === 0 || recips.some(email=>!/^\S+@\S+\.\S+$/.test(email))) {
+            showToast("Enter valid practice recipient email addresses first");
+            return;
+          }
+          or.lastSent = "Today, Just now (manual send)";
+          saveState();
+          renderRentalOwnerReport(r);
+          showToast(`Practice Owner Report delivery recorded for ${recips.length} recipient${recips.length > 1 ? "s" : ""}`);
+        });
+        document.getElementById("orCopyLinkBtn").addEventListener("click", () => {
+          const shareUrl = `${practiceLink("owner-report", r.id)}`;
+          copyToClipboardSafe(shareUrl, "Copied Owner Report share link");
+        });
+        document.getElementById("orAddFbBtn").addEventListener("click", () => {
+          openModal(
+            "Add Showing Feedback",
+            `
+              <div class="grid-2" style="margin-bottom:10px;">
+                <div>
+                  <label class="field-label" for="fbLeadIn">Prospect Initials</label>
+                  <input id="fbLeadIn" class="mat-input" type="text" value="M.T." />
+                </div>
+                <div>
+                  <label class="field-label" for="fbIntIn">Interest Level</label>
+                  <select id="fbIntIn" class="mat-select">
+                    <option value="Very Interested">Very Interested</option>
+                    <option value="Somewhat Interested">Somewhat Interested</option>
+                    <option value="Not Interested">Not Interested</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="field-label" for="fbCommentIn">Feedback Comment</label>
+                <textarea id="fbCommentIn" class="mat-textarea" rows="3" placeholder="Enter prospect feedback..."></textarea>
+              </div>
+            `,
+            `
+              <button id="fbCancelBtn" class="btn-ghost" type="button">Cancel</button>
+              <button id="fbSaveBtn" class="btn-blue" type="button">Save Feedback</button>
+            `
+          );
+          document.getElementById("fbCancelBtn").addEventListener("click", closeModal);
+          document.getElementById("fbSaveBtn").addEventListener("click", () => {
+            const comment = document.getElementById("fbCommentIn").value.trim();
+            if (!comment) { showToast("Please enter a feedback comment"); return; }
+            or.feedback.unshift({
+              id: "fb_" + Date.now(),
+              date: dateOffset(),
+              lead: document.getElementById("fbLeadIn").value.trim() || "P.L.",
+              interest: document.getElementById("fbIntIn").value,
+              comment,
+              visible: true
+            });
+            saveState();
+            closeModal();
+            renderRentalOwnerReport(r);
+            showToast("Showing feedback added to Owner Report");
+          });
+        });
+
+        const openFeedback=id=>{
+          const item=or.feedback.find(f=>f.id===id);if(!item)return;
+          const lead=r.leads.find(l=>l.id===item.leadId);
+          openModal('Viewing feedback',`<p><strong>${esc(lead?.name || item.lead)}</strong> · ${esc(item.date)}</p><p>${esc(item.comment)}</p>`,
+            `<button class="btn-ghost" id="feedback-done">Back to report</button><button class="btn-blue" id="feedback-visibility">${item.visible?'Hide from owner report':'Show on owner report'}</button>`);
+          byId('feedback-done').onclick=closeModal;
+          byId('feedback-visibility').onclick=()=>{item.visible=!item.visible;saveState();closeModal();render();wf.done('owner');showToast(item.visible?'Feedback included in owner report.':'Feedback hidden from owner report.');};
+        };
+        canvas.querySelectorAll('[data-toggle-fb]').forEach(btn=>btn.onclick=()=>openFeedback(btn.dataset.toggleFb));
+        canvas.querySelectorAll('[data-feedback-detail]').forEach(btn=>btn.onclick=()=>openFeedback(btn.dataset.feedbackDetail));
+      }
+
+      function renderRentalSubTab(r) {
+        if (state.detailTab === "availability") {
+          renderRentalAvailability(r);
+          return;
+        }
+        if (state.detailTab === "leads") {
+          renderRentalLeads(r);
+          return;
+        }
+        if (state.detailTab === "owner") {
+          renderRentalOwnerReport(r);
+        }
+      }
+
+      // Access Section: Device Assignment (0548-device-assignment.jpg)
+      function renderViewingsSection() {
+        const canvas = document.getElementById("canvas");
+
+        if (state.viewingsTab === "general") {
+          const user = state.selectedAvailUser;
+          const ga = state.generalAvailability[user] || Object.values(state.generalAvailability)[0];
+
+          canvas.innerHTML = `
+            <div style="max-width:980px; display:flex; flex-direction:column; gap:20px;">
+              <!-- Top User & Timezone Card -->
+              <section class="mat-card">
+                <h2 class="mat-card-title">General Availability</h2>
+                <p style="color:var(--muted); margin:0 0 16px; font-size:13.5px;">
+                  Set your default weekly showing hours. Rentals set to <strong>Use General Availability</strong> automatically inherit these windows.
+                </p>
+                <div class="grid-2">
+                  <div class="mat-field">
+                    <label class="mat-label" for="gaUserSel">Availability for User</label>
+                    <select id="gaUserSel" class="mat-select">
+                      ${Object.keys(state.generalAvailability).map(u => `<option value="${esc(u)}" ${u === user ? "selected" : ""}>${esc(u)}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="mat-field">
+                    <label class="mat-label" for="gaTzSel">Time Zone</label>
+                    <select id="gaTzSel" class="mat-select">
+                      ${["Eastern Time (US & Canada)", "Central Time (US & Canada)", "Mountain Time (US & Canada)", "Pacific Time (US & Canada)"].map(tz => `
+                        <option value="${tz}" ${ga.timezone === tz ? "selected" : ""}>${tz}</option>
+                      `).join("")}
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Recurring Weekly Schedule Card (0633-general-availability.jpg) -->
+              <section class="mat-card" id="gaWeeklyCard">
+                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
+                  <h2 class="mat-card-title" style="margin:0;">In-Person Weekly Hours (${esc(user)})</h2>
+                  <div class="preset-bar" style="margin:0;">
+                    <button id="presetMF" class="btn-outline btn-sm" type="button">Mon–Fri 9am–5pm</button>
+                    <button id="presetAll" class="btn-outline btn-sm" type="button">Every Day 8am–8pm</button>
+                    <button id="presetCopyMon" class="btn-outline btn-sm" type="button">Copy Monday to Weekdays</button>
+                  </div>
+                </div>
+                ${renderWeeklyScheduleEditor(ga.weekly, "ga")}
+              </section>
+
+              <!-- Default Self-Access Hours Card -->
+              <section class="mat-card">
+                <h2 class="mat-card-title">Default Self-Access Hours</h2>
+                <div class="grid-2" style="margin-bottom:14px;">
+                  <div class="mat-field">
+                    <label class="mat-label" for="gaSaStart">Earliest Self-Access Showing</label>
+                    <select id="gaSaStart" class="mat-select">
+                      ${TIME_OPTIONS.map(t => `<option value="${t}" ${ga.selfAccessStart === t ? "selected" : ""}>${t}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="mat-field">
+                    <label class="mat-label" for="gaSaEnd">Latest Self-Access Showing</label>
+                    <select id="gaSaEnd" class="mat-select">
+                      ${TIME_OPTIONS.map(t => `<option value="${t}" ${ga.selfAccessEnd === t ? "selected" : ""}>${t}</option>`).join("")}
+                    </select>
+                  </div>
+                </div>
+                <label class="mat-switch">
+                  <input id="gaDaylight" type="checkbox" ${ga.daylightOnly ? "checked" : ""} />
+                  <span class="switch-track"></span>
+                  <span>Restrict self-access showings to daylight hours (auto-adjusts for sunset)</span>
+                </label>
+              </section>
+
+              <!-- Blocked Dates / Time Off Card -->
+              <section class="mat-card">
+                <div class="row-inline" style="justify-content:space-between; margin-bottom:12px;">
+                  <h2 class="mat-card-title" style="margin:0;">Blocked Dates &amp; Time Off</h2>
+                  <button id="addBlockedDateBtn" class="btn-outline btn-sm" type="button">+ Block Date</button>
+                </div>
+                ${ga.blockedDates.length === 0 ? `<p style="color:var(--muted); margin:0;">No blocked dates scheduled.</p>` : `
+                  <table class="tt-table">
+                    <thead><tr><th>Date</th><th>Window</th><th>Reason</th><th></th></tr></thead>
+                    <tbody>
+                      ${ga.blockedDates.map(b => `
+                        <tr>
+                          <td><strong>${esc(b.date)}</strong></td>
+                          <td>${b.allDay ? '<span class="pill pill-red">All Day</span>' : `${esc(b.start)} – ${esc(b.end)}`}</td>
+                          <td>${esc(b.reason)}</td>
+                          <td style="text-align:right;"><button type="button" class="btn-danger-flat rm-bd-btn" data-bdid="${b.id}">Remove</button></td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                `}
+                <div style="margin-top:18px; display:flex; justify-content:flex-end;">
+                  <button id="saveGaBtn" class="btn-blue" type="button">Save General Availability</button>
+                </div>
+              </section>
+            </div>
+          `;
+
+          document.getElementById("gaUserSel").addEventListener("change", e => {
+            state.selectedAvailUser = e.target.value;
+            saveState();
+            renderViewingsSection();
+          });
+          document.getElementById("gaTzSel").addEventListener("change", e => {
+            ga.timezone = e.target.value;
+            saveState();
+          });
+          document.getElementById("gaSaStart").addEventListener("change", e => {
+            ga.selfAccessStart = e.target.value;
+            saveState();
+          });
+          document.getElementById("gaSaEnd").addEventListener("change", e => {
+            ga.selfAccessEnd = e.target.value;
+            saveState();
+          });
+          document.getElementById("gaDaylight").addEventListener("change", e => {
+            ga.daylightOnly = e.target.checked;
+            saveState();
+          });
+
+          bindWeeklyScheduleEditor(document.getElementById("gaWeeklyCard"), ga.weekly, "ga", renderViewingsSection);
+
+          document.getElementById("presetMF").addEventListener("click", () => {
+            ga.weekly = defaultWeeklyHours("9:00 AM", "5:00 PM", false);
+            saveState();
+            renderViewingsSection();
+            showToast("Applied Mon–Fri 9:00 AM – 5:00 PM preset");
+          });
+          document.getElementById("presetAll").addEventListener("click", () => {
+            ga.weekly = defaultWeeklyHours("8:00 AM", "8:00 PM", true);
+            saveState();
+            renderViewingsSection();
+            showToast("Applied Every Day 8:00 AM – 8:00 PM preset");
+          });
+          document.getElementById("presetCopyMon").addEventListener("click", () => {
+            const monCopy = JSON.stringify(ga.weekly["Monday"]);
+            ["Tuesday", "Wednesday", "Thursday", "Friday"].forEach(d => {
+              ga.weekly[d] = JSON.parse(monCopy);
+            });
+            saveState();
+            renderViewingsSection();
+            showToast("Copied Monday hours to Tuesday–Friday");
+          });
+
+          document.getElementById("addBlockedDateBtn").addEventListener("click", () => {
+            openModal(
+              "Block Date / Time Off",
+              `
+                <div class="mat-field">
+                  <label class="mat-label" for="bdDate">Date</label>
+                  <input id="bdDate" class="mat-input" type="date" value="${dateOffset(3)}" />
+                </div>
+                <label class="mat-switch">
+                  <input id="bdAllDay" type="checkbox" checked />
+                  <span class="switch-track"></span>
+                  <span>Block all day</span>
+                </label>
+                <div id="bdTimeRow" class="grid-2" style="display:none;">
+                  <div class="mat-field">
+                    <label class="mat-label" for="bdStart">From</label>
+                    <select id="bdStart" class="mat-select">${TIME_OPTIONS.map(t => `<option value="${t}" ${t === "12:00 PM" ? "selected" : ""}>${t}</option>`).join("")}</select>
+                  </div>
+                  <div class="mat-field">
+                    <label class="mat-label" for="bdEnd">To</label>
+                    <select id="bdEnd" class="mat-select">${TIME_OPTIONS.map(t => `<option value="${t}" ${t === "5:00 PM" ? "selected" : ""}>${t}</option>`).join("")}</select>
+                  </div>
+                </div>
+                <div class="mat-field">
+                  <label class="mat-label" for="bdReason">Reason</label>
+                  <input id="bdReason" class="mat-input" type="text" placeholder="e.g., Holiday or Out of Office" value="Holiday / Out of Office" />
+                </div>
+              `,
+              `
+                <button type="button" class="btn-flat" id="bdCancel">Cancel</button>
+                <button type="button" class="btn-blue" id="bdSave">Block Date</button>
+              `
+            );
+            const allDayCb = document.getElementById("bdAllDay");
+            const timeRow = document.getElementById("bdTimeRow");
+            allDayCb.addEventListener("change", () => {
+              timeRow.style.display = allDayCb.checked ? "none" : "grid";
+            });
+            document.getElementById("bdCancel").addEventListener("click", closeModal);
+            document.getElementById("bdSave").addEventListener("click", () => {
+              const dt = document.getElementById("bdDate").value;
+              if (!dt) return;
+              ga.blockedDates.push({
+                id: "bd" + Date.now(),
+                date: dt,
+                allDay: allDayCb.checked,
+                start: document.getElementById("bdStart").value,
+                end: document.getElementById("bdEnd").value,
+                reason: document.getElementById("bdReason").value.trim() || "Blocked"
+              });
+              saveState();
+              closeModal();
+              renderViewingsSection();
+              showToast("Blocked " + dt);
+            });
+          });
+
+          canvas.querySelectorAll(".rm-bd-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+              ga.blockedDates = ga.blockedDates.filter(b => b.id !== btn.dataset.bdid);
+              saveState();
+              renderViewingsSection();
+              showToast("Removed blocked date");
+            });
+          });
+
+          document.getElementById("saveGaBtn").addEventListener("click", () => {
+            saveState();
+            showToast(`Saved General Availability for ${user}`);
+          });
+          return;
+        }
+
+        if (state.viewingsTab === "calsync") {
+          const cs = state.calendarSync;
+          canvas.innerHTML = `
+            <div class="mat-card" style="max-width:820px;">
+              <h2 class="mat-card-title">External Calendar Sync · practice</h2>
+              <p style="color:var(--muted); margin-top:0;">Tenant Turner checks your connected calendar for busy events before offering in-person showing times.</p>
+              <div class="toggle-list">
+                <div class="row-inline" style="justify-content:space-between; padding:10px 0; border-bottom:1px solid #EEEEEE;">
+                  <div>
+                    <div style="font-weight:500;">Google Calendar</div>
+                    <div style="font-size:12.5px; color:var(--muted);">${cs.googleConnected ? `Connected as ${esc(cs.googleEmail)}` : "Not connected"}</div>
+                  </div>
+                  <button id="toggleGoogleCal" class="${cs.googleConnected ? "btn-outline" : "btn-blue"} btn-sm" type="button">${cs.googleConnected ? "Disconnect" : "Connect Google"}</button>
+                </div>
+                <div class="row-inline" style="justify-content:space-between; padding:10px 0; border-bottom:1px solid #EEEEEE;">
+                  <div>
+                    <div style="font-weight:500;">Microsoft Office 365 / Outlook</div>
+                    <div style="font-size:12.5px; color:var(--muted);">${cs.office365Connected ? "Connected" : "Not connected"}</div>
+                  </div>
+                  <button id="toggleO365Cal" class="${cs.office365Connected ? "btn-outline" : "btn-blue"} btn-sm" type="button">${cs.office365Connected ? "Disconnect" : "Connect Office 365"}</button>
+                </div>
+                <label class="mat-switch">
+                  <input id="csConflicts" type="checkbox" ${cs.checkConflicts ? "checked" : ""} />
+                  <span class="switch-track"></span>
+                  <span>Automatically block in-person slots that conflict with busy calendar events</span>
+                </label>
+                <label class="mat-switch">
+                  <input id="csWrite" type="checkbox" ${cs.writeShowingsToCalendar ? "checked" : ""} />
+                  <span class="switch-track"></span>
+                  <span>Add confirmed Tenant Turner showings to my connected calendar</span>
+                </label>
+              </div>
+            </div>
+          `;
+          document.getElementById("toggleGoogleCal").addEventListener("click", () => {
+            cs.googleConnected = !cs.googleConnected;
+            saveState();
+            renderViewingsSection();
+            showToast(cs.googleConnected ? "Practice Google calendar enabled" : "Practice Google calendar disabled");
+          });
+          document.getElementById("toggleO365Cal").addEventListener("click", () => {
+            cs.office365Connected = !cs.office365Connected;
+            saveState();
+            renderViewingsSection();
+            showToast(cs.office365Connected ? "Practice Outlook calendar enabled" : "Practice Outlook calendar disabled");
+          });
+          document.getElementById("csConflicts").addEventListener("change", e => { cs.checkConflicts = e.target.checked; saveState(); });
+          document.getElementById("csWrite").addEventListener("change", e => { cs.writeShowingsToCalendar = e.target.checked; saveState(); });
+          return;
+        }
+
+        wf.renderShowings();
+      }
+
+      function messageBody(body) {
+        return String(body).split(/(https?:\/\/[^\s]+)/).map(piece=>{
+          if(!piece.startsWith(practiceLink('qualify')+'/')&&!piece.startsWith(practiceLink('apply')+'/'))return esc(piece);
+          return `<a href="${esc(piece)}">${esc(piece)}</a>`;
+        }).join('');
+      }
+
+      function renderMessagesSection() {
+        const canvas = document.getElementById("canvas");
+        const mf = state.messagesFilter || { search: "", tab: "all" };
+        const q = (mf.search || "").trim().toLowerCase();
+
+        const filtered = (state.messages || []).filter(m => {
+          if (mf.tab === "unread" && !m.unread) return false;
+          if (mf.tab === "needsReply" && !m.needsReply) return false;
+          if (mf.tab === "ai" && !m.aiHandled) return false;
+          if (q) {
+            const prop = state.rentals.find(r => r.id === m.rentalId);
+            const hay = `${m.leadName} ${m.phone} ${m.email} ${prop ? prop.address : ""} ${m.thread.map(t => t.text).join(" ")}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        let activeThread = filtered.find(m => m.id === state.selectedThreadId) || filtered[0] || null;
+        if (activeThread) state.selectedThreadId = activeThread.id;
+        const activeRental = activeThread ? state.rentals.find(r => r.id === activeThread.rentalId) : null;
+        const unreadCount = state.messages.filter(m => m.unread).length;
+
+        canvas.innerHTML = `
+          <div class="messages-shell">
+            <div class="msg-list-pane">
+              <div class="msg-list-top">
+                <input id="msgSearchInput" class="mat-input" type="search" placeholder="Search lead or property..." value="${esc(mf.search)}" />
+                <div class="msg-filter-pills">
+                  <button class="pill-btn ${mf.tab === "all" ? "active" : ""}" data-mtab="all" type="button">All (${state.messages.length})</button>
+                  <button class="pill-btn ${mf.tab === "unread" ? "active" : ""}" data-mtab="unread" type="button">Unread (${unreadCount})</button>
+                  <button class="pill-btn ${mf.tab === "needsReply" ? "active" : ""}" data-mtab="needsReply" type="button">Needs Reply</button>
+                  <button class="pill-btn ${mf.tab === "ai" ? "active" : ""}" data-mtab="ai" type="button">AI Handled</button>
+                </div>
+              </div>
+              <div class="msg-thread-list">
+                ${filtered.length === 0 ? `
+                  <div style="padding:24px 16px;text-align:center;color:var(--muted);font-size:13px;">No conversations match this filter.</div>
+                ` : filtered.map(m => {
+                  const prop = state.rentals.find(r => r.id === m.rentalId);
+                  const last = m.thread[m.thread.length - 1];
+                  return `
+                    <button class="msg-thread-item ${activeThread && activeThread.id === m.id ? "active" : ""}" data-thread-id="${esc(m.id)}" type="button">
+                      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                        <span style="font-weight:${m.unread ? "700" : "600"};font-size:13.5px;color:#263238;">
+                          ${m.unread ? '<span class="msg-unread-dot"></span>' : ""}${esc(m.leadName)}
+                        </span>
+                        <span style="font-size:11px;color:var(--muted);">${esc(m.updatedAt)}</span>
+                      </div>
+                      <div style="font-size:11.5px;color:#0277BD;margin-top:2px;">${prop ? esc(prop.address) : "General Inquiry"} • ${esc(m.channel)}</div>
+                      <div style="font-size:12px;color:#607D8B;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${last ? esc(last.text) : ""}</div>
+                    </button>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+
+            <div class="msg-conv-pane">
+              ${!activeThread ? `
+                <div style="padding:48px 24px;text-align:center;color:var(--muted);">Select a conversation to view messages.</div>
+              ` : `
+                <div class="msg-conv-header">
+                  <div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      <strong style="font-size:15px;">${esc(activeThread.leadName)}</strong>
+                      ${scoreBadgeHtml(activeThread.score)}
+                      <span class="type-badge">${esc(activeThread.channel)}</span>
+                    </div>
+                    <div style="font-size:12.5px;color:var(--muted);margin-top:2px;">
+                      ${esc(activeThread.phone)} • ${esc(activeThread.email)}
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    ${activeRental ? `<button id="msgOpenRentalBtn" class="btn-outline" type="button">View ${esc(activeRental.address)} Leads</button>` : ""}
+                    <button id="msgToggleUnreadBtn" class="btn-ghost" type="button">${activeThread.unread ? "Mark Read" : "Mark Unread"}</button>
+                  </div>
+                </div>
+
+                <div class="msg-conv-body" id="msgConvBody">
+                  ${activeThread.thread.map(item => `
+                    <div class="msg-bubble ${esc(item.sender)}">
+                      <div>${messageBody(item.text)}</div>
+                      <div class="msg-meta">${esc(item.label)} • ${esc(item.time)}</div>
+                    </div>
+                  `).join("")}
+                </div>
+
+                <div class="msg-composer">
+                  <div class="msg-templates">
+                    <button class="msg-tpl-chip" type="button" data-tpl="Driveway parking is available right in front of the house. Enjoy your tour!">Parking Info</button>
+                    <button class="msg-tpl-chip" type="button" data-tpl="Your showing is confirmed! Please reply YES to confirm 2 hours prior.">Confirm Showing</button>
+                    <button class="msg-tpl-chip" type="button" data-tpl="Thanks for touring! Here is the link to submit your online rental application.">Send Application</button>
+                    <button class="msg-tpl-chip" type="button" data-tpl="Showings are now open for this property—use your link to pick a time!">Wait List Open</button>
+                  </div>
+                  <div class="msg-input-row">
+                    <select id="msgChannelSel" class="mat-select" style="width:96px;flex-shrink:0;">
+                      <option value="SMS" ${activeThread.channel === "SMS" ? "selected" : ""}>SMS</option>
+                      <option value="Email" ${activeThread.channel === "Email" ? "selected" : ""}>Email</option>
+                    </select>
+                    <input id="msgReplyInput" class="mat-input" type="text" placeholder="Type a reply to ${esc(activeThread.leadName)}..." style="flex:1;" />
+                    <button id="msgSendBtn" class="btn-blue" type="button">Send</button>
+                  </div>
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+
+        document.getElementById("msgSearchInput").addEventListener("input", e => {
+          state.messagesFilter.search = e.target.value;
+          saveState();
+          renderMessagesSection();
+          const el = document.getElementById("msgSearchInput");
+          if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+        });
+
+        canvas.querySelectorAll("[data-mtab]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            state.messagesFilter.tab = btn.dataset.mtab;
+            saveState();
+            renderMessagesSection();
+          });
+        });
+
+        canvas.querySelectorAll("[data-thread-id]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            state.selectedThreadId = btn.dataset.threadId;
+            const th = state.messages.find(m => m.id === state.selectedThreadId);
+            if (th) th.unread = false;
+            saveState();
+            renderMessagesSection();
+          });
+        });
+
+        if (activeThread) {
+          const openRentalBtn = document.getElementById("msgOpenRentalBtn");
+          if (openRentalBtn && activeRental) {
+            openRentalBtn.addEventListener("click", () => {
+              state.section = "rentals";
+              state.selectedRentalId = activeRental.id;
+              state.detailTab = "leads";
+              saveState();
+              render();
+            });
+          }
+
+          document.getElementById("msgToggleUnreadBtn").addEventListener("click", () => {
+            activeThread.unread = !activeThread.unread;
+            saveState();
+            renderMessagesSection();
+          });
+
+          canvas.querySelectorAll("[data-tpl]").forEach(btn => {
+            btn.addEventListener("click", () => {
+              const inp = document.getElementById("msgReplyInput");
+              inp.value = btn.dataset.tpl;
+              inp.focus();
+            });
+          });
+
+          const sendReply = () => {
+            const inp = document.getElementById("msgReplyInput");
+            const txt = inp.value.trim();
+            if (!txt) return;
+            const ch = document.getElementById("msgChannelSel").value;
+            activeThread.channel = ch;
+            activeThread.unread = false;
+            activeThread.needsReply = false;
+            activeThread.updatedAt = "Just now";
+            activeThread.thread.push({
+              sender: "outbound",
+              label: `${state.users[0].name} (${ch})`,date:dateOffset(),
+              time: "Just now",
+              text: txt
+            });
+            saveState();
+            renderMessagesSection();
+            showToast(`Practice ${ch} reply saved for ${activeThread.leadName}`);wf.done("reply");
+          };
+
+          document.getElementById("msgSendBtn").addEventListener("click", sendReply);
+          document.getElementById("msgReplyInput").addEventListener("keydown", e => {
+            if (e.key === "Enter") { e.preventDefault(); sendReply(); }
+          });
+
+          const bodyEl = document.getElementById("msgConvBody");
+          if (bodyEl) bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+      }
+
+      const REPORT_CATALOG = [
+        {category:'Rental / Lead',icon:'⌂',items:[['rental_activity','RENTAL ACTIVITY','Inquiry and viewing totals by rental.'],['days','DAYS ON MARKET','Listing and activation dates.'],['lead_activity','LEAD ACTIVITY','Qualification and activity history.'],['lead_source','LEAD SOURCE','How prospects found each rental.'],['syndication','ZILLOW SYNDICATION','Listing distribution preferences.']]},
+        {category:'Viewings',icon:'▣',items:[['viewing_activity','VIEWING ACTIVITY','Viewing times, methods, and statuses.'],['viewing_availability','VIEWING AVAILABILITY','Rental and agent availability.'],['notifications','NOTIFICATIONS','Practice appointment and contact messages.']]},
+        {category:'Access',icon:'▤',items:[['codebox_access','LOCKBOX ACCESS','Generated practice access codes.'],['inventory','LOCKBOX INVENTORY','Assigned and unassigned devices.']]},
+        {category:'User / Company',icon:'◉',items:[['user_activity','USER ACTIVITY','Rental and showing counts by user.'],['company_overview','ACCOUNT OVERVIEW','Portfolio activity totals.']]},
+      ].map(cat=>({...cat,items:cat.items.map(([id,name,desc])=>({id,name,desc}))}));
+
+      function buildReportData(id) {
+        const f=state.reportFilters;
+        const rentals=state.rentals.filter(r=>(f.property==='all'||r.id===f.property) && (f.agent==='all'||r.assignee===f.agent) && (!f.active || r.active));
+        const IDs=new Set(rentals.map(r=>r.id));
+        const inRange=d=>(!f.from||d>=f.from)&&(!f.through||d<=f.through);
+        const find=id=>rentals.find(r=>r.id===id);
+        const leads=rentals.flatMap(r=>r.leads.filter(l=>inRange(l.createdDate || dateOffset(-2))).map(l=>({...l,r})));
+        const viewings=state.viewingsList.filter(v=>IDs.has(v.rentalId)&&inRange(v.date));
+        const qualified=l=>Number(l.score)>=6 && !l.archived;
+        const owned=rentals.flatMap(r=>r.ownerReport.feedback || []);
+        const name=REPORT_CATALOG.flatMap(c=>c.items).find(item=>item.id===id)?.name || 'Report';
+        const result=(headers,rows)=>({title:name,headers,rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
+        const stats=(ls,vs)=>[ls.length,ls.filter(qualified).length,vs.filter(v=>!['Canceled','No-show'].includes(v.status)).length,vs.filter(v=>v.status==='Viewed').length];
+        switch(id) {
+          case 'rental_activity':return result(['User','Rental','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],rentals.map(r=>[r.assignee,r.address,r.active?'Yes':'No',...stats(leads.filter(l=>l.r.id===r.id),viewings.filter(v=>v.rentalId===r.id))]));
+          case 'days':return result(['Rental','Activation','Days on market','Available'],rentals.map(r=>[r.address,r.listed,Math.max(0,Math.round((Date.parse(dateOffset())-Date.parse(r.listed))/86400000)),r.dateAvailable]));
+          case 'lead_activity':return result(['Lead','Rental','Qualification','Stage','Latest activity'],leads.map(l=>[l.name,l.r.address,l.score??'Unscored',l.status,l.notes[0]?.text || 'Inquiry received']));
+          case 'lead_source':return result(['User','Rental','Lead','Phone','Email','Created','Status','Channel','Source','Partner'],leads.map(l=>[l.r.assignee,l.r.address,l.name,l.phone,l.email,l.createdDate,l.status,l.source==='Phone / Walk-in'?'Phone':'Web',l.source,l.source==='Website'?'Direct':'—']));
+          case 'syndication':return result(['Rental','Zillow, Trulia, & HotPads','Other sources'],rentals.map(r=>[r.address,r.syndication['Zillow, Trulia, & HotPads']?'On':'Off',Object.keys(r.syndication).filter(k=>k!=='Zillow, Trulia, & HotPads'&&r.syndication[k]).join(', ')]));
+          case 'viewing_activity':return result(['Date','Time','Rental','Lead','Viewing type','Status'],viewings.map(v=>[v.date,v.time,find(v.rentalId).address,v.leadName,v.type,v.status]));
+          case 'viewing_availability':return result(['Rental','Agent','Availability','Self-Access','In-Person','Date Overrides'],rentals.map(r=>[r.address,r.assignee,r.availability.mode==='custom'?'Rental-specific':'General',r.viewing.selfAccess?'On':'Off',r.viewing.inPerson.enabled?'On':'Off',r.availability.overrides.length]));
+          case 'notifications':return result(['Rental','Lead','Channel','Date','Message'],state.messages.filter(m=>IDs.has(m.rentalId)).flatMap(m=>m.thread.filter(e=>e.sender!=='inbound' && inRange(e.date || dateOffset(-2))).map(e=>[find(m.rentalId).address,m.leadName,m.channel,e.date || dateOffset(-2),e.text])));
+          case 'codebox_access':return result(['Date','Device','Rental','Recipient','Code type','Action','Practice code'],state.accessEvents.filter(e=>(IDs.has(e.rentalId)||(!e.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active))&&inRange(e.date)).map(e=>[e.date,e.device,find(e.rentalId)?.address || 'Unassigned',e.recipient,e.type,e.action,e.code]));
+          case 'inventory':return result(['Device','Type','Assigned rental','Status'],state.devices.filter(d=>IDs.has(d.rentalId)||(!d.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active)).map(d=>[d.serial,d.type,find(d.rentalId)?.address || 'Unassigned',d.battery]));
+          case 'user_activity':return result(['User','Active Rentals','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],state.users.filter(u=>f.agent==='all'||u.name===f.agent).map(u=>[u.name,rentals.filter(r=>r.assignee===u.name&&r.active).length,...stats(leads.filter(l=>l.r.assignee===u.name),viewings.filter(v=>find(v.rentalId)?.assignee===u.name))]));
+          default:return result(['Rentals','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings','Feedback'],[[rentals.length,rentals.filter(r=>r.active).length,...stats(leads,viewings),owned.length]]);
+        }
+      }
+      function renderReportsSection() {
+        const canvas=byId('canvas');
+        if(state.reportTab==='scheduled'){wf.scheduledReports(REPORT_CATALOG);return;}
+        if(!state.activeReport){
+          canvas.innerHTML=`<div class="reports-cat-grid practice-reports">${REPORT_CATALOG.map(cat=>`<section class="report-cat-card"><div class="practice-report-icon" aria-hidden="true">${cat.icon}</div><div class="report-btn-list">${cat.items.map(item=>`<button class="report-link-btn" type="button" data-report-id="${item.id}"><span><strong class="report-link-name">${item.name} REPORT</strong><span class="report-link-desc">${item.desc}</span></span></button>`).join('')}</div></section>`).join('')}</div>`;
+          canvas.querySelectorAll('[data-report-id]').forEach(btn=>btn.onclick=()=>{state.activeReport=btn.dataset.reportId;saveState();renderReportsSection();});return;
+        }
+        const f=state.reportFilters;
+        const data=buildReportData(state.activeReport);
+        canvas.innerHTML=`<div class="practice-width">
+          <div class="practice-actions"><button id="repBackBtn" class="btn-ghost">← All Reports</button><h2 class="mat-card-title">${esc(data.title)}</h2></div>
+          <form id="practice-report-filters" class="filter-bar"><div class="filter-left">
+            <label class="mat-field"><span class="mat-label">Rental</span><select id="repPropSel" class="mat-select"><option value="all">All rentals</option>${state.rentals.map(r=>`<option value="${esc(r.id)}" ${f.property===r.id?'selected':''}>${esc(r.address)}</option>`).join('')}</select></label>
+            <label class="mat-field"><span class="mat-label">User</span><select id="repAgentSel" class="mat-select"><option value="all">All users</option>${agentOptions(f.agent)}</select></label>
+            <label class="mat-field"><span class="mat-label">Start Date</span><input id="repFrom" type="date" class="mat-input" value="${esc(f.from)}"></label>
+            <label class="mat-field"><span class="mat-label">End Date</span><input id="repThrough" type="date" class="mat-input" value="${esc(f.through)}"></label>
+            <label class="mat-switch"><input type="checkbox" id="repActive" ${f.active?'checked':''}><span class="switch-track"></span><span>Show only active rentals</span></label>
+          </div><button class="btn-blue" type="submit">Filter</button></form>
+          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span>${data.rows.length} results</span><label class="mat-field"><span class="mat-label">Search results</span><input id="repSearch" type="search" class="mat-input" value="${esc(f.search)}"></label></div>
+            <div class="practice-actions" id="report-export-tools"></div><div class="table-scroll"><table class="tt-table"><thead><tr>${data.headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${data.rows.length?data.rows.map(row=>`<tr>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${data.headers.length}">No matching results.</td></tr>`}</tbody></table></div>
+          </div></div>`;
+        byId('repBackBtn').onclick=()=>{state.activeReport=null;saveState();renderReportsSection();};
+        byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});saveState();renderReportsSection();};
+        byId('repSearch').addEventListener('change',e=>{f.search=e.target.value.trim();saveState();renderReportsSection();});
+        wf.reportExports(data,state.activeReport);
+      }
+
+      function addFeedback(r,lead,rating,comment) {
+        r.ownerReport.feedback.unshift({id:uid('feedback'),date:dateOffset(),leadId:lead.id,lead:lead.name,rating,interest:'Viewing feedback',comment,visible:true});
+      }
+      function goto(route) {
+        if(state.signedOut) return;
+        settingsDraft=null;state.selectedRentalId=null;
+        if(['settings','leads','owner','availability'].includes(route)) {state.section='rentals';state.selectedRentalId='r1';state.detailTab=route;}
+        else if(route==='upcoming'){state.section='viewings';state.viewingsTab='upcoming';}
+        else if(route==='contacts'){state.section='access';state.accessTab='contacts';}
+        else if(route==='access'){state.section='access';state.accessTab='CodeBox';}
+        else if(route==='scheduled'||route==='reports'){state.section='reports';state.reportTab=route==='scheduled'?'scheduled':'standard';state.activeReport=null;}
+        else state.section=route;
+        saveState();render();
+      }
+      function resetPractice() {
+        byId('chatPopover').classList.remove('open');
+        openModal('Reset practice data?','<p>Restore fictional records and clear tutorial progress in this browser.</p>','<button id="reset-cancel" class="btn-ghost">Cancel</button><button id="reset-confirm" class="btn-orange">Reset practice data</button>');
+        byId('reset-cancel').onclick=closeModal;
+        byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;saveState();closeModal();render();showToast('Practice data reset.');};
+      }
+      function render() {
+        document.body.classList.toggle('practice-signed-out',state.signedOut);
+        if(state.signedOut){state.section='signout';state.selectedRentalId=null;byId('chatPopover').classList.remove('open');}
+        wf.reminders();renderSidebar();renderHeader();
+        const rental=state.section==='rentals' && state.rentals.find(r=>r.id===state.selectedRentalId);
+        if (!rental || state.detailTab!=='settings') settingsDraft=null;
+        if(rental){if(state.detailTab==='settings') renderRentalSettings(rental);else renderRentalSubTab(rental);}
+        else if(state.section==='rentals') renderRentalsList();
+        else if(state.section==='access') wf.renderAccess();
+        else if(state.section==='viewings') renderViewingsSection();
+        else if(state.section==='messages') renderMessagesSection();
+        else if(state.section==='reports') renderReportsSection();
+        else wf.other(state.section);
+        wf.drawGuide();
+      }
+      const wf=window.createReplicaWorkflows({get:()=>state,el:byId,esc,save:saveState,render,toast:showToast,
+        modal:openModal,close:closeModal,uid,date:dateOffset,link:practiceLink,copy:copyToClipboardSafe,weekly:defaultWeeklyHours,
+        defaultRental:newRental,addFeedback,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,navigate:goto,reset:resetPractice});
+
+      // Global handlers
+      document.getElementById("logoHomeBtn").addEventListener("click", () => {
+        state.section = "rentals";
+        state.selectedRentalId = null;
+        closeMobileSidebar();
+        saveState();
+        render();
+      });
+
+      document.getElementById("sidebarBackdrop").addEventListener("click", closeMobileSidebar);
+      document.getElementById("ttModalClose").addEventListener("click", closeModal);
+      document.getElementById("ttModal").addEventListener("click", e => {
+        if (e.target.id === "ttModal") closeModal();
+      });
+
+      const chatPop = document.getElementById("chatPopover");
+      document.getElementById("chatFab").addEventListener("click", () => {
+        chatPop.classList.toggle("open");
+        drawSupport();
+      });
+      document.getElementById("closeChatBtn").addEventListener("click", () => {
+        chatPop.classList.remove("open");
+      });
+      function drawSupport() {
+        byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('');
+      }
+      byId('practice-support').onsubmit=event=>{
+        event.preventDefault();const field=byId('practice-support-message');const request=field.value.trim();if(!request)return;
+        state.support.push({from:'You',text:request},{from:'Practice helper',text:/show|book|avail/i.test(request)?'Open a qualified lead and choose Schedule. Use Viewings or the rental’s Availability tab to check hours.':/report|csv/i.test(request)?'Open Reports, choose Standard, and select a report. Filter before exporting.':'Use Tutorial for a guided exercise or open Help for practice answers.'});
+        field.value='';saveState();drawSupport();
+      };
+      byId('resetDataBtn').onclick=resetPractice;
+      byId('practiceGuideBtn').onclick=wf.guide;
+      document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeModal();chatPop.classList.remove('open');closeMobileSidebar();}});
+      function openSharedRoute() {
+        if(state.signedOut || !location.hash) return;
+        let parts;
+        try {parts=location.hash.slice(1).split('/').map(decodeURIComponent);} catch {return;}
+        const [page,rid,lid]=parts;
+        const r=state.rentals.find(row=>row.id===rid);
+        if(!r || !['qualify','apply','owner-report'].includes(page)) return;
+        const lead=r.leads.find(l=>l.id===lid);
+        history.replaceState(null,'',location.pathname+location.search);
+        state.section='rentals';state.selectedRentalId=r.id;state.detailTab=page==='owner-report'?'owner':'leads';saveState();render();
+        if(page==='qualify') wf.qualify(r,lead || wf.blankLead(r,{leadType:lid==='agent'?'Agent lead':'Tenant lead'}),{prospect:true});
+        if(page==='apply') wf.application(r,lead);
+      }
+      window.addEventListener('hashchange',openSharedRoute);
+      render();openSharedRoute();
+    })();
