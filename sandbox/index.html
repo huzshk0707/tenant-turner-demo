@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Leasing Lab — Tenant Turner practice workspace</title>
   <meta name="robots" content="noindex, nofollow" />
-  <link rel="stylesheet" href="replica.css?v=practice-workflow" />
+  <link rel="stylesheet" href="replica.css?v=full-practice" />
 </head>
 <body>
   <div class="app-shell">
@@ -46,11 +46,8 @@
       <button id="closeChatBtn" type="button" style="border:0;background:transparent;color:#fff;font-size:18px;cursor:pointer;">×</button>
     </div>
     <div class="chat-pop-body">
-      <div>Practice the recorded leasing workflow with fictional records.</div>
       <div id="practice-support-thread" class="practice-support-thread" aria-live="polite"></div>
       <form id="practice-support"><label class="mat-field"><span class="mat-label">Practice support message</span><input id="practice-support-message" class="mat-input" required></label><button class="btn-blue" type="submit">Send practice message</button></form>
-      <button id="practiceGuideBtn" class="btn-blue" type="button">Tutorial</button>
-      <button id="resetDataBtn" class="btn-blue" type="button">Reset Practice Data</button>
     </div>
   </div>
 
@@ -69,11 +66,28 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="data.js?v=practice-workflow"></script>
-  <script src="scheduling.js?v=practice-workflow"></script>
-  <script src="exports.js?v=practice-workflow"></script>
-  <script src="replica-booking.js?v=practice-workflow"></script>
-  <script src="replica-workflows.js?v=practice-workflow"></script>
-  <script src="replica.js?v=practice-workflow"></script>
+  <div id="signoutOverlay" class="signout-overlay" role="dialog" aria-label="Practice session paused" aria-modal="true" aria-hidden="true">
+    <div class="signout-card">
+      <div class="signout-logo-circle">
+        <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
+          <path d="M4 15L16 5L28 15" stroke="#EF6C00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M8 14V25H24V14" stroke="#0277BD" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="13.5" y="17.5" width="5" height="7.5" fill="#EF6C00" rx="0.8"/>
+        </svg>
+      </div>
+      <h2 style="margin:0 0 4px; font-size:20px; color:#263238;">Return to Leasing Lab</h2>
+      <p style="margin:0 0 20px; font-size:13px; color:#607D8B;">Your fictional records and tutorial progress are saved on this browser.</p>
+      <button id="signBackInBtn" class="btn-blue" type="button" style="width:100%; padding:11px 16px; font-size:14px;">Return to practice</button>
+    </div>
+  </div>
+
+  <script src="data.js?v=full-practice"></script>
+  <script src="scheduling.js?v=full-practice"></script>
+  <script src="exports.js?v=full-practice"></script>
+  <script src="replica-booking.js?v=full-practice"></script>
+  <script src="replica-workflows.js?v=full-practice"></script>
+  <script src="full-workspace.js?v=full-practice"></script>
+  <script src="replica-tutorial.js?v=full-practice"></script>
+  <script src="replica.js?v=full-practice"></script>
 </body>
 </html>

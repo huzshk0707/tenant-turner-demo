@@ -1755,15 +1755,12 @@
 .practice-reports .report-link-btn { border:0; background:white; padding:7px 6px; border-radius:2px; }
 .practice-reports .report-link-btn:hover { background:#e1f5fe; }
 .practice-reports .report-link-desc { display:block; }
-.practice-guide { width:min(720px,calc(100% - 38px)); margin:12px auto 4px; padding:11px 14px; background:white; border:1px solid #81c5ed; border-radius:5px; box-shadow:var(--shadow-2); }
+.practice-guide { position:sticky; top:8px; z-index:27; width:min(720px,calc(100% - 38px)); max-height:42vh; overflow:auto; margin:12px auto 4px; padding:11px 14px; background:white; border:1px solid #81c5ed; border-radius:5px; box-shadow:var(--shadow-2); }
 .practice-guide p { margin:4px 0; }
 .practice-guide a { color:#015082; }
 .practice-guide .practice-actions { margin:0; }
 .practice-lessons { display:grid; gap:6px; grid-template-columns:repeat(2,minmax(0,1fr)); }
 .practice-highlight { outline:3px solid #ff9e36 !important; outline-offset:2px; }
-.practice-signed-out .sidebar,.practice-signed-out .top-header,.practice-signed-out .chat-fab { display:none; }
-.practice-signed-out .main-col { margin-left:0; width:100%; }
-.practice-signed-out .canvas { padding-top:14vh; }
 @media (max-width:930px) { .practice-reports { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:540px) { .practice-reports,.practice-lessons { grid-template-columns:1fr; } }
 @media print { .sidebar,.top-header,.chat-fab,.chat-popover,.practice-guide,.filter-bar,#repBackBtn,#report-export-tools,.practice-report-results label { display:none !important; } .main-col { margin:0; width:100%; } }
@@ -1774,3 +1771,276 @@
 
 .mat-switch input { display:block; position:absolute; width:1px; height:1px; opacity:0; }
 .mat-switch input:focus-visible + .switch-track { outline:2px solid #015d91; outline-offset:3px; }
+
+/* Step 5: Users, Account, Help, Rewards & Sign-Out Styles */
+    .users-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+      max-width: 1160px;
+    }
+    .users-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 14px;
+    }
+    .user-avatar-circle {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #0277BD;
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      letter-spacing: 0.4px;
+    }
+    .user-avatar-circle.inactive {
+      background: #90A4AE;
+    }
+    .user-cell-flex {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+    .role-pill {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #E1F5FE;
+      color: #0277BD;
+      white-space: nowrap;
+    }
+    .role-pill.owner { background: #EDE7F6; color: #5E35B1; }
+    .role-pill.pm { background: #E8F5E9; color: #2E7D32; }
+    .role-pill.vendor { background: #FFF3E0; color: #E65100; }
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: #43A047;
+    }
+    .status-dot.off { background: #B0BEC5; }
+    .status-dot.warn { background: #FB8C00; }
+    .perm-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 18px;
+      margin-top: 8px;
+    }
+    .account-form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px 22px;
+    }
+    .account-form-grid .full-span {
+      grid-column: 1 / -1;
+    }
+    .pms-banner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 4px;
+      background: #F1F8E9;
+      border: 1px solid #C5E1A5;
+      margin-bottom: 18px;
+    }
+    .pms-banner.disconnected {
+      background: #FFF8E1;
+      border-color: #FFE082;
+    }
+    .plan-box {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      background: #F5F9FC;
+      border: 1px solid #B3E5FC;
+      border-radius: 4px;
+      margin-bottom: 18px;
+    }
+    .usage-bar-track {
+      width: 100%;
+      height: 10px;
+      background: #E0E7EC;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .usage-bar-fill {
+      height: 100%;
+      background: #0277BD;
+      border-radius: 6px;
+    }
+    .help-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      gap: 20px;
+      max-width: 1180px;
+    }
+    .kb-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 16px;
+    }
+    .kb-chip {
+      padding: 6px 12px;
+      border-radius: 16px;
+      border: 1px solid #CFD8DC;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      color: #455A64;
+      cursor: pointer;
+    }
+    .kb-chip.active {
+      background: #0277BD;
+      border-color: #0277BD;
+      color: #fff;
+    }
+    .kb-article-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid #E3E8EC;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      background: #FAFBFD;
+      cursor: pointer;
+      transition: background 0.14s, border-color 0.14s;
+    }
+    .kb-article-item:hover {
+      background: #E1F5FE;
+      border-color: #81D4FA;
+    }
+    .sys-status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 0;
+      border-bottom: 1px solid #ECEFF1;
+      font-size: 13px;
+    }
+    .sys-status-row:last-child { border-bottom: none; }
+    .rewards-hero {
+      background: linear-gradient(135deg, #0277BD 0%, #01579B 100%);
+      color: #fff;
+      border-radius: 4px;
+      padding: 22px 24px;
+      margin-bottom: 18px;
+      max-width: 1160px;
+      box-shadow: 0 2px 6px rgba(2, 119, 189, 0.22);
+    }
+    .rewards-hero h2 {
+      margin: 0 0 6px;
+      font-size: 21px;
+      font-weight: 600;
+    }
+    .rewards-hero p {
+      margin: 0 0 14px;
+      font-size: 14px;
+      color: rgba(255,255,255,0.9);
+      max-width: 720px;
+    }
+    .ref-link-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      max-width: 640px;
+    }
+    .ref-link-input {
+      flex: 1;
+      min-width: 240px;
+      padding: 10px 12px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.14);
+      color: #fff;
+      font-size: 13px;
+      font-family: monospace;
+    }
+    .rewards-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+      gap: 20px;
+      max-width: 1160px;
+    }
+    .signout-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: #1A252F;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .signout-overlay.open { display: flex; }
+    .signout-card {
+      width: 100%;
+      max-width: 410px;
+      background: #fff;
+      border-radius: 6px;
+      padding: 32px 28px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.38);
+      text-align: center;
+    }
+    .signout-logo-circle {
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      background: #F5F7F9;
+      border: 2px solid #E0E4E8;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 960px) {
+      .help-grid, .rewards-grid, .account-form-grid, .perm-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+/* Tutorial controls use the same header in both modes. The guide is rendered only in Tutorial. */
+#practice-mode-control { margin-left:auto; margin-right:58px; display:flex; gap:2px; border:1px solid #ffffff66; border-radius:4px; padding:2px; flex:none; }
+#practice-mode-control button { border:0; background:transparent; color:#fff; font-weight:500; font-size:12px; border-radius:3px; padding:5px 8px; cursor:pointer; }
+#practice-mode-control button[aria-pressed="true"] { background:#fff; color:#015486; }
+#practice-mode-control button:focus-visible { outline:2px solid white; outline-offset:3px; }
+.practice-guide progress { display:block; width:100%; height:8px; margin:7px 0; accent-color:#0277bd; }
+.tutorial-chapter { text-align:left; }
+.tutorial-chapter small { display:block; font-weight:400; margin-top:3px; }
+.tutorial-checklist { display:flex; gap:5px 16px; flex-wrap:wrap; padding-left:22px; margin:7px 0; color:#455a64; font-size:12px; }
+.tutorial-checklist [aria-current="step"] { color:#08568a; font-weight:700; }
+.tutorial-checklist .complete { color:#2f6733; text-decoration:line-through; }
+.settings-cards { min-width:0; }
+.settings-layout .subnav { position:sticky; top:105px; align-self:start; display:grid; gap:4px; }
+.subnav-item { border:0; background:transparent; text-align:left; padding:8px; color:#415560; cursor:pointer; }
+.subnav-item.active { color:#005688; background:#e3f2fd; border-left:2px solid #0277bd; }
+@media (max-width:640px) {
+  #practice-mode-control { margin-right:4px; }
+  #practice-mode-control button { font-size:11px; padding:5px; }
+  .top-header-inner > div:has(.page-title) { min-width:0; }
+  .top-header-inner .page-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .settings-layout .subnav { position:static; display:flex; flex-wrap:wrap; }
+}

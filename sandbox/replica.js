@@ -591,13 +591,12 @@
       }
 
       function workspaceDefaults() {
-        return {accessTab:'CodeBox',accessFilters:{search:'',user:'',unassigned:true},reportTab:'standard',
+        return {...window.FullPracticeWorkspace.defaults(),accessTab:'CodeBox',accessFilters:{search:'',user:'',unassigned:true},reportTab:'standard',
           reportFilters:{property:'all',agent:'all',from:'',through:'',active:false,search:''},
           ownerDelivery:{day:'Tuesday',time:'9:00 AM'}, standardDelivery:{}, accessEvents:[], signedOut:false,
-          profile:{name:COMPANY_NAME,email:'office@example.com',fee:50}, guide:{active:'',completed:[]},
+          guide:window.ReplicaTutorial.initialize(),
           support:[],
-          contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}],
-          users:[{id:'u1',name:'Jamie Taylor',email:'jamie@example.com',role:'Manager',active:true},{id:'u2',name:'Casey Nguyen',email:'casey@example.com',role:'Leasing agent',active:true}], referrals:[]};
+          contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}]};
       }
       function cloneSeed() {
         const s = Object.assign(JSON.parse(JSON.stringify(SEED)),workspaceDefaults());
@@ -614,7 +613,7 @@
         s.rentals.forEach((r,i)=>{
           ensureStep4RentalFields(r);
           r.imported=true;r.dateAvailable=dateOffset(5+i);r.listed=dateOffset(-18-i*4);
-          r.applicationFee=s.profile.fee;r.adminFee=0;r.applicationLink=practiceLink('apply',r.id);
+          r.applicationFee=s.account.defaultApplicationFee;r.adminFee=0;r.applicationLink=practiceLink('apply',r.id);
           r.availability.overrides=[];r.qualifying.questions=[];r.ownerReport.onMarketDate=r.listed;
           for(const l of r.leads){l.createdDate=dateOffset(-2);l.archived=l.status==='Disqualified';l.idReviewed=l.score>=6;}
         });
@@ -630,8 +629,20 @@
         const assignee=state.users.find(u=>u.active)?.name || state.users[0].name;
         Object.assign(r,{id,address,rent,deposit:rent,dateAvailable:available,listed:dateOffset(),active:true,assignee,
           waitlist:false,alerts:0,serialNumber:'',device:'',imported,leads:[],customTitle:address,
-          applicationFee:state.profile.fee,applicationLink:practiceLink('apply',id)});
+          applicationFee:state.account.defaultApplicationFee,applicationLink:practiceLink('apply',id)});
         r.viewing.inPerson.showingAgent=assignee;
+        r.viewing.inPerson.durationMinutes=state.account.defaultShowingDuration;
+        r.viewing.limits.maxUpcoming=state.account.defaultMaxUpcomingShowings;
+        r.viewing.requireId=state.account.requireIdBeforeSelfAccess;
+        r.syndication=Object.fromEntries(SYNDICATION_SITES.map(site=>[site,state.account.defaultSyndication.includes(site)]));
+        r.qualifying.incomeRatio=state.account.defaultMinIncomeRatio;
+        r.qualifying.moveInDays=state.account.defaultMaxMoveInDays;
+        r.qualifying.minCredit=state.account.defaultMinCredit;
+        const petPolicy=state.account.defaultPetsPolicy;
+        if(petPolicy!=='Case-by-case') {
+          const allowPets=petPolicy!=='No Pets';
+          Object.assign(r.qualifying,{allowPets,allowCats:allowPets,allowSmallDogs:allowPets,allowLargeDogs:petPolicy==='Pets Allowed',maxPets:allowPets ? 2 : 0});
+        }
         r.ownerReport=defaultOwnerReport(r);r.ownerReport.feedback=[];r.ownerReport.base7d={};r.ownerReport.baseTotal={};
         return r;
       }
@@ -659,7 +670,25 @@
           const raw = localStorage.getItem(STORAGE_KEY);
           if (!raw) return cloneSeed();
           const parsed = JSON.parse(raw);
-          const merged = Object.assign(cloneSeed(), parsed);
+          const seed=cloneSeed();
+          const merged={...seed,...parsed};
+          if(merged.section==='signout') merged.section='rentals';
+          const legacyAccount=parsed.profile ? {companyName:parsed.profile.name,email:parsed.profile.email,defaultApplicationFee:parsed.profile.fee}:{};
+          merged.account={...seed.account,...legacyAccount,...parsed.account};
+          merged.usersFilter={...seed.usersFilter,...parsed.usersFilter};
+          merged.helpFilter={...seed.helpFilter,...parsed.helpFilter};
+          merged.rewards={...seed.rewards,...parsed.rewards};
+          if (!parsed.rewards && parsed.referrals?.length) merged.rewards.referrals=parsed.referrals.map((ref,i)=>({id:`legacy-ref-${i}`,name:ref.name,email:ref.email,company:'Practice referral',sentDate:'Previous practice',status:'Invited',credit:0}));
+          merged.guide=window.ReplicaTutorial.initialize(parsed.guide);
+          const roles={'Manager':'Account Owner','Leasing agent':'Leasing Agent'};
+          merged.users=(Array.isArray(parsed.users)&&parsed.users.length ? parsed.users : seed.users).map(user=>{
+            const fallback=seed.users.find(row=>row.id===user.id);
+            return {phone:'(303) 555-0199',canShow:true,calendarSynced:false,smsAlerts:true,emailAlerts:true,lastLogin:'Practice session',...fallback,...user,
+              role:roles[user.role] || user.role,
+              permissions:{rentals:true,lockboxes:true,reports:true,billing:false,...fallback?.permissions,...user.permissions}};
+          });
+          delete merged.profile;
+          delete merged.referrals;
           if (Array.isArray(merged.rentals)) {
             merged.rentals = merged.rentals.map(r => {
               if (!r.viewing.inPerson) r.viewing.inPerson = defaultInPerson(r.assignee);
@@ -777,6 +806,7 @@
             const target = btn.dataset.nav;
             closeMobileSidebar();
             if (state.signedOut) return;
+            if (target==='signout') {full.openSignOut();return;}
             settingsDraft=null;
             state.section = target;
             state.selectedRentalId = null;
@@ -809,7 +839,7 @@
                 </svg>
               </button>
               <div>
-                <div class="company-name">${esc(state.profile.name)}</div>
+                <div class="company-name">${esc(state.account.companyName)}</div>
                 <h1 class="page-title">${esc(rental.address)} - ${tabNames[state.detailTab] || "Settings"}</h1>
               </div>
             </div>
@@ -839,7 +869,7 @@
             <div class="top-header-inner">
               <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
               <div>
-                <div class="company-name">${esc(state.profile.name)}</div>
+                <div class="company-name">${esc(state.account.companyName)}</div>
                 <h1 class="page-title">Viewings</h1>
               </div>
             </div>
@@ -861,7 +891,7 @@
             <div class="top-header-inner">
               <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
               <div>
-                <div class="company-name">${esc(state.profile.name)}</div>
+                <div class="company-name">${esc(state.account.companyName)}</div>
                 <h1 class="page-title">Access</h1>
               </div>
             </div>
@@ -883,7 +913,7 @@
             <div class="top-header-inner">
               <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
               <div>
-                <div class="company-name">${esc(state.profile.name)}</div>
+                <div class="company-name">${esc(state.account.companyName)}</div>
                 <h1 class="page-title">${title}</h1>
               </div>
             </div>
@@ -900,9 +930,10 @@
           `;
 
           byId('syncFab')?.addEventListener('click',wf.importRental);
-          header.querySelectorAll('[data-report-tab]').forEach(btn=>btn.onclick=()=>{state.reportTab=btn.dataset.reportTab;state.activeReport=null;saveState();render();});
+          header.querySelectorAll('[data-report-tab]').forEach(btn=>btn.onclick=()=>{state.reportTab=btn.dataset.reportTab;state.activeReport=null;saveState();render();tutorial.record('report-tab',{tab:state.reportTab});});
         }
 
+        tutorial.mount();
         const mobBtn = document.getElementById("mobileMenuBtn");
         if (mobBtn) {
           mobBtn.addEventListener("click", () => {
@@ -1024,6 +1055,7 @@
           state.filters.search = e.target.value;
           saveState();
           renderRentalsList();
+          tutorial.record('rental-search',{query:e.target.value});
           const re = document.getElementById("searchInput");
           if (re) {
             re.focus();
@@ -1047,6 +1079,7 @@
             state.activeSubnav = "status";
             saveState();
             render();
+            tutorial.record('rental-settings',{rentalId:state.selectedRentalId});
             window.scrollTo({ top: 0, behavior: "smooth" });
           });
         });
@@ -1595,7 +1628,7 @@
                 <h2 class="mat-card-title">Application &amp; Fees</h2>
                 <div class="grid-3">
                   <label class="mat-field"><span class="mat-label">Application Link</span><input id="appLink" class="mat-input" type="url" value="${esc(r.applicationLink)}"></label>
-                  <label class="mat-field"><span class="mat-label">Application Fee</span><input id="appFee" class="mat-input" type="number" min="0" value="${r.applicationFee ?? state.profile.fee}"></label>
+                  <label class="mat-field"><span class="mat-label">Application Fee</span><input id="appFee" class="mat-input" type="number" min="0" value="${r.applicationFee ?? state.account.defaultApplicationFee}"></label>
                   <label class="mat-field"><span class="mat-label">Lease Admin Fee</span><input id="adminFee" class="mat-input" type="number" min="0" value="${r.adminFee || 0}"></label>
                 </div>
               </section>
@@ -1619,6 +1652,7 @@
         canvas.querySelectorAll(".accordion-btn").forEach(btn => {
           btn.addEventListener("click", () => {
             btn.parentElement.classList.toggle("open");
+            if(btn.textContent.includes('Amenities') && btn.parentElement.classList.contains('open')) tutorial.record('amenities',{rentalId:r.id});
           });
         });
 
@@ -1766,9 +1800,18 @@
           }
           const current=state.rentals.find(item=>item.id===r.id);
           const oldWaitlist=current.waitlist;
+          const changed=['active','assignee','syndication','waitlist','waitlistMessage'].filter(key=>JSON.stringify(r[key])!==JSON.stringify(current[key]));
+          const different=(keys,a,b)=>keys.some(key=>JSON.stringify(a[key])!==JSON.stringify(b[key]));
+          if (different(['applicationLink','applicationFee','adminFee'],r,current)) changed.push('fees');
+          if (different(['selfAccess','viewingType','viewingApproval','requireId','instructions'],r.viewing,current.viewing)) changed.push('self-access');
+          if (different(['serialNumber'],r,current)) changed.push('device');
+          if (different(['inPerson'],r.viewing,current.viewing)) changed.push('in-person');
+          if (different(['limits'],r.viewing,current.viewing)) changed.push('limits');
+          if (different(Object.keys(r.qualifying).filter(key=>key!=='questions'),r.qualifying,current.qualifying)) changed.push('qualifying');
           const selected=state.devices.find(d=>d.serial===r.serialNumber);
           for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'');
           r.qualifying.questions=r.qualifying.questions.filter(q=>q.label.trim());
+          if (different(['questions'],r.qualifying,current.qualifying)) changed.push('questions');
           // Availability and lead operations can update independently of this edit form.
           const {availability,leads,ownerReport}=current;
           Object.assign(current,r,{availability,leads,ownerReport});
@@ -1776,7 +1819,7 @@
           if(oldWaitlist && !r.waitlist) current.leads.filter(l=>l.status==='Wait List').forEach(l=>{
             l.status='Pre-Qualified';wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
           });
-          settingsDraft=null;saveState();render();wf.done('settings');
+          settingsDraft=null;saveState();render();tutorial.record('settings',{rentalId:r.id,waitlist:r.waitlist,changed});
           showToast(`Saved rental settings for ${r.address}`);
         };
         byId('cancelSettingsBtn').onclick=()=>{settingsDraft=null;render();showToast('Unsaved rental changes discarded.');};
@@ -2156,7 +2199,7 @@
             saveState();
             closeModal();
             renderRentalAvailability(r);
-            showToast("Added date override for " + dateVal);wf.done('availability');
+            showToast("Added date override for " + dateVal);
           });
         });
 
@@ -2413,6 +2456,7 @@
           `,
           `<button id="ldCloseBtn" class="btn-blue" type="button">Done</button>`
         );
+        tutorial.record('open-lead',{rentalId:r.id});
 
         document.getElementById("ldStatusSel").addEventListener("change", e => {
           lead.status = e.target.value;
@@ -2631,7 +2675,7 @@
         document.getElementById("copyAgentLinkBtn").addEventListener("click", () => {
           copyToClipboardSafe(agentLink, "Copied Agent Lead Link");
         });
-        byId('show-archived-leads').onchange=e=>{lf.archived=e.target.checked;saveState();renderRentalLeads(r);};
+        byId('show-archived-leads').onchange=e=>{lf.archived=e.target.checked;saveState();renderRentalLeads(r);tutorial.record('show-archived',{enabled:lf.archived});};
         document.getElementById("addLeadBtn").addEventListener("click", () => openAddLeadModal(r));
         const emptyAdd = document.getElementById("emptyAddLeadBtn");
         if (emptyAdd) emptyAdd.addEventListener("click", () => openAddLeadModal(r));
@@ -2756,7 +2800,7 @@
               <div class="or-preview-banner">
                 <div>
                   <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;opacity:0.88;">Live Owner Report Preview</div>
-                  <div style="font-size:17px;font-weight:600;margin-top:2px;">${esc(state.profile.name)}</div>
+                  <div style="font-size:17px;font-weight:600;margin-top:2px;">${esc(state.account.companyName)}</div>
                 </div>
                 <span style="background:rgba(255,255,255,0.18);padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;">Report Date: Nov 21, 2026</span>
               </div>
@@ -2837,6 +2881,9 @@
         document.getElementById("orEmails").addEventListener("input", e => {
           or.emails = e.target.value;
           saveState();
+        });
+        byId('orEmails').addEventListener('change',()=>{
+          if (or.autoSend && or.emails.trim() && or.emails.split(',').every(email=>/^\S+@example\.com$/i.test(email.trim()))) tutorial.record('owner-recipient');
         });
         document.getElementById("orIncludeFb").addEventListener("change", e => {
           or.includeFeedback = e.target.checked;
@@ -3143,7 +3190,7 @@
           });
 
           document.getElementById("saveGaBtn").addEventListener("click", () => {
-            saveState();
+            saveState();tutorial.record("general-availability");
             showToast(`Saved General Availability for ${user}`);
           });
           return;
@@ -3439,7 +3486,7 @@
         if(state.reportTab==='scheduled'){wf.scheduledReports(REPORT_CATALOG);return;}
         if(!state.activeReport){
           canvas.innerHTML=`<div class="reports-cat-grid practice-reports">${REPORT_CATALOG.map(cat=>`<section class="report-cat-card"><div class="practice-report-icon" aria-hidden="true">${cat.icon}</div><div class="report-btn-list">${cat.items.map(item=>`<button class="report-link-btn" type="button" data-report-id="${item.id}"><span><strong class="report-link-name">${item.name} REPORT</strong><span class="report-link-desc">${item.desc}</span></span></button>`).join('')}</div></section>`).join('')}</div>`;
-          canvas.querySelectorAll('[data-report-id]').forEach(btn=>btn.onclick=()=>{state.activeReport=btn.dataset.reportId;saveState();renderReportsSection();});return;
+          canvas.querySelectorAll('[data-report-id]').forEach(btn=>btn.onclick=()=>{state.activeReport=btn.dataset.reportId;saveState();renderReportsSection();tutorial.record('open-report',{id:state.activeReport});});return;
         }
         const f=state.reportFilters;
         const data=buildReportData(state.activeReport);
@@ -3456,7 +3503,7 @@
             <div class="practice-actions" id="report-export-tools"></div><div class="table-scroll"><table class="tt-table"><thead><tr>${data.headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${data.rows.length?data.rows.map(row=>`<tr>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${data.headers.length}">No matching results.</td></tr>`}</tbody></table></div>
           </div></div>`;
         byId('repBackBtn').onclick=()=>{state.activeReport=null;saveState();renderReportsSection();};
-        byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});saveState();renderReportsSection();};
+        byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});saveState();renderReportsSection();tutorial.record('filter-report',{id:state.activeReport});};
         byId('repSearch').addEventListener('change',e=>{f.search=e.target.value.trim();saveState();renderReportsSection();});
         wf.reportExports(data,state.activeReport);
       }
@@ -3464,15 +3511,21 @@
       function addFeedback(r,lead,rating,comment) {
         r.ownerReport.feedback.unshift({id:uid('feedback'),date:dateOffset(),leadId:lead.id,lead:lead.name,rating,interest:'Viewing feedback',comment,visible:true});
       }
-      function goto(route) {
+      function goto(request) {
         if(state.signedOut) return;
-        settingsDraft=null;state.selectedRentalId=null;
-        if(['settings','leads','owner','availability'].includes(route)) {state.section='rentals';state.selectedRentalId='r1';state.detailTab=route;}
-        else if(route==='upcoming'){state.section='viewings';state.viewingsTab='upcoming';}
-        else if(route==='contacts'){state.section='access';state.accessTab='contacts';}
-        else if(route==='access'){state.section='access';state.accessTab='CodeBox';}
-        else if(route==='scheduled'||route==='reports'){state.section='reports';state.reportTab=route==='scheduled'?'scheduled':'standard';state.activeReport=null;}
-        else state.section=route;
+        const {section,rentalId,jump,id}=typeof request==='string'?{section:request}:request;
+        if(section==='signout') {full.openSignOut();return;}
+        const selected=rentalId || 'r1';
+        const sameDraft=section==='settings' && state.section==='rentals' && state.detailTab==='settings' && state.selectedRentalId===selected;
+        if(!sameDraft) settingsDraft=null;
+        state.selectedRentalId=null;
+        if(['settings','leads','owner','availability'].includes(section)) {state.section='rentals';state.selectedRentalId=selected;state.detailTab=section;}
+        else if(section==='upcoming'||section==='general'){state.section='viewings';state.viewingsTab=section;}
+        else if(section==='contacts'||section==='access'){state.section='access';state.accessTab=section==='contacts'?'contacts':'CodeBox';}
+        else if(['scheduled','reports','report'].includes(section)){state.section='reports';state.reportTab=section==='scheduled'?'scheduled':'standard';state.activeReport=section==='report'?id:null;}
+        else state.section=section;
+        if(jump && section==='settings') state.activeSubnav=jump;
+        if(jump && section==='account') state.accountSubnav=jump;
         saveState();render();
       }
       function resetPractice() {
@@ -3482,8 +3535,12 @@
         byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;saveState();closeModal();render();showToast('Practice data reset.');};
       }
       function render() {
-        document.body.classList.toggle('practice-signed-out',state.signedOut);
-        if(state.signedOut){state.section='signout';state.selectedRentalId=null;byId('chatPopover').classList.remove('open');}
+        const overlay=byId('signoutOverlay');
+        overlay.classList.toggle('open',state.signedOut);
+        overlay.setAttribute('aria-hidden',String(!state.signedOut));
+        document.querySelector('.app-shell').inert=state.signedOut;
+        byId('chatFab').hidden=state.signedOut;
+        if(state.signedOut){byId('chatPopover').classList.remove('open');byId('signBackInBtn').focus();tutorial.draw();return;}
         wf.reminders();renderSidebar();renderHeader();
         const rental=state.section==='rentals' && state.rentals.find(r=>r.id===state.selectedRentalId);
         if (!rental || state.detailTab!=='settings') settingsDraft=null;
@@ -3493,12 +3550,28 @@
         else if(state.section==='viewings') renderViewingsSection();
         else if(state.section==='messages') renderMessagesSection();
         else if(state.section==='reports') renderReportsSection();
-        else wf.other(state.section);
-        wf.drawGuide();
+        else full.render(state.section);
+        tutorial.draw();
       }
       const wf=window.createReplicaWorkflows({get:()=>state,el:byId,esc,save:saveState,render,toast:showToast,
         modal:openModal,close:closeModal,uid,date:dateOffset,link:practiceLink,copy:copyToClipboardSafe,weekly:defaultWeeklyHours,
-        defaultRental:newRental,addFeedback,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,navigate:goto,reset:resetPractice});
+        defaultRental:newRental,addFeedback,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,
+        onAction:(key,detail)=>tutorial.record(key,detail)});
+      function renameAssignee(oldName,newName) {
+        if(Object.hasOwn(state.generalAvailability,oldName)) {
+          state.generalAvailability[newName]=state.generalAvailability[oldName];delete state.generalAvailability[oldName];
+        }
+        for(const r of state.rentals) {if(r.assignee===oldName) r.assignee=newName;if(r.viewing.inPerson.showingAgent===oldName) r.viewing.inPerson.showingAgent=newName;}
+        for(const v of state.viewingsList) {if(v.agent===oldName) v.agent=newName;if(v.type===`In-Person (${oldName})`) v.type=`In-Person (${newName})`;}
+        if(state.selectedAvailUser===oldName) state.selectedAvailUser=newName;
+        if(state.filters.user===oldName) state.filters.user=newName;
+        if(state.reportFilters.agent===oldName) state.reportFilters.agent=newName;
+        if(state.accessFilters.user===oldName) state.accessFilters.user=newName;
+      }
+      const tutorial=window.ReplicaTutorial.create({get:()=>state,el:byId,esc,save:saveState,navigate:goto,open:openModal,close:closeModal});
+      const full=window.FullPracticeWorkspace.create({get:()=>state,esc,uid,byId,practiceLink,copyToClipboardSafe,defaultWeeklyHours,
+        SYNDICATION_SITES,TIME_OPTIONS,saveState,openModal,closeModal,showToast,render,renderHeader,resetPractice,
+        done:tutorial.record,renameAssignee,importRental:wf.importRental});
 
       // Global handlers
       document.getElementById("logoHomeBtn").addEventListener("click", () => {
@@ -3517,28 +3590,34 @@
 
       const chatPop = document.getElementById("chatPopover");
       document.getElementById("chatFab").addEventListener("click", () => {
-        chatPop.classList.toggle("open");
+        const opened=chatPop.classList.toggle("open");
         drawSupport();
+        tutorial.record(opened ? 'open-support' : 'close-support');
       });
       document.getElementById("closeChatBtn").addEventListener("click", () => {
         chatPop.classList.remove("open");
+        tutorial.record('close-support');
       });
       function drawSupport() {
         byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('');
       }
       byId('practice-support').onsubmit=event=>{
         event.preventDefault();const field=byId('practice-support-message');const request=field.value.trim();if(!request)return;
-        state.support.push({from:'You',text:request},{from:'Practice helper',text:/show|book|avail/i.test(request)?'Open a qualified lead and choose Schedule. Use Viewings or the rental’s Availability tab to check hours.':/report|csv/i.test(request)?'Open Reports, choose Standard, and select a report. Filter before exporting.':'Use Tutorial for a guided exercise or open Help for practice answers.'});
+        state.support.push({from:'You',text:request},{from:'Practice support',text:'Your practice message was recorded in this browser.'});
         field.value='';saveState();drawSupport();
       };
-      byId('resetDataBtn').onclick=resetPractice;
-      byId('practiceGuideBtn').onclick=wf.guide;
+      byId('signBackInBtn').onclick=()=>{state.signedOut=false;saveState();render();};
       document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeModal();chatPop.classList.remove('open');closeMobileSidebar();}});
       function openSharedRoute() {
         if(state.signedOut || !location.hash) return;
         let parts;
         try {parts=location.hash.slice(1).split('/').map(decodeURIComponent);} catch {return;}
         const [page,rid,lid]=parts;
+        if(page==='listings'||page==='referral') {
+          history.replaceState(null,'',location.pathname+location.search);
+          if(page==='listings') state.filters.user=state.users.find(u=>u.id===rid)?.name || 'anyone';
+          goto(page==='listings'?'rentals':'rewards');return;
+        }
         const r=state.rentals.find(row=>row.id===rid);
         if(!r || !['qualify','apply','owner-report'].includes(page)) return;
         const lead=r.leads.find(l=>l.id===lid);

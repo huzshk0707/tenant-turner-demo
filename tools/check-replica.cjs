@@ -2,6 +2,7 @@
 
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
+const path=require('node:path');
 const {chromium}=require('playwright');
 const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
 
@@ -20,7 +21,8 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
     const store=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('tt-practice-v3')));
     const rail=['Rentals','Messages','Viewings','Access','Reports','Users','Account','Help','Rewards','Sign Out'];
     assert.deepEqual((await $('#navStack button').allTextContents()).map(s=>s.trim()),rail);
-    for(const item of rail){await nav(item).click();assert.equal(await $('h1').innerText(),item);}
+    for(const item of rail.slice(0,-1)){await nav(item).click();assert.equal(await $('h1').innerText(),item);}
+    await nav('Sign Out').click();await click('#soCancelBtn');
     await nav('Rentals').click();
     assert.equal(await $('.rentals-grid > *').count(),7);
     await click('#syncFab');await fill('import-address','52 Fieldstone Practice Lane');await click('#practice-submit');
@@ -87,16 +89,55 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
     assert.equal((await store()).ownerDelivery.day,'Wednesday');assert.equal((await store()).standardDelivery.rental_activity.Weekly,true);
     console.log('Recorded Access tabs, practice SMS form, contact, report schedule and CSV/Excel/PDF downloads passed');
 
-    await nav('Users').click();await click('#add-user');await fill('team-name','Sage Sample');await fill('team-email','sage@example.com');await click('#practice-submit');
-    await nav('Account').click();await fill('profile-name','Sample Leasing Office');await page.getByRole('button',{name:/^Save account$/i}).click();
-    await nav('Rewards').click();await click('#add-referral');await fill('ref-name','Practice Company');await fill('ref-email','practice@example.com');await click('#practice-submit');
-    await nav('Help').click();await click('#help-tutorial');await click('[data-lesson="rentals"]');
-    await $('#practice-guide').waitFor();await click('#syncFab');await fill('import-address','11 Tutorial Road');await click('#practice-submit');
-    assert.ok((await store()).guide.completed.includes('rentals'));await click('#practice-guide-hide');assert.equal(await $('#practice-guide').isVisible(),false);
-    await nav('Sign Out').click();await click('#practice-exit');await click('#practice-submit');await page.reload({waitUntil:'domcontentloaded'});
-    assert.equal(await $('#navStack').isVisible(),false);await click('#practice-exit');
-    assert.ok((await store()).users.some(u=>u.name==='Sage Sample'));assert.equal((await store()).profile.name,'Sample Leasing Office');assert.ok((await store()).referrals.length);
-    assert.deepEqual(errors,[]);console.log('Users, Account, Rewards, tutorial progress, free practice and sign out persistence passed');
+    await nav('Users').click();await click('#addUserBtn');await fill('umName','Sage Sample');await fill('umEmail','sage@example.com');await click('#umSave');
+    await nav('Account').click();await fill('accCompanyName','Sample Leasing Office');await $('#accCompanyName').blur();
+    await click('#updateCardBtn');await pick('pmSample','1');await click('#pmSave');
+    await nav('Rewards').click();await fill('refName','Sage Sample');await fill('refCompany','Practice Company');await fill('refEmail','practice@example.com');await click('#sendRefInviteBtn');
+    await nav('Help').click();await $('#kbSearchInput').pressSequentially('lockbox');assert.equal(await $('#kbSearchInput').inputValue(),'lockbox');
+    await fill('htSubject','Fictional request');await fill('htMessage','Practice-only ticket');await click('#htSubmitBtn');
+    assert.ok((await $('#canvas').innerText()).includes('Fictional request'));
+    await nav('Sign Out').click();await click('#soLockBtn');await page.reload({waitUntil:'domcontentloaded'});
+    assert.equal(await $('#navStack').isVisible(),false);await click('#signBackInBtn');
+    assert.ok((await store()).users.some(u=>u.name==='Sage Sample'));assert.equal((await store()).account.companyName,'Sample Leasing Office');
+    assert.ok((await store()).rewards.referrals.some(ref=>ref.company==='Practice Company'));
+    console.log('Supplied Users, Account, Help, Rewards and practice sign-out screens passed');
+
+    const guide=$('#practice-guide');
+    const noGuide=async()=>{
+      assert.equal(await $('[data-practice-mode="free"]').getAttribute('aria-pressed'),'true');
+      assert.equal(await guide.isVisible(),false);
+      assert.equal(await $('#practice-guide *, .practice-highlight').count(),0);
+    };
+    await noGuide();await click('[data-practice-mode="tutorial"]');
+    assert.equal(await $('[data-lesson]').count(),12);
+    assert.match(await $('[data-lesson="workspace"]').innerText(),/extra practice/i);
+    await click('[data-lesson="rentals"]');
+    assert.equal(await guide.getByRole('link',{name:'Screenshot 00:00'}).count(),1);
+    assert.equal(await guide.getByRole('link',{name:'Watch this point'}).getAttribute('href'),'https://vimeo.com/688083346#t=00m00s');
+    assert.equal(await guide.locator('[aria-current="step"]').innerText(),'Find a rental');
+    await $('#searchInput').pressSequentially('Wren');
+    assert.equal((await store()).guide.progress.rentals,1);assert.equal(await $('.rentals-grid > *').count(),1);
+    await click('[data-practice-mode="free"]');await noGuide();await rentalButton('Settings').click();
+    assert.equal((await store()).guide.progress.rentals,1);
+    await click('[data-practice-mode="tutorial"]');await click('#tutorial-follow');await rentalButton('Settings').click();
+    assert.equal((await store()).guide.progress.rentals,2);
+    await page.reload({waitUntil:'domcontentloaded'});assert.match(await guide.innerText(),/Chapter complete/);
+    await click('#tutorial-lessons');await click('[data-lesson="reports"]');
+    await click('[data-report-tab="standard"]');assert.equal((await store()).guide.progress.reports,1);
+    await click('#tutorial-follow');assert.ok(await $('#save-report-schedule').isVisible());
+    assert.equal((await store()).guide.progress.reports,1);await click('#save-report-schedule');
+    await click('#tutorial-follow');await click('#practice-report-filters button[type="submit"]');
+    assert.equal((await store()).guide.progress.reports,3);
+    await click('#tutorial-follow');await click('#practice-report-filters button[type="submit"]');
+    assert.equal((await store()).guide.progress.reports,4);
+    await click('#tutorial-follow');const exportReport=page.waitForEvent('download');await click('[data-export="csv"]');await exportReport;
+    assert.equal((await store()).guide.progress.reports,5);
+    await click('[data-practice-mode="free"]');await noGuide();
+    const tutorialSource=await fs.readFile(path.join(__dirname,'../sandbox/replica-tutorial.js'),'utf8');
+    const refs=[...new Set(tutorialSource.match(/'\d{4}-[\w-]+'/g).map(ref=>ref.slice(1,-1)))];
+    assert.ok(refs.length>=20);
+    for(const ref of refs) await fs.access(path.join(__dirname,'../screenshots',`${ref}.jpg`));
+    assert.deepEqual(errors,[]);console.log('Free Practice, tutorial completion, reload, report chapter and archived screenshot links passed');
 
     const phone=await browser.newPage({viewport:{width:390,height:844}});
     await phone.goto(base,{waitUntil:'domcontentloaded'});
@@ -104,6 +145,9 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
     assert.deepEqual((await phone.locator('#navStack button').allTextContents()).map(s=>s.trim()),rail);
     await phone.locator('#navStack').getByRole('button',{name:'Reports',exact:true}).click();
     assert.equal(await phone.locator('h1').innerText(),'Reports');
-    assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth),390);console.log('Mobile navigation and report layout passed');
+    assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth),390);
+    await phone.locator('[data-practice-mode="tutorial"]').click();await phone.locator('[data-lesson="rentals"]').click();
+    assert.ok(await phone.locator('#practice-guide').isVisible());
+    assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth),390);console.log('Mobile navigation, reports and tutorial layout passed');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
