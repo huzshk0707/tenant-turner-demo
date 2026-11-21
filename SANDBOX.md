@@ -1,33 +1,31 @@
 # Leasing Lab practice sandbox
 
-Leasing Lab follows the rental, lead, showing, reporting and access workflows in the demo with its own interface. The app uses fictional records and keeps changes in your browser. The practice email schedules and access codes stay in the app.
+The GitHub Pages app uses the supplied HTML layout and styling. It keeps the recorded left sidebar sequence and the rental tabs **Leads → Owner Report → Availability → Settings**. Sample properties, people and codes are fictional. Practice messages, calendar settings, access codes and report delivery preferences are stored in this browser.
 
-Open **Tutorial** in the top bar to choose one of eleven lessons. **Show me where** takes you to the control for the current step. Complete the action to advance. **See demo screenshot** opens the corresponding reference frame in a separate tab. Switch to **Free practice** for the same workspace without the coach and highlights. Use **Account → Reset practice data** to clear changes and lesson progress in this browser.
+Open the blue helper button or select **Help → Tutorial** to choose a lesson. Lessons point to controls and link the recorded screens where available. Close the guide or choose **Free practice** to remove the hints. **Account → Reset practice data** restores the fictional portfolio and clears tutorial progress.
 
-Open a rental’s **Leads** or **Settings** from its card. **Import rentals** offers a sample import and a manual listing form. New inquiries that fail the screening rules appear under **Show archived**. Automated replies, reminders and post-viewing follow-ups appear in **Messages**. A reminder due while the app is closed is processed the next time the workspace opens, if it is still relevant.
+- **Rentals** has a sample sync and manual rental entry. Imported fields remain locked on Rental Settings. Editable settings commit with **Save Rental Settings** and revert with **Cancel**.
+- **Leads** supports a practice invitation, the prospect questionnaire, manual review and booking. Failed screening goes to **Show archived**. Wait-listed leads can receive a simulated reopening message.
+- **Availability and Viewings** support team hours, rental hours, blackout dates, special date overrides, booking limits, confirmations, rescheduling, no-shows and completed viewing feedback.
+- **Messages and Owner Report** show practice replies, confirmations and follow-up. A dated feedback entry opens visibility controls. Scheduled report preferences sit under **Reports → Scheduled**.
+- **Reports** offers the twelve report areas from the recording and Copy, CSV, Excel, PDF and Print. **Access** keeps CodeBox, SentriLock, PointCentral, and Authorized Contacts in order. Send and Get generate fictional `SIM-` codes that appear in the Lockbox Access Report.
+- **Users, Account, Rewards and Sign Out** include practice operations in the supplied shell. The recording shows their tab names. It does not demonstrate the screens inside them.
 
-The booking form uses the workspace time zone in **Account**. Rental-specific hours take priority on the dates they cover. General hours apply to the assigned team member, and one-time blocks override that team member’s weekly blocks in the same scope. When **Group trips** is on, the same agent can book simultaneous showings up to the slot capacity or take back-to-back appointments during a single visit.
+Practice links point back to this GitHub Pages app. Calendar connection switches, mail, SMS, application submission, identity review, lockbox access and report delivery are simulations. Reminder and expiry checks run while the workspace is used or when it reopens. Standard scheduled report settings are saved as preferences.
 
-Set the shared owner report timing under **Reports → Scheduled reports**. Each rental’s **Owner report** controls its recipient and feedback. Standard reports support Copy, CSV, Excel, PDF and Print. CodeBox sends and support messages are simulated and saved in this browser.
+The earlier Leasing Lab remains available at `legacy.html`. It uses its previous browser storage, so its existing saved records are available there. The supplied HTML build uses a separate fictional dataset.
 
-## Run locally
-
-Open `sandbox/index.html` in a browser, or serve the folder locally.
+## Run and verify locally
 
 ```sh
-python3 -m http.server 8768 --directory sandbox
+python3 -m http.server 8777 --directory sandbox
+node tools/check-replica.cjs
 ```
 
-Then visit `http://localhost:8768/`. The hosted and local versions store data separately by browser and origin.
+The browser check covers navigation order, sample sync, save and cancel, screening, blocked-date validation, booking, confirmation, feedback, messages, code and contact entry, report schedules and exports, persistence, and the phone menu. Install Playwright and set `LEASING_CHROMIUM` to use a system Chromium. Set `LEASING_URL` for another server. `tools/check-sandbox.cjs` checks the legacy app.
 
 ## GitHub Pages
 
-Use **Settings → Pages → Deploy from a branch** and select **`gh-pages` / `(root)`**. This branch contains only the static practice app and its fictional assets. Repository visibility controls who can access the main branch and frame archive. Pages availability for a private repository depends on the GitHub plan and settings for the owner.
+The site serves `gh-pages` at `https://huzshk0707.github.io/tenant-turner-demo/`. Publish the contents of `sandbox/` to the root of `gh-pages`, retaining `.nojekyll`. Main also contains the annotated recording and screenshot index.
 
-The site address is `https://huzshk0707.github.io/tenant-turner-demo/`. To update the site, publish the contents of `sandbox/` into the root of `gh-pages`, retaining `.nojekyll`.
-
-The practice property cards use illustrative photos from Unsplash. The sources are listed in [photo credits](sandbox/assets/photo-credits.txt).
-
-## Verify the practice flows
-
-With the local server running and Playwright installed, run `node tools/check-sandbox.cjs`. The check completes all eleven lessons, tests persisted changes and reset, and verifies the phone layout. Set `LEASING_URL` for a different test URL or `LEASING_CHROMIUM` for a system Chromium executable.
+The fictional listings use illustrative photos. [Photo credits](sandbox/assets/photo-credits.txt)

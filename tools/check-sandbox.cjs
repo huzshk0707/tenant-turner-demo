@@ -8,7 +8,7 @@ const {chromium}=require('playwright');
   p.setDefaultTimeout(7500);
   const errors=[];
   p.on('pageerror',e=>errors.push(e.message));
-  const base=process.env.LEASING_URL || 'http://127.0.0.1:8768/';
+  const base=process.env.LEASING_URL || 'http://127.0.0.1:8768/legacy.html';
   await p.goto(base,{waitUntil:'domcontentloaded'});
   const btn=(name,scope=p)=>scope.getByRole('button',{name,exact:true});
   const field=(name,scope=p.locator('main'))=>scope.getByLabel(name,{exact:true})

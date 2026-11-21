@@ -4,13 +4,11 @@ A screenshot walkthrough and frame archive of Larry Hancock’s 11-minute Tenant
 
 ## Practice sandbox
 
-**Leasing Lab** is a working practice app for the workflows in the recording. It has fictional rentals, leads, showings, owner reports and access devices. [Open on GitHub Pages](https://huzshk0707.github.io/tenant-turner-demo/)
+Leasing Lab uses the supplied HTML interface and fictional records. Practice rentals, qualification, viewing availability, follow-up, owner reports and access in the recorded navigation order. [Open on GitHub Pages](https://huzshk0707.github.io/tenant-turner-demo/?v=practice-workflow)
 
-- **Free practice** opens the workspace without lesson prompts or highlights.
-- **Tutorial** offers eleven lessons with action-based progress. You can switch modes and resume a lesson later.
-- Changes and progress are saved in the current browser. **Account → Reset practice data** restores the fictional records.
+Use the blue helper button or **Help → Tutorial** for guided exercises. **Free practice** hides the guide. Changes are saved in the current browser. **Account → Reset practice data** restores the fictional records. [Sandbox usage and hosting](SANDBOX.md)
 
-If Pages is unavailable, [download the sandbox ZIP](https://github.com/huzshk0707/tenant-turner-demo/archive/refs/heads/gh-pages.zip), unzip it and open `index.html`. No sign-in or backend is required to run the app on your device. [Sandbox usage and hosting setup](SANDBOX.md)
+The earlier interface and its saved browser data remain available at [Legacy Leasing Lab](https://huzshk0707.github.io/tenant-turner-demo/legacy.html).
 
 ## Reference recording and archive
 
