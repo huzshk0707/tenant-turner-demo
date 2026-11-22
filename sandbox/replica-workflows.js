@@ -1,7 +1,7 @@
 'use strict';
 
 window.createReplicaWorkflows = api => {
-  const {get,el,esc,save,render,toast,modal,close,uid,date,link,defaultRental,addFeedback} = api;
+  const {get,el,esc,save,render,toast,modal,close,uid,date,link,defaultRental,addFeedback,openDetail,backFromDetail} = api;
   const engine = window.ReplicaBooking;
   const fmt = (value,chosen) => `<option${String(chosen) === String(value) ? ' selected' : ''}>${esc(value)}</option>`;
   const opt = (key,value,chosen) => `<option value="${esc(key)}"${String(chosen) === String(key) ? ' selected' : ''}>${esc(value)}</option>`;
@@ -27,6 +27,17 @@ window.createReplicaWorkflows = api => {
     click('practice-submit',()=>el('practice-form').requestSubmit());
     el('practice-form').addEventListener('submit',event=>{event.preventDefault();fn();});
   }
+  function pageForm(title,backLabel,body,label,onSubmit,secondary) {
+    openDetail(title,backLabel,()=>{
+      el('canvas').innerHTML=`<form id="practice-form" class="practice-form-width access-form">
+        <section class="mat-card">${body}${err}</section>
+        <div class="practice-actions"><button id="practice-submit" type="submit" class="btn-orange">${esc(label)}</button>
+          ${secondary ? button('access-secondary',secondary.label,'btn-flat') : ''}</div>
+      </form>`;
+      el('practice-form').onsubmit=event=>{event.preventDefault();onSubmit();};
+      if(secondary) click('access-secondary',secondary.run);
+    });
+  }
   function finish(label,event) { save(); close(); render(); toast(label); if (event) done(event); }
   function table(headers,rows,message) {
     return `<div class="table-scroll"><table class="tt-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(row=>`<tr>${row.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}">${esc(message)}</td></tr>`}</tbody></table></div>`;
@@ -41,7 +52,7 @@ window.createReplicaWorkflows = api => {
     m.thread.push({sender:'auto',label,time:'Just now',date:date(),text});
     return m;
   }
-  function note(lead,text) { lead.notes.unshift({time:'Just now',text}); }
+  function note(lead,text) { lead.notes.unshift({time:'Just now',at:Date.now(),text}); }
   function storeLead(r,l) { if (!r.leads.some(row=>row.id===l.id)) r.leads.unshift(l); }
   function blankLead(r, fields={}) {
     return {id:uid('lead'),name:'Practice prospect',email:'prospect@example.com',phone:'(303) 555-0199',leadType:'Tenant lead',source:'Website',status:'Unscored',score:null,
@@ -186,24 +197,25 @@ window.createReplicaWorkflows = api => {
       finish('Practice device saved.','device');
     });
   }
-  function issueCode(d,send) {
-    form(`${send ? 'Send' : 'Get'} ${d.type} Code`,`${input('code-date','Date',date(1),'date','required')}${select('code-type','Code type',['One-time code','Date access'].map(v=>fmt(v,'One-time code')).join(''))}
-      ${send ? input('code-phone','Mobile phone','(303) 555-0199','tel','required') : ''}${input('code-name','Name','Practice vendor','text','required')}${input('code-company','Company','Practice Maintenance')}${textarea('code-note','Message')}`,send ? 'Practice send' : 'Get practice code',()=>{
+  function issueCode(d,send,draft={}) {
+    pageForm(`${send ? 'Send' : 'Get'} ${d.type} Code`,'Back to Access',`${input('code-date','Date',draft.date ?? date(1),'date','required')}${select('code-type','Code type',['One-time code','Date access'].map(v=>fmt(v,draft.type || 'One-time code')).join(''))}
+      ${send ? input('code-phone','Mobile phone','(303) 555-0199','tel','required') : ''}${input('code-name','Name',draft.name ?? 'Practice vendor','text','required')}${input('code-company','Company',draft.company ?? 'Practice Maintenance')}${textarea('code-note','Message',draft.message)}`,send ? 'Send Code' : 'Get Code',()=>{
       if (val('code-date')<date()) return alert('Choose a practice date today or later.');
       const code=`SIM-${uid('code').split('-')[1].slice(0,6).toUpperCase()}`;
       get().accessEvents.unshift({id:uid('access'),device:d.serial,rentalId:d.rentalId,date:val('code-date'),type:val('code-type'),recipient:val('code-name'),company:val('code-company'),phone:send?val('code-phone'):'',message:val('code-note'),code,action:send?'Simulated send':'Generated'});
-      save();done('code',{method:send?'Send':'Get'});
-      modal('Practice access code',`<p><strong>${esc(code)}</strong> for ${esc(val('code-date'))}.</p><p>This code is recorded in the Lockbox Access Report.</p>`,button('code-done','Done'));
-      click('code-done',()=>{close();render();});
-    });
+      const day=val('code-date');
+      save();backFromDetail();done('code',{method:send?'Send':'Get'});
+      modal('Practice access code',`<p><strong>${esc(code)}</strong> for ${esc(day)}.</p><p>This code is recorded in the Lockbox Access Report.</p>`,button('code-done','Done'));
+      click('code-done',close);
+    },send ? {label:'Just get a code',run:()=>issueCode(d,false,{date:val('code-date'),type:val('code-type'),name:val('code-name'),company:val('code-company'),message:val('code-note')})} : null);
   }
   function contactEditor(id) {
     const c=get().contacts.find(row=>row.id===id);
-    form(c?'Edit Authorized Contact':'Add Authorized Contact',`${input('contact-name','Name',c?.name || '','text','required')}${input('contact-company','Company',c?.company || '')}${input('contact-phone','Mobile phone',c?.phone || '(303) 555-0199','tel','required')}${input('contact-email','Email',c?.email || '','email')}${select('contact-access','Access level',['Recurring','By request'].map(x=>fmt(x,c?.access || 'Recurring')).join(''))}`,'Save contact',()=>{
+    pageForm(c?'Edit Authorized Contact':'Add Authorized Contact','Back to Authorized Contacts',`<h2 class="mat-card-title">Profile</h2>${input('contact-name','Name',c?.name || '','text','required')}${input('contact-company','Company',c?.company || '')}${input('contact-phone','Mobile phone',c?.phone || '(303) 555-0199','tel','required')}${input('contact-email','Email',c?.email || '','email')}${select('contact-access','Access level',['Recurring','By request'].map(x=>fmt(x,c?.access || 'Recurring')).join(''))}`,'Save contact',()=>{
       if (!val('contact-name') || !val('contact-phone')) return alert('Enter a sample contact name and phone.');
       const row={id:c?.id || uid('contact'),name:val('contact-name'),company:val('contact-company'),phone:val('contact-phone'),email:val('contact-email'),access:val('contact-access')};
       if (c) Object.assign(c,row);else get().contacts.push(row);
-      finish('Authorized practice contact saved.','contact');
+      save();backFromDetail();toast('Authorized practice contact saved.');done('contact');
     });
   }
   function remove(label,callback) {
@@ -212,7 +224,7 @@ window.createReplicaWorkflows = api => {
   function renderAccess() {
     const s=get();const tab=s.accessTab;
     if (tab==='contacts') {
-      el('canvas').innerHTML=`<div class="practice-width"><div class="filter-bar"><h2 class="mat-card-title">Authorized Contacts</h2>${button('add-contact','+ Add contact')}</div><div class="mat-card practice-table">${table(['Name','Company','Mobile phone','Email','Access','Actions'],s.contacts.map(c=>[c.name,c.company,c.phone,c.email,c.access].map(esc).concat(`<button class="btn-flat" data-contact="${esc(c.id)}">Edit</button><button class="btn-danger-flat" data-remove-contact="${esc(c.id)}">Remove</button>`)),'No authorized contacts.')}</div></div>`;
+      el('canvas').innerHTML=`<div class="mat-card practice-table">${table(['Name','Company','Mobile phone','Email','Access','Actions'],s.contacts.map(c=>[c.name,c.company,c.phone,c.email,c.access].map(esc).concat(`<button class="btn-flat" data-contact="${esc(c.id)}">Edit</button><button class="btn-danger-flat" data-remove-contact="${esc(c.id)}">Remove</button>`)),'No authorized contacts.')}</div>`;
       click('add-contact',()=>contactEditor());
       el('canvas').querySelectorAll('[data-contact]').forEach(b=>b.onclick=()=>contactEditor(b.dataset.contact));
       el('canvas').querySelectorAll('[data-remove-contact]').forEach(b=>b.onclick=()=>remove('Remove contact?',()=>{s.contacts=s.contacts.filter(c=>c.id!==b.dataset.removeContact);finish('Contact removed.');}));
@@ -222,13 +234,13 @@ window.createReplicaWorkflows = api => {
     const results=()=>s.devices.filter(d=>d.type===tab && (!f.search || `${d.serial} ${rental(d.rentalId)?.address || ''}`.toLowerCase().includes(f.search.toLowerCase().trim())) && (d.rentalId ? !f.user || rental(d.rentalId)?.assignee===f.user : f.unassigned));
     const draw=()=>{
       const list=results();
-      el('practice-device-list').innerHTML=list.length ? list.map(d=>`<article class="practice-device mat-card"><div class="practice-device-label ${d.rentalId?'assigned':''}"><strong>${esc(d.serial)}</strong><small>${esc(rental(d.rentalId)?.address || 'Unassigned')}</small></div><div class="practice-device-body"><p>Shackle and door access · practice only</p><div class="practice-actions"><button class="btn-flat" data-code-send="${esc(d.id)}">Send</button><button class="btn-flat" data-code-get="${esc(d.id)}">Get</button><button class="btn-flat" data-edit-device="${esc(d.id)}">Settings</button></div></div></article>`).join('') : '<div class="mat-card">No devices match these filters.</div>';
+      el('practice-device-list').innerHTML=list.length ? list.map(d=>`<article class="practice-device mat-card"><div class="practice-device-label ${d.rentalId?'assigned':''}"><strong>${esc(d.serial)}</strong><small>${esc(rental(d.rentalId)?.address || 'Unassigned')}</small></div><div class="practice-device-body"><p>${esc(d.battery || 'Practice device')}</p><div class="practice-actions"><span class="status-dot ${d.rentalId?'':'off'}" aria-label="${d.rentalId?'Assigned':'Unassigned'}" role="img"></span><button class="btn-flat" data-code-send="${esc(d.id)}">Send</button><button class="btn-flat" data-code-get="${esc(d.id)}">Get</button><button class="btn-flat" data-edit-device="${esc(d.id)}">Settings</button></div></div></article>`).join('') : '<div class="mat-card">No devices match these filters.</div>';
       const load=id=>s.devices.find(d=>d.id===id);
       el('practice-device-list').querySelectorAll('[data-code-send]').forEach(b=>b.onclick=()=>issueCode(load(b.dataset.codeSend),true));
       el('practice-device-list').querySelectorAll('[data-code-get]').forEach(b=>b.onclick=()=>issueCode(load(b.dataset.codeGet),false));
       el('practice-device-list').querySelectorAll('[data-edit-device]').forEach(b=>b.onclick=()=>deviceEditor(load(b.dataset.editDevice),tab));
     };
-    el('canvas').innerHTML=`<div class="filter-bar"><div class="filter-left">${select('access-user','User',opt('','anyone',f.user)+s.users.map(u=>opt(u.name,u.name,f.user)).join(''))}${toggle('access-unassigned','Show unassigned',f.unassigned)}</div>${input('practice-device-search','Search',f.search,'search')}${button('practice-add-device','+ Add device')}</div><div id="practice-device-list" class="practice-device-grid"></div>`;
+    el('canvas').innerHTML=`<div class="filter-bar"><div class="filter-left">${select('access-user','User',opt('','anyone',f.user)+s.users.map(u=>opt(u.name,u.name,f.user)).join(''))}${toggle('access-unassigned','Show unassigned',f.unassigned)}</div>${input('practice-device-search','Search',f.search,'search')}</div><div id="practice-device-list" class="practice-device-grid"></div>`;
     for (const [id,key] of [['access-user','user'],['access-unassigned','unassigned'],['practice-device-search','search']]) el(id).addEventListener(id==='practice-device-search'?'input':'change',()=>{f[key]=key==='unassigned'?on(id):val(id);save();draw();if(key==='unassigned')done('access-filter');});
     click('practice-add-device',()=>deviceEditor(null,tab));draw();
   }

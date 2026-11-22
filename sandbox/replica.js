@@ -716,6 +716,8 @@
       let toastTimer = null;
       let settingsDraft = null;
       let modalFocus = null;
+      let detailPage = null;
+      let reportView = {page:0, size:10, column:null, descending:false};
 
       function showToast(msg) {
         const t = document.getElementById("toast");
@@ -740,8 +742,9 @@
         const m = byId('ttModal');
         if (!m.classList.contains('open')) modalFocus=document.activeElement;
         m.classList.add('open');
+        document.querySelector('.app-shell').inert=true;
         requestAnimationFrame(()=>{
-          if (m.classList.contains('open')) m.querySelector('input:not([type="hidden"]), select, textarea, #ttModalClose')?.focus();
+          if (m.classList.contains('open')) byId('ttModalClose').focus({preventScroll:true});
         });
         m.setAttribute("aria-hidden", "false");
       }
@@ -750,8 +753,29 @@
         const m = document.getElementById("ttModal");
         m.classList.remove("open");
         m.setAttribute("aria-hidden", "true");
-        if(modalFocus?.isConnected) modalFocus.focus();
+        document.querySelector('.app-shell').inert=state.signedOut;
+        if(modalFocus?.isConnected) modalFocus.focus({preventScroll:true});
         modalFocus=null;
+      }
+
+      function openDetailPage(title, backLabel, draw) {
+        const previous=detailPage;
+        detailPage={title,backLabel,draw,scroll:previous?.scroll ?? window.scrollY,opener:previous?.opener ?? document.activeElement?.dataset.leadView};
+        render();
+        window.scrollTo(0,0);
+        byId('detailBackBtn').focus({preventScroll:true});
+      }
+
+      function backFromDetail() {
+        const {scroll,opener}=detailPage;
+        detailPage=null;
+        render();
+        window.scrollTo(0,scroll);
+        if(opener) byId('canvas').querySelector(`[data-lead-view="${CSS.escape(opener)}"]`)?.focus({preventScroll:true});
+      }
+
+      function plusButton(id,label) {
+        return `<button id="${id}" class="sync-fab" type="button" title="${label}" aria-label="${label}"><span aria-hidden="true">+</span></button>`;
       }
 
       function assignDeviceToRental(deviceId, newRentalId) {
@@ -807,11 +831,14 @@
             closeMobileSidebar();
             if (state.signedOut) return;
             if (target==='signout') {full.openSignOut();return;}
+            detailPage=null;
             settingsDraft=null;
             state.section = target;
+            if(target==='reports') state.activeReport=null;
             state.selectedRentalId = null;
             saveState();
             render();
+            window.scrollTo(0,0);
           });
         });
       }
@@ -822,7 +849,18 @@
           ? state.rentals.find(r => r.id === state.selectedRentalId)
           : null;
 
-        if (state.section === "rentals" && rental) {
+        const activeReport=state.section==='reports' && state.reportTab==='standard' && state.activeReport;
+        header.classList.toggle('rental-header',Boolean(rental));
+        if (detailPage || activeReport) {
+          const title=detailPage ? detailPage.title : `${reportName(activeReport)} Report`;
+          const backLabel=detailPage?.backLabel || 'Back to Reports';
+          header.innerHTML=`<div class="top-header-inner">
+            <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
+            <button id="detailBackBtn" class="back-arrow-btn" type="button" aria-label="${esc(backLabel)}">←</button>
+            <div><div class="company-name">${esc(state.account.companyName)}</div><h1 class="page-title">${esc(title)}</h1></div>
+          </div>`;
+          byId('detailBackBtn').onclick=detailPage ? backFromDetail : ()=>goto('reports');
+        } else if (state.section === "rentals" && rental) {
           const tabNames = {
             leads: "Leads",
             owner: "Owner Report",
@@ -849,12 +887,14 @@
               <button class="header-tab ${state.detailTab === "availability" ? "active" : ""}" data-tab="availability" type="button">AVAILABILITY</button>
               <button class="header-tab ${state.detailTab === "settings" ? "active" : ""}" data-tab="settings" type="button">SETTINGS</button>
             </div>
+            ${state.detailTab==='leads' ? plusButton('addLeadBtn','Add lead') : ''}
           `;
 
           document.getElementById("backRentalsBtn").addEventListener("click", () => {
             state.selectedRentalId = null;
             saveState();
             render();
+            window.scrollTo(0,0);
           });
 
           header.querySelectorAll("[data-tab]").forEach(btn => {
@@ -862,6 +902,7 @@
               state.detailTab = btn.dataset.tab;
               saveState();
               render();
+              window.scrollTo(0,0);
             });
           });
         } else if (state.section === "viewings") {
@@ -898,6 +939,7 @@
             <div class="header-tabs">
               ${[['CodeBox','CODEBOX'],['SentriLock','SENTRILOCK'],['PointCentral','POINTCENTRAL'],['contacts','AUTHORIZED CONTACTS']].map(([id,label])=>`<button class="header-tab ${state.accessTab===id?'active':''}" data-atab="${id}" type="button">${label}</button>`).join('')}
             </div>
+            ${state.accessTab==='contacts' ? plusButton('add-contact','Add contact') : plusButton('practice-add-device','Add device')}
           `;
           header.querySelectorAll("[data-atab]").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -934,6 +976,7 @@
         }
 
         tutorial.mount();
+        if(rental) header.parentElement.style.setProperty('--rental-header-height',`${header.offsetHeight}px`);
         const mobBtn = document.getElementById("mobileMenuBtn");
         if (mobBtn) {
           mobBtn.addEventListener("click", () => {
@@ -1006,13 +1049,13 @@
                           Wait List
                         </span>
                       ` : ""}
-                      <span class="tt-badge badge-device">
+                      ${r.device ? `<span class="tt-badge badge-device">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                           <rect x="5" y="11" width="14" height="10" rx="2"></rect>
                           <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
                         </svg>
                         ${esc(r.device)}
-                      </span>
+                      </span>` : ''}
                       ${r.alerts > 0 ? `
                         <span class="tt-badge badge-alert">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -1029,7 +1072,6 @@
                   <div class="prop-footer">
                     <span class="status-dot ${r.active ? "" : "off"}" title="${r.active ? "Active" : "Inactive"}"></span>
                     <button class="card-link-btn" data-open-leads="${r.id}" type="button">LEADS</button>
-                    <button class="card-link-btn" data-open-avail="${r.id}" type="button">AVAIL</button>
                     <button class="card-link-btn" data-open-settings="${r.id}" type="button">SETTINGS</button>
                   </div>
                 </article>
@@ -1094,15 +1136,7 @@
           });
         });
 
-        canvas.querySelectorAll("[data-open-avail]").forEach(el => {
-          el.addEventListener("click", () => {
-            state.selectedRentalId = el.dataset.openAvail;
-            state.detailTab = "availability";
-            saveState();
-            render();
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          });
-        });
+
       }
 
       function agentOptions(selected) {
@@ -1163,7 +1197,7 @@
                 <h2 class="mat-card-title">Marketing</h2>
 
                 <div class="sub-heading first">Lease Details</div>
-                <div class="grid-2">
+                <div class="rental-lease-fields">
                   <div class="mat-field">
                     <label class="mat-label" for="mkTerm">Lease Term</label>
                     <select id="mkTerm" class="mat-select">
@@ -2376,349 +2410,216 @@
         });
       }
 
-      function openLeadDetailModal(r, leadId) {
-        const lead = r.leads.find(l => l.id === leadId);
-        if (!lead) return;
-        const canSchedule = (lead.score !== null && lead.score >= 6) || lead.manualOverride;
-        const minIncome = Math.round((r.rent || 2200) * (r.qualifying ? r.qualifying.incomeRatio : 3));
-        openModal(
-          `${lead.name} — Lead Profile`,
-          `
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
-              <div>
-                <strong style="font-size:15px;">${esc(lead.name)}</strong>
-                <span class="type-badge ${lead.leadType === "Agent lead" ? "agent" : ""}">${esc(lead.leadType)}</span>
-                <div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${esc(lead.phone)} • ${esc(lead.email)}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                ${scoreBadgeHtml(lead.score)}
-                <span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span>
-              </div>
-            </div>
+      const LEAD_STAGES = ["Unscored","Pre-Qualified","Scheduled","Showing requested","Viewed","Applied","Wait List","Disqualified"];
 
-            <div class="qual-grid">
-              <div class="qual-item">
-                <div class="qual-item-label">Lead Source</div>
-                <div class="qual-item-val">${esc(lead.source)}</div>
-              </div>
-              <div class="qual-item">
-                <div class="qual-item-label">Desired Move-In</div>
-                <div class="qual-item-val">${esc(lead.moveInDate)}</div>
-              </div>
-              <div class="qual-item">
-                <div class="qual-item-label">Stated Monthly Income</div>
-                <div class="qual-item-val">${lead.monthlyIncome ? "$" + Number(lead.monthlyIncome).toLocaleString() + "/mo" : "Not submitted"} <span style="font-weight:400;color:var(--muted);">(Req: $${minIncome.toLocaleString()})</span></div>
-              </div>
-              <div class="qual-item">
-                <div class="qual-item-label">Pets</div>
-                <div class="qual-item-val">${esc(lead.pets)}</div>
-              </div>
-            </div>
+      function openLeadMessages(r, lead) {
+        let thread=state.messages.find(m=>m.rentalId===r.id && (m.leadId ? m.leadId===lead.id : m.leadName===lead.name));
+        if(!thread) thread=wf.message(r,lead,`Conversation started for ${r.address}.`);
+        state.selectedThreadId=thread.id;
+        goto('messages');
+      }
 
-            <div class="grid-2" style="margin:12px 0;">
-              <div>
-                <label class="field-label" for="ldStatusSel">Lead Status</label>
-                <select id="ldStatusSel" class="mat-select">
-                  ${["Unscored", "Pre-Qualified", "Scheduled", "Viewed", "Applied", "Wait List", "Disqualified"].map(st =>
-                    `<option value="${st}" ${lead.status === st ? "selected" : ""}>${st}</option>`
-                  ).join("")}
-                </select>
-              </div>
-              <div style="display:flex;align-items:flex-end;">
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
-                  <input id="ldOverrideChk" type="checkbox" ${lead.manualOverride ? "checked" : ""} />
-                  Manual override (allow scheduling regardless of score)
-                </label>
-              </div>
-            </div>
-
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;">
-              <button id="ldInviteBtn" class="btn-outline" type="button">Send Pre-Qual Invite</button>
-              <button id="ldScheduleBtn" class="btn-blue" type="button" ${canSchedule ? "" : 'title="Enable manual override to schedule disqualified/unscored lead"'}>Schedule Showing</button>
-              <button id="ldQualifyBtn" type="button" class="btn-outline">Review Pre-qualification</button><button id="ldApplyBtn" class="btn-outline" type="button">Send Application Link</button>
-              <button id="ldMsgBtn" class="btn-ghost" type="button">Open in Messages</button>
-            </div>
-
-            <div style="margin-top:14px;border-top:1px solid #ECEFF1;padding-top:12px;">
-              <div class="field-label" style="margin-bottom:6px;">Activity & Notes</div>
-              <div id="ldNotesList" style="max-height:140px;overflow-y:auto;margin-bottom:8px;">
-                ${(lead.notes || []).map(n => `
-                  <div style="font-size:12.5px;padding:6px 8px;background:#F8FAFC;border-left:3px solid #0277BD;margin-bottom:6px;border-radius:2px;">
-                    <span style="color:var(--muted);font-size:11px;">${esc(n.time)}</span> — ${esc(n.text)}
-                  </div>
-                `).join("")}
-              </div>
-              <div style="display:flex;gap:8px;">
-                <input id="ldNoteInput" class="mat-input" type="text" placeholder="Add internal note or follow-up log..." />
-                <button id="ldAddNoteBtn" class="btn-ghost" type="button">Log Note</button>
-              </div>
-            </div>
-          `,
-          `<button id="ldCloseBtn" class="btn-blue" type="button">Done</button>`
-        );
+      function openLeadProfile(r, lead) {
+        if(!lead) return;
+        openDetailPage(lead.name,'Back to Leads',()=>renderLeadProfile(r,lead));
         tutorial.record('open-lead',{rentalId:r.id});
+      }
 
-        document.getElementById("ldStatusSel").addEventListener("change", e => {
-          lead.status = e.target.value;
-          lead.archived = lead.status==='Disqualified';
-          lead.notes.unshift({ time: "Just now", text: `Status updated to ${lead.status}.` });
+      function renderLeadProfile(r,lead) {
+        const canSchedule=Boolean(!lead.archived && (lead.score>=6 || lead.manualOverride));
+        const minIncome=Math.round(r.rent*(r.qualifying?.incomeRatio || 3));
+        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && (v.leadId ? v.leadId===lead.id : v.leadName===lead.name));
+        const feedback=r.ownerReport.feedback.filter(f=>f.leadId===lead.id || (!f.leadId && f.lead===lead.name));
+        byId('canvas').innerHTML=`
+          <div class="lead-profile">
+            <section class="mat-card">
+              <div class="row-inline practice-between">
+                <div><h2 class="mat-card-title">${esc(r.address)}</h2><div>${esc(lead.leadType)} · ${esc(lead.phone || 'No phone')} · ${esc(lead.email || 'No email')}</div></div>
+                <div class="row-inline">${scoreBadgeHtml(lead.score)} <span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span></div>
+              </div>
+              <div class="practice-actions">
+                <button id="ldMsgBtn" class="btn-blue" type="button">Open in Messages</button>
+                <button id="ldInviteBtn" class="btn-outline" type="button">Send Pre-Qual Invite</button>
+                <button id="ldScheduleBtn" class="btn-outline" type="button" ${canSchedule ? '' : 'disabled'}>Schedule Showing</button>
+                <button id="ldApplyBtn" class="btn-outline" type="button">Send Application Link</button>
+              </div>
+              <div class="grid-2">
+                <label class="mat-field"><span class="mat-label">Lead status</span><select id="ldStatusSel" class="mat-select">
+                  ${[...new Set([...LEAD_STAGES,lead.status])].map(status=>`<option ${status===lead.status ? 'selected' : ''}>${esc(status)}</option>`).join('')}
+                </select></label>
+                <label class="mat-switch"><input id="ldOverrideChk" type="checkbox" ${lead.manualOverride ? 'checked' : ''}><span class="switch-track"></span><span>Manual scheduling override</span></label>
+              </div>
+            </section>
+            <section class="mat-card">
+              <h2 class="mat-card-title">Activity &amp; Notes</h2>
+              <div id="ldNotesList" class="lead-activity">${lead.notes.map(n=>`<p><strong>${esc(n.time)}</strong> ${esc(n.text)}</p>`).join('') || '<p>No activity yet.</p>'}</div>
+              <form id="lead-note-form" class="row-inline"><input id="ldNoteInput" class="mat-input" aria-label="Internal note" placeholder="Add an internal note" required>
+              <button id="ldAddNoteBtn" class="btn-outline" type="submit">Log Note</button></form>
+            </section>
+            <section class="mat-card">
+              <h2 class="mat-card-title">ID Review &amp; Showing History</h2>
+              <label class="mat-switch"><input id="ldIdReviewed" type="checkbox" ${lead.idReviewed ? 'checked' : ''}><span class="switch-track"></span><span>Practice ID reviewed</span></label>
+              ${tours.length ? `<ul>${tours.map(v=>`<li>${esc(v.date)} · ${esc(v.time)} · ${esc(v.type)} · ${esc(v.status)}</li>`).join('')}</ul>` : '<p>No showings yet.</p>'}
+              <h3>Showing Feedback</h3>
+              ${feedback.map(f=>`<p>${esc(f.date)} · ${esc(f.comment)}</p>`).join('') || '<p>No showing feedback yet.</p>'}
+            </section>
+            <section class="mat-card">
+              <h2 class="mat-card-title">Pre-Qualification</h2>
+              <div class="qual-grid">${[
+                ['Lead source',lead.source],['Desired move-in',lead.moveInDate],
+                ['Monthly income',lead.monthlyIncome ? `$${Number(lead.monthlyIncome).toLocaleString()} (required $${minIncome.toLocaleString()})` : 'Pending'],
+                ['Pets',lead.pets]
+              ].map(([label,value])=>`<div class="qual-item"><div class="qual-item-label">${label}</div><div class="qual-item-val">${esc(value)}</div></div>`).join('')}</div>
+              <button id="ldQualifyBtn" class="btn-outline" type="button">Review Pre-Qualification</button>
+            </section>
+          </div>`;
+        const update=(note,focus)=>{
+          wf.note(lead,note);
           saveState();
-          render();
-          openLeadDetailModal(r, lead.id);
-        });
-
-        document.getElementById("ldOverrideChk").addEventListener("change", e => {
-          lead.manualOverride = e.target.checked;
-          lead.notes.unshift({ time: "Just now", text: lead.manualOverride ? "Agent enabled manual scheduling override." : "Manual scheduling override removed." });
-          saveState();
-          openLeadDetailModal(r, lead.id);
-        });
-
+          renderLeadProfile(r,lead);
+          byId(focus).focus({preventScroll:true});
+        };
+        byId('ldStatusSel').onchange=e=>{
+          lead.status=e.target.value;
+          lead.archived=lead.status==='Disqualified';
+          update(`Status updated to ${lead.status}.`,'ldStatusSel');
+        };
+        byId('ldOverrideChk').onchange=e=>{
+          lead.manualOverride=e.target.checked;
+          update(lead.manualOverride ? 'Manual scheduling override enabled.' : 'Manual scheduling override removed.','ldOverrideChk');
+        };
+        byId('ldIdReviewed').onchange=e=>{
+          lead.idReviewed=e.target.checked;
+          update(lead.idReviewed ? 'Practice ID marked as reviewed.' : 'Practice ID review cleared.','ldIdReviewed');
+        };
         byId('ldInviteBtn').onclick=()=>wf.invite(r,lead);
         byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
         byId('ldApplyBtn').onclick=()=>{
           wf.message(r,lead,`Practice application: ${practiceLink('apply',r.id,lead.id)}`);
-          saveState();showToast('Practice application link added to Messages.');
+          update('Practice application link added to Messages.','ldApplyBtn');
+          showToast('Practice application link added to Messages.');
         };
         byId('ldQualifyBtn').onclick=()=>wf.qualify(r,lead);
-
-        document.getElementById("ldMsgBtn").addEventListener("click", () => {
-          let thread = state.messages.find(m => m.leadName === lead.name && m.rentalId === r.id);
-          if (!thread) {
-            thread = {
-              id: "msg_" + Date.now(),
-              rentalId: r.id,
-              leadName: lead.name,
-              phone: lead.phone,
-              email: lead.email,
-              channel: "SMS",
-              unread: false,
-              needsReply: false,
-              aiHandled: false,
-              score: lead.score,
-              updatedAt: "Just now",
-              thread: [{ sender: "auto", label: "Practice automation", time: "Just now", text: `Conversation started for ${r.address}.` }]
-            };
-            state.messages.unshift(thread);
-          }
-          state.selectedThreadId = thread.id;
-          state.section = "messages";
-          state.selectedRentalId = null;
-          saveState();
-          closeModal();
-          render();
-        });
-
-        document.getElementById("ldAddNoteBtn").addEventListener("click", () => {
-          const inp = document.getElementById("ldNoteInput");
-          const val = inp.value.trim();
-          if (!val) return;
-          lead.notes.unshift({ time: "Just now", text: val });
-          saveState();
-          openLeadDetailModal(r, lead.id);
-        });
-
-        document.getElementById("ldCloseBtn").addEventListener("click", closeModal);
+        byId('ldMsgBtn').onclick=()=>openLeadMessages(r,lead);
+        byId('lead-note-form').onsubmit=e=>{
+          e.preventDefault();
+          const note=byId('ldNoteInput').value.trim();
+          if(note) update(note,'ldNoteInput');
+        };
       }
 
       function renderRentalLeads(r) {
-        const canvas = document.getElementById("canvas");
-        const lf = state.leadsFilter || { search: "", status: "all", score: "all" };
-        const q = (lf.search || "").trim().toLowerCase();
-
-        const totalLeads = r.leads.length;
-        const qualifiedCount = r.leads.filter(l => l.score !== null && l.score >= 6).length;
-        const scheduledCount = r.leads.filter(l => ["Scheduled", "Viewed", "Applied"].includes(l.status)).length;
-        const blockedOrUnscored = r.leads.filter(l => l.score === null || l.score < 6).length;
-
-        const filtered = r.leads.filter(l => {
-          if (!lf.archived && l.archived) return false;
-          if (lf.status !== "all" && l.status !== lf.status) return false;
-          if (lf.score === "qualified" && !(l.score !== null && l.score >= 6)) return false;
-          if (lf.score === "low" && !(l.score !== null && l.score < 6)) return false;
-          if (lf.score === "unscored" && l.score !== null) return false;
-          if (q) {
-            const hay = `${l.name} ${l.email} ${l.phone} ${l.source} ${l.status}`.toLowerCase();
-            if (!hay.includes(q)) return false;
-          }
-          return true;
+        const canvas=byId('canvas');
+        const f=state.leadsFilter;
+        const query=f.search.trim().toLowerCase();
+        const filtered=r.leads.filter(lead=>{
+          if((lead.archived && !f.archived) || (f.status!=='all' && lead.status!==f.status)) return false;
+          const score=lead.score===null ? 'unscored' : lead.score>=6 ? 'qualified' : 'low';
+          if(f.score!=='all' && f.score!==score) return false;
+          return `${lead.name} ${lead.email} ${lead.phone} ${lead.source} ${lead.status}`.toLowerCase().includes(query);
         });
+        if(f.sort==='name') filtered.sort((a,b)=>a.name.localeCompare(b.name));
+        if(f.sort==='new') filtered.sort((a,b)=>(b.createdDate || '').localeCompare(a.createdDate || ''));
+        if(!f.sort || f.sort==='recent') filtered.sort((a,b)=>(b.notes[0]?.at || Date.parse(b.createdDate) || 0)-(a.notes[0]?.at || Date.parse(a.createdDate) || 0));
+        const options=(rows,selected)=>rows.map(([value,label])=>`<option value="${esc(value)}" ${value===selected ? 'selected' : ''}>${esc(label)}</option>`).join('');
 
-        const tenantLink = `${practiceLink("qualify", r.id)}`;
-        const agentLink = `${tenantLink}/agent`;
-
-        canvas.innerHTML = `
-          <div style="max-width:1120px;">
-            <div class="kpi-strip">
-              <div class="kpi-tile">
-                <div class="kpi-tile-label">Total Leads</div>
-                <div class="kpi-tile-value">${totalLeads}</div>
-                <div class="kpi-tile-sub">Online, call center & manual</div>
-              </div>
-              <div class="kpi-tile">
-                <div class="kpi-tile-label">Pre-Qualified (6–10)</div>
-                <div class="kpi-tile-value" style="color:#2E7D32;">${qualifiedCount}</div>
-                <div class="kpi-tile-sub">Eligible to book showings</div>
-              </div>
-              <div class="kpi-tile">
-                <div class="kpi-tile-label">Scheduled / Viewed / Applied</div>
-                <div class="kpi-tile-value" style="color:#0277BD;">${scheduledCount}</div>
-                <div class="kpi-tile-sub">Active tour pipeline</div>
-              </div>
-              <div class="kpi-tile">
-                <div class="kpi-tile-label">Unscored / Blocked (&lt;6)</div>
-                <div class="kpi-tile-value" style="color:#E65100;">${blockedOrUnscored}</div>
-                <div class="kpi-tile-sub">Auto follow-up or restricted</div>
-              </div>
-            </div>
-
-            <div class="leads-toolbar">
-              <div class="field-group" style="flex:1;min-width:200px;">
-                <label for="leadSearchInput">Search Leads</label>
-                <input id="leadSearchInput" class="mat-input" type="search" placeholder="Name, phone, email, or source" value="${esc(lf.search)}" />
-              </div>
-              <div class="field-group">
-                <label for="leadStatusFilter">Status</label>
-                <select id="leadStatusFilter" class="mat-select">
-                  <option value="all" ${lf.status === "all" ? "selected" : ""}>All statuses</option>
-                  ${["Unscored", "Pre-Qualified", "Scheduled", "Viewed", "Applied", "Wait List", "Disqualified"].map(st =>
-                    `<option value="${st}" ${lf.status === st ? "selected" : ""}>${st}</option>`
-                  ).join("")}
-                </select>
-              </div>
-              <div class="field-group">
-                <label for="leadScoreFilter">Pre-Qual Score</label>
-                <select id="leadScoreFilter" class="mat-select">
-                  <option value="all" ${lf.score === "all" ? "selected" : ""}>All scores</option>
-                  <option value="qualified" ${lf.score === "qualified" ? "selected" : ""}>Qualified (6–10)</option>
-                  <option value="low" ${lf.score === "low" ? "selected" : ""}>Disqualified (0–5)</option>
-                  <option value="unscored" ${lf.score === "unscored" ? "selected" : ""}>Unscored</option>
-                </select>
-              </div>
-              <div class="leads-toolbar-actions">
-                <button id="copyTenantLinkBtn" class="btn-outline" type="button" title="Copy pre-qualification link for prospective tenants">Copy Tenant Link</button>
-                <button id="copyAgentLinkBtn" class="btn-ghost" type="button" title="Copy showing link for showing/leasing agents">Copy Agent Link</button>
-                <label class="mat-switch"><input id="show-archived-leads" type="checkbox" ${lf.archived?"checked":""}><span class="switch-track"></span><span>Show archived</span></label><button id="addLeadBtn" class="btn-orange" type="button">+ ADD LEAD</button>
-              </div>
-            </div>
-
-            <div class="mat-card" style="padding:0;overflow:hidden;">
-              ${filtered.length === 0 ? `
-                <div style="padding:36px 24px;text-align:center;color:var(--muted);">
-                  <p style="margin:0 0 12px;font-size:14px;">${r.leads.length === 0 ? "As tenant leads inquire about your rental through our online service and call center they will show up here." : "No leads match your current filter."}</p>
-                  <button id="emptyAddLeadBtn" class="btn-orange" type="button">+ ADD LEAD</button>
-                </div>
-              ` : `
-                <div class="table-scroll">
-                  <table class="tt-table" style="margin:0;">
-                    <thead>
-                      <tr>
-                        <th>Lead</th>
-                        <th>Score (0–10)</th>
-                        <th>Status</th>
-                        <th>Source</th>
-                        <th>Move-In / Income</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${filtered.map(l => `
-                        <tr class="lead-row-clickable" data-lead-row="${esc(l.id)}">
-                          <td>
-                            <strong>${esc(l.name)}</strong>
-                            <span class="type-badge ${l.leadType === "Agent lead" ? "agent" : ""}">${l.leadType === "Agent lead" ? "Agent" : "Tenant"}</span>
-                            <div style="font-size:12px;color:var(--muted);">${esc(l.phone)} • ${esc(l.email)}</div>
-                          </td>
-                          <td>${scoreBadgeHtml(l.score)}</td>
-                          <td><span class="status-chip ${leadStatusClass(l.status)}">${esc(l.status)}</span></td>
-                          <td>${esc(l.source)}<div style="font-size:11.5px;color:var(--muted);">${esc(l.createdAt)}</div></td>
-                          <td>
-                            <div style="font-size:12.5px;">${esc(l.moveInDate)}</div>
-                            <div style="font-size:11.5px;color:var(--muted);">${l.monthlyIncome ? "$" + Number(l.monthlyIncome).toLocaleString() + "/mo" : "Pending income"}</div>
-                          </td>
-                          <td>
-                            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                              <button class="btn-outline" type="button" data-lead-view="${esc(l.id)}" style="padding:4px 9px;font-size:11.5px;">Details</button>
-                              <button class="btn-ghost" type="button" data-lead-msg="${esc(l.id)}" style="padding:4px 9px;font-size:11.5px;">Message</button>
-                            </div>
-                          </td>
-                        </tr>
-                      `).join("")}
-                    </tbody>
-                  </table>
-                </div>
-              `}
-            </div>
+        canvas.innerHTML=`
+          <div class="leads-toolbar">
+            <label class="mat-field"><span class="mat-label">Sort by</span><select id="leadSort" class="mat-select">${options([['recent','Recent activity'],['new','Newest lead'],['name','Lead name']],f.sort || 'recent')}</select></label>
+            <label class="mat-field"><span class="mat-label">Status</span><select id="leadStatusFilter" class="mat-select">${options([['all','All statuses'],...LEAD_STAGES.map(stage=>[stage,stage])],f.status)}</select></label>
+            <label class="mat-field"><span class="mat-label">Qualification</span><select id="leadScoreFilter" class="mat-select">${options([['all','Any'],['qualified','Qualified'],['low','Disqualified'],['unscored','Unscored']],f.score)}</select></label>
+            <label class="mat-switch"><input id="show-archived-leads" type="checkbox" ${f.archived ? 'checked' : ''}><span class="switch-track"></span><span>Show archived</span></label>
+            <label class="mat-field lead-search"><span class="mat-label">Search Leads</span><input id="leadSearchInput" class="mat-input" type="search" placeholder="Name, phone, or email" value="${esc(f.search)}"></label>
           </div>
-        `;
+          <section class="mat-card lead-queue">
+            <div class="row-inline practice-between lead-queue-heading">
+              <h2 class="mat-card-title">Leads (${filtered.length})</h2>
+              <div class="row-inline">
+                <button id="copyTenantLinkBtn" class="btn-flat" type="button">Copy Tenant Link</button>
+                <button id="copyAgentLinkBtn" class="btn-flat" type="button">Copy Agent Link</button>
+              </div>
+            </div>
+            ${filtered.length ? `<div class="table-scroll"><table class="tt-table">
+              <thead><tr><th scope="col">Qualified</th><th scope="col">Lead</th><th scope="col">Stage</th><th scope="col">Activity</th><th scope="col">Action</th></tr></thead>
+              <tbody>${filtered.map(lead=>{
+                const qualified=lead.score>=6 && !lead.archived;
+                const latest=lead.notes[0];
+                const qualification=qualified ? 'Qualified' : lead.score===null ? 'Unscored' : 'Disqualified';
+                return `<tr class="lead-row-clickable" data-lead-row="${esc(lead.id)}">
+                  <td><span class="lead-qual-dot ${qualified ? 'qualified' : ''}" role="img" aria-label="${qualification}" title="${qualification}"></span></td>
+                  <td><button class="lead-name-link" type="button" data-lead-view="${esc(lead.id)}">${esc(lead.name)}</button>
+                    <small>${esc(lead.leadType)} · ${esc(lead.source)}</small></td>
+                  <td><span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span></td>
+                  <td>${esc(latest?.text || 'Lead added.')}<small>${esc(latest?.time || lead.createdAt)}</small></td>
+                  <td><button class="lead-menu-btn" type="button" data-lead-menu="${esc(lead.id)}" aria-label="Actions for ${esc(lead.name)}" aria-expanded="false">⋮</button></td>
+                </tr>`;
+              }).join('')}</tbody></table></div>`
+              : '<p class="lead-queue-heading">No leads match these filters.</p>'}
+          </section>
+          <div id="lead-actions" class="lead-action-popover" hidden></div>`;
 
-        document.getElementById("leadSearchInput").addEventListener("input", e => {
-          state.leadsFilter.search = e.target.value;
+        const update=()=>{
           saveState();
           renderRentalLeads(r);
-          const el = document.getElementById("leadSearchInput");
-          if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+          tutorial.draw();
+        };
+        byId('leadSearchInput').oninput=e=>{
+          f.search=e.target.value;
+          const position=e.target.selectionStart;
+          update();
+          byId('leadSearchInput').focus({preventScroll:true});
+          byId('leadSearchInput').setSelectionRange(position,position);
+        };
+        for(const [id,key] of [['leadSort','sort'],['leadStatusFilter','status'],['leadScoreFilter','score']]){
+          byId(id).onchange=e=>{
+            f[key]=e.target.value;
+            update();
+            byId(id).focus({preventScroll:true});
+          };
+        }
+        byId('show-archived-leads').onchange=e=>{
+          f.archived=e.target.checked;
+          update();
+          byId('show-archived-leads').focus({preventScroll:true});
+          tutorial.record('show-archived',{enabled:f.archived});
+        };
+        byId('copyTenantLinkBtn').onclick=()=>copyToClipboardSafe(practiceLink('qualify',r.id),'Copied Tenant Lead Link');
+        byId('copyAgentLinkBtn').onclick=()=>copyToClipboardSafe(practiceLink('qualify',r.id)+'/agent','Copied Agent Lead Link');
+        byId('addLeadBtn').onclick=()=>openAddLeadModal(r);
+        const menu=byId('lead-actions');
+        const hideMenu=()=>{
+          menu.hidden=true;
+          canvas.querySelector('[data-lead-menu][aria-expanded="true"]')?.setAttribute('aria-expanded','false');
+        };
+        canvas.querySelectorAll('[data-lead-row]').forEach(row=>{
+          const lead=filtered.find(l=>l.id===row.dataset.leadRow);
+          const toggle=row.querySelector('[data-lead-menu]');
+          row.onclick=e=>{
+            if(!e.target.closest('[data-lead-menu]')) openLeadProfile(r,lead);
+          };
+          toggle.onclick=()=>{
+            const wasOpen=toggle.getAttribute('aria-expanded')==='true';
+            hideMenu();
+            if(wasOpen) return;
+            toggle.setAttribute('aria-expanded','true');
+            menu.innerHTML='<button type="button" class="btn-flat">Open profile</button><button type="button" class="btn-flat">Message</button>';
+            menu.hidden=false;
+            const rect=toggle.getBoundingClientRect();
+            menu.style.left=`${Math.max(8,rect.right-menu.offsetWidth)}px`;
+            menu.style.top=`${Math.min(rect.bottom,innerHeight-menu.offsetHeight-8)}px`;
+            menu.firstElementChild.onclick=()=>openLeadProfile(r,lead);
+            menu.lastElementChild.onclick=()=>openLeadMessages(r,lead);
+            menu.firstElementChild.focus();
+          };
         });
-        document.getElementById("leadStatusFilter").addEventListener("change", e => {
-          state.leadsFilter.status = e.target.value;
-          saveState();
-          renderRentalLeads(r);
-        });
-        document.getElementById("leadScoreFilter").addEventListener("change", e => {
-          state.leadsFilter.score = e.target.value;
-          saveState();
-          renderRentalLeads(r);
-        });
-        document.getElementById("copyTenantLinkBtn").addEventListener("click", () => {
-          copyToClipboardSafe(tenantLink, "Copied Tenant Lead Link");
-        });
-        document.getElementById("copyAgentLinkBtn").addEventListener("click", () => {
-          copyToClipboardSafe(agentLink, "Copied Agent Lead Link");
-        });
-        byId('show-archived-leads').onchange=e=>{lf.archived=e.target.checked;saveState();renderRentalLeads(r);tutorial.record('show-archived',{enabled:lf.archived});};
-        document.getElementById("addLeadBtn").addEventListener("click", () => openAddLeadModal(r));
-        const emptyAdd = document.getElementById("emptyAddLeadBtn");
-        if (emptyAdd) emptyAdd.addEventListener("click", () => openAddLeadModal(r));
-
-        canvas.querySelectorAll("[data-lead-view]").forEach(btn => {
-          btn.addEventListener("click", e => {
-            e.stopPropagation();
-            openLeadDetailModal(r, btn.dataset.leadView);
-          });
-        });
-        canvas.querySelectorAll("[data-lead-row]").forEach(tr => {
-          tr.addEventListener("click", () => openLeadDetailModal(r, tr.dataset.leadRow));
-        });
-        canvas.querySelectorAll("[data-lead-msg]").forEach(btn => {
-          btn.addEventListener("click", e => {
-            e.stopPropagation();
-            const lead = r.leads.find(l => l.id === btn.dataset.leadMsg);
-            if (!lead) return;
-            let thread = state.messages.find(m => m.leadName === lead.name && m.rentalId === r.id);
-            if (!thread) {
-              thread = {
-                id: "msg_" + Date.now(),
-                rentalId: r.id,
-                leadName: lead.name,
-                phone: lead.phone,
-                email: lead.email,
-                channel: "SMS",
-                unread: false,
-                needsReply: false,
-                aiHandled: false,
-                score: lead.score,
-                updatedAt: "Just now",
-                thread: [{ sender: "auto", label: "Practice automation", time: "Just now", text: `Started conversation for ${r.address}.` }]
-              };
-              state.messages.unshift(thread);
-            }
-            state.selectedThreadId = thread.id;
-            state.section = "messages";
-            state.selectedRentalId = null;
-            saveState();
-            render();
-          });
-        });
+        menu.onfocusout=e=>{if(!menu.contains(e.relatedTarget) && !e.relatedTarget?.matches('[data-lead-menu][aria-expanded="true"]')) hideMenu();};
+        menu.onkeydown=e=>{
+          if(e.key==='Escape'){
+            const toggle=canvas.querySelector('[data-lead-menu][aria-expanded="true"]');
+            hideMenu();
+            toggle?.focus();
+          }
+        };
       }
 
       function renderRentalOwnerReport(r) {
@@ -2738,16 +2639,16 @@
 
         canvas.innerHTML = `
           <div class="owner-report-grid">
-            <div class="mat-card">
+            <div class="mat-card owner-report-settings">
               <h2 class="mat-card-title" style="margin-bottom:14px;">Owner Report Settings</h2>
               <div class="toggle-row" style="margin-bottom:14px;">
                 <div>
                   <div style="font-weight:600;font-size:13.5px;">Send owner report automatically</div>
                   <div style="font-size:12px;color:var(--muted);">Weekly practice delivery schedule</div>
                 </div>
-                <label class="mat-switch">
+                <label class="mat-switch" aria-label="Send owner report automatically">
                   <input id="orAutoSend" type="checkbox" ${or.autoSend ? "checked" : ""} />
-                  <span class="mat-slider"></span>
+                  <span class="switch-track"></span>
                 </label>
               </div>
 
@@ -2777,11 +2678,11 @@
               <div class="toggle-row" style="margin-bottom:16px;">
                 <div>
                   <div style="font-weight:600;font-size:13.5px;">Include showing feedback</div>
-                  <div style="font-size:12px;color:var(--muted);">Suppress individual comments on the right before sending</div>
+                  <div style="font-size:12px;color:var(--muted);">Choose which comments appear in the report below.</div>
                 </div>
-                <label class="mat-switch">
+                <label class="mat-switch" aria-label="Include showing feedback">
                   <input id="orIncludeFb" type="checkbox" ${or.includeFeedback ? "checked" : ""} />
-                  <span class="mat-slider"></span>
+                  <span class="switch-track"></span>
                 </label>
               </div>
 
@@ -2797,27 +2698,14 @@
             </div>
 
             <div class="or-preview-card">
-              <div class="or-preview-banner">
-                <div>
-                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;opacity:0.88;">Live Owner Report Preview</div>
-                  <div style="font-size:17px;font-weight:600;margin-top:2px;">${esc(state.account.companyName)}</div>
-                </div>
-                <span style="background:rgba(255,255,255,0.18);padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;">Report Date: Nov 21, 2026</span>
+              <div class="owner-report-hero">
+                <img src="${esc(r.photo)}" alt="${esc(r.address)}" />
+                <div><h2>Owner Report for ${esc(r.address)}</h2><p>Report date ${dateOffset()} · On market since ${esc(or.onMarketDate)}</p></div>
+                <button id="orPrintBtn" class="btn-orange" type="button" aria-label="Print owner report" title="Print owner report">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8V3h12v5M6 17H3V8h18v9h-3M6 14h12v7H6zM16 11h2"/></svg>
+                </button>
               </div>
-
               <div class="or-preview-body">
-                <div class="or-prop-head">
-                  <img class="or-prop-thumb" src="${esc(r.photo)}" alt="${esc(r.address)}" />
-                  <div>
-                    <div style="font-size:17px;font-weight:700;color:#263238;">${esc(r.address)}</div>
-                    <div style="font-size:13px;color:var(--muted);margin-top:2px;">
-                      $${Number(r.rent).toLocaleString()}/mo • ${r.bedrooms} bd / ${r.bathrooms} ba • ${Number(r.sqft).toLocaleString()} sq ft
-                    </div>
-                    <div style="font-size:12px;color:#546E7A;margin-top:4px;">
-                      <strong>On Market Since:</strong> ${esc(or.onMarketDate)} &nbsp;|&nbsp; <strong>Assigned Agent:</strong> ${esc(r.assignee)}
-                    </div>
-                  </div>
-                </div>
 
                 <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0 0 8px;">Leasing Metrics</h3>
                 <table class="or-metrics-table">
@@ -2863,6 +2751,7 @@
           </div>
         `;
 
+        byId('orPrintBtn').onclick=()=>window.print();
         document.getElementById("orAutoSend").addEventListener("change", e => {
           or.autoSend = e.target.checked;
           saveState();
@@ -3447,11 +3336,16 @@
       }
 
       const REPORT_CATALOG = [
-        {category:'Rental / Lead',icon:'⌂',items:[['rental_activity','RENTAL ACTIVITY','Inquiry and viewing totals by rental.'],['days','DAYS ON MARKET','Listing and activation dates.'],['lead_activity','LEAD ACTIVITY','Qualification and activity history.'],['lead_source','LEAD SOURCE','How prospects found each rental.'],['syndication','ZILLOW SYNDICATION','Listing distribution preferences.']]},
-        {category:'Viewings',icon:'▣',items:[['viewing_activity','VIEWING ACTIVITY','Viewing times, methods, and statuses.'],['viewing_availability','VIEWING AVAILABILITY','Rental and agent availability.'],['notifications','NOTIFICATIONS','Practice appointment and contact messages.']]},
-        {category:'Access',icon:'▤',items:[['codebox_access','LOCKBOX ACCESS','Generated practice access codes.'],['inventory','LOCKBOX INVENTORY','Assigned and unassigned devices.']]},
-        {category:'User / Company',icon:'◉',items:[['user_activity','USER ACTIVITY','Rental and showing counts by user.'],['company_overview','ACCOUNT OVERVIEW','Portfolio activity totals.']]},
+        {icon:'<path d="m2 11 10-9 10 9h-4v10h-5v-6h-2v6H6V11z" fill="currentColor"/>',items:[['rental_activity','RENTAL ACTIVITY','Inquiry and viewing totals by rental.'],['days','DAYS ON MARKET','Listing and activation dates.'],['lead_activity','LEAD ACTIVITY','Qualification and activity history.'],['lead_source','LEAD SOURCE','How prospects found each rental.'],['syndication','ZILLOW SYNDICATION','Listing distribution preferences.']]},
+        {icon:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v6m8-6v6m-6 6h5v4h-5z"/>',items:[['viewing_activity','VIEWING ACTIVITY','Viewing times, methods, and statuses.'],['viewing_availability','VIEWING AVAILABILITY','Rental and agent availability.'],['notifications','NOTIFICATIONS','Practice appointment and contact messages.']]},
+        {icon:'<rect x="5" y="10" width="14" height="11" rx="1"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v4"/>',items:[['codebox_access','LOCKBOX ACCESS','Generated practice access codes.'],['inventory','LOCKBOX INVENTORY','Assigned and unassigned devices.']]},
+        {icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M6 20v-2a6 4 0 0 1 12 0v2"/>',items:[['user_activity','USER ACTIVITY','Rental and showing counts by user.'],['company_overview','ACCOUNT OVERVIEW','Portfolio activity totals.']]},
       ].map(cat=>({...cat,items:cat.items.map(([id,name,desc])=>({id,name,desc}))}));
+
+      function reportName(id) {
+        const name=REPORT_CATALOG.flatMap(c=>c.items).find(item=>item.id===id)?.name || 'Practice';
+        return name.toLowerCase().replace(/\b\w/g,letter=>letter.toUpperCase()).replace(' On ',' on ');
+      }
 
       function buildReportData(id) {
         const f=state.reportFilters;
@@ -3463,8 +3357,7 @@
         const viewings=state.viewingsList.filter(v=>IDs.has(v.rentalId)&&inRange(v.date));
         const qualified=l=>Number(l.score)>=6 && !l.archived;
         const owned=rentals.flatMap(r=>r.ownerReport.feedback || []);
-        const name=REPORT_CATALOG.flatMap(c=>c.items).find(item=>item.id===id)?.name || 'Report';
-        const result=(headers,rows)=>({title:name,headers,rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
+        const result=(headers,rows)=>({title:`${reportName(id)} Report`,headers,rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
         const stats=(ls,vs)=>[ls.length,ls.filter(qualified).length,vs.filter(v=>!['Canceled','No-show'].includes(v.status)).length,vs.filter(v=>v.status==='Viewed').length];
         switch(id) {
           case 'rental_activity':return result(['User','Rental','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],rentals.map(r=>[r.assignee,r.address,r.active?'Yes':'No',...stats(leads.filter(l=>l.r.id===r.id),viewings.filter(v=>v.rentalId===r.id))]));
@@ -3485,13 +3378,16 @@
         const canvas=byId('canvas');
         if(state.reportTab==='scheduled'){wf.scheduledReports(REPORT_CATALOG);return;}
         if(!state.activeReport){
-          canvas.innerHTML=`<div class="reports-cat-grid practice-reports">${REPORT_CATALOG.map(cat=>`<section class="report-cat-card"><div class="practice-report-icon" aria-hidden="true">${cat.icon}</div><div class="report-btn-list">${cat.items.map(item=>`<button class="report-link-btn" type="button" data-report-id="${item.id}"><span><strong class="report-link-name">${item.name} REPORT</strong><span class="report-link-desc">${item.desc}</span></span></button>`).join('')}</div></section>`).join('')}</div>`;
-          canvas.querySelectorAll('[data-report-id]').forEach(btn=>btn.onclick=()=>{state.activeReport=btn.dataset.reportId;saveState();renderReportsSection();tutorial.record('open-report',{id:state.activeReport});});return;
+          canvas.innerHTML=`<div class="reports-cat-grid practice-reports">${REPORT_CATALOG.map(cat=>`<section class="report-cat-card"><div class="practice-report-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${cat.icon}</svg></div><div class="report-btn-list">${cat.items.map(item=>`<button class="report-link-btn" type="button" data-report-id="${item.id}"><span><strong class="report-link-name">${item.name} REPORT</strong><span class="report-link-desc">${item.desc}</span></span></button>`).join('')}</div></section>`).join('')}</div>`;
+          canvas.querySelectorAll('[data-report-id]').forEach(btn=>btn.onclick=()=>{
+            goto({section:'report',id:btn.dataset.reportId});
+            byId('detailBackBtn').focus({preventScroll:true});
+            tutorial.record('open-report',{id:state.activeReport});
+          });
+          return;
         }
         const f=state.reportFilters;
-        const data=buildReportData(state.activeReport);
-        canvas.innerHTML=`<div class="practice-width">
-          <div class="practice-actions"><button id="repBackBtn" class="btn-ghost">← All Reports</button><h2 class="mat-card-title">${esc(data.title)}</h2></div>
+        canvas.innerHTML=`<div class="report-page">
           <form id="practice-report-filters" class="filter-bar"><div class="filter-left">
             <label class="mat-field"><span class="mat-label">Rental</span><select id="repPropSel" class="mat-select"><option value="all">All rentals</option>${state.rentals.map(r=>`<option value="${esc(r.id)}" ${f.property===r.id?'selected':''}>${esc(r.address)}</option>`).join('')}</select></label>
             <label class="mat-field"><span class="mat-label">User</span><select id="repAgentSel" class="mat-select"><option value="all">All users</option>${agentOptions(f.agent)}</select></label>
@@ -3499,12 +3395,48 @@
             <label class="mat-field"><span class="mat-label">End Date</span><input id="repThrough" type="date" class="mat-input" value="${esc(f.through)}"></label>
             <label class="mat-switch"><input type="checkbox" id="repActive" ${f.active?'checked':''}><span class="switch-track"></span><span>Show only active rentals</span></label>
           </div><button class="btn-blue" type="submit">Filter</button></form>
-          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span>${data.rows.length} results</span><label class="mat-field"><span class="mat-label">Search results</span><input id="repSearch" type="search" class="mat-input" value="${esc(f.search)}"></label></div>
-            <div class="practice-actions" id="report-export-tools"></div><div class="table-scroll"><table class="tt-table"><thead><tr>${data.headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${data.rows.length?data.rows.map(row=>`<tr>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${data.headers.length}">No matching results.</td></tr>`}</tbody></table></div>
+          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span id="report-range" role="status"></span><label class="mat-field"><span class="mat-label">Search results</span><input id="repSearch" type="search" class="mat-input" value="${esc(f.search)}"></label></div>
+            <div class="practice-actions" id="report-export-tools"></div><div id="report-results-table"></div>
           </div></div>`;
-        byId('repBackBtn').onclick=()=>{state.activeReport=null;saveState();renderReportsSection();};
-        byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});saveState();renderReportsSection();tutorial.record('filter-report',{id:state.activeReport});};
-        byId('repSearch').addEventListener('change',e=>{f.search=e.target.value.trim();saveState();renderReportsSection();});
+        const apply=()=>{reportView.page=0;saveState();drawReportResults();tutorial.draw();};
+        byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});apply();tutorial.record('filter-report',{id:state.activeReport});};
+        byId('repSearch').oninput=e=>{f.search=e.target.value.trim();apply();};
+        drawReportResults();
+      }
+
+      function drawReportResults() {
+        const data=buildReportData(state.activeReport);
+        const view=reportView;
+        if(view.column!==null && view.column<data.headers.length) {
+          const direction=view.descending ? -1 : 1;
+          data.rows.sort((a,b)=>direction*String(a[view.column] ?? '').localeCompare(String(b[view.column] ?? ''),undefined,{numeric:true}));
+        }
+        const count=data.rows.length;
+        const pages=Math.max(1,Math.ceil(count/view.size));
+        view.page=Math.min(view.page,pages-1);
+        const start=view.page*view.size;
+        const end=Math.min(start+view.size,count);
+        byId('report-range').textContent=count ? `Showing ${start+1} to ${end} of ${count} results` : '0 results';
+        const target=byId('report-results-table');
+        target.innerHTML=`<div class="table-scroll"><table class="tt-table">
+          <thead><tr>${data.headers.map((name,i)=>`<th scope="col" ${view.column===i ? `aria-sort="${view.descending ? 'descending' : 'ascending'}"` : ''}><button class="report-sort" type="button" data-sort-report="${i}">${esc(name)}${view.column===i ? (view.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead>
+          <tbody>${count ? data.rows.map((row,i)=>`<tr ${i<start || i>=end ? 'class="report-offpage"' : ''}>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${data.headers.length}">No matching results.</td></tr>`}</tbody>
+        </table></div>
+        <div class="report-page-controls row-inline practice-between">
+          <label>Show <select id="report-page-size" aria-label="Results per page">${[5,10,25,50].map(size=>`<option ${size===view.size ? 'selected' : ''}>${size}</option>`).join('')}</select> per page</label>
+          <div class="row-inline"><button id="report-prev" class="btn-flat" type="button" ${view.page===0?'disabled':''}>Previous</button>
+          <span aria-label="Page ${view.page+1} of ${pages}">${view.page+1} / ${pages}</span><button id="report-next" class="btn-flat" type="button" ${view.page>=pages-1?'disabled':''}>Next</button></div>
+        </div>`;
+        target.querySelectorAll('[data-sort-report]').forEach(btn=>btn.onclick=()=>{
+          const column=Number(btn.dataset.sortReport);
+          view.descending=view.column===column && !view.descending;
+          view.column=column;view.page=0;drawReportResults();
+          target.querySelector(`[data-sort-report="${column}"]`).focus({preventScroll:true});
+        });
+        byId('report-page-size').onchange=e=>{view.size=Number(e.target.value);view.page=0;drawReportResults();byId('report-page-size').focus({preventScroll:true});};
+        for(const [id,delta] of [['report-prev',-1],['report-next',1]]) {
+          byId(id).onclick=()=>{view.page+=delta;drawReportResults();(byId(id).disabled ? byId(delta<0?'report-next':'report-prev') : byId(id)).focus({preventScroll:true});};
+        }
         wf.reportExports(data,state.activeReport);
       }
 
@@ -3515,6 +3447,8 @@
         if(state.signedOut) return;
         const {section,rentalId,jump,id}=typeof request==='string'?{section:request}:request;
         if(section==='signout') {full.openSignOut();return;}
+        detailPage=null;
+        reportView={...reportView,page:0,column:null,descending:false};
         const selected=rentalId || 'r1';
         const sameDraft=section==='settings' && state.section==='rentals' && state.detailTab==='settings' && state.selectedRentalId===selected;
         if(!sameDraft) settingsDraft=null;
@@ -3527,24 +3461,26 @@
         if(jump && section==='settings') state.activeSubnav=jump;
         if(jump && section==='account') state.accountSubnav=jump;
         saveState();render();
+        if(!sameDraft) window.scrollTo(0,0);
       }
       function resetPractice() {
         byId('chatPopover').classList.remove('open');
         openModal('Reset practice data?','<p>Restore fictional records and clear tutorial progress in this browser.</p>','<button id="reset-cancel" class="btn-ghost">Cancel</button><button id="reset-confirm" class="btn-orange">Reset practice data</button>');
         byId('reset-cancel').onclick=closeModal;
-        byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;saveState();closeModal();render();showToast('Practice data reset.');};
+        byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;detailPage=null;saveState();closeModal();render();showToast('Practice data reset.');};
       }
       function render() {
         const overlay=byId('signoutOverlay');
         overlay.classList.toggle('open',state.signedOut);
         overlay.setAttribute('aria-hidden',String(!state.signedOut));
-        document.querySelector('.app-shell').inert=state.signedOut;
+        document.querySelector('.app-shell').inert=state.signedOut || byId('ttModal').classList.contains('open');
         byId('chatFab').hidden=state.signedOut;
         if(state.signedOut){byId('chatPopover').classList.remove('open');byId('signBackInBtn').focus();tutorial.draw();return;}
         wf.reminders();renderSidebar();renderHeader();
         const rental=state.section==='rentals' && state.rentals.find(r=>r.id===state.selectedRentalId);
         if (!rental || state.detailTab!=='settings') settingsDraft=null;
-        if(rental){if(state.detailTab==='settings') renderRentalSettings(rental);else renderRentalSubTab(rental);}
+        if(detailPage) detailPage.draw();
+        else if(rental){if(state.detailTab==='settings') renderRentalSettings(rental);else renderRentalSubTab(rental);}
         else if(state.section==='rentals') renderRentalsList();
         else if(state.section==='access') wf.renderAccess();
         else if(state.section==='viewings') renderViewingsSection();
@@ -3556,6 +3492,7 @@
       const wf=window.createReplicaWorkflows({get:()=>state,el:byId,esc,save:saveState,render,toast:showToast,
         modal:openModal,close:closeModal,uid,date:dateOffset,link:practiceLink,copy:copyToClipboardSafe,weekly:defaultWeeklyHours,
         defaultRental:newRental,addFeedback,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,
+        openDetail:openDetailPage,backFromDetail,
         onAction:(key,detail)=>tutorial.record(key,detail)});
       function renameAssignee(oldName,newName) {
         if(Object.hasOwn(state.generalAvailability,oldName)) {
@@ -3575,6 +3512,7 @@
 
       // Global handlers
       document.getElementById("logoHomeBtn").addEventListener("click", () => {
+        detailPage=null;
         state.section = "rentals";
         state.selectedRentalId = null;
         closeMobileSidebar();
