@@ -1308,18 +1308,7 @@
       flex-wrap: wrap;
       align-items: flex-end;
       gap: 14px;
-      background: #fff;
-      border: 1px solid #E0E4E8;
-      border-radius: 4px;
-      padding: 14px 18px;
       margin-bottom: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-    .leads-toolbar .field-group {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      min-width: 150px;
     }
     .leads-toolbar label {
       font-size: 11px;
@@ -1328,14 +1317,6 @@
       text-transform: uppercase;
       letter-spacing: 0.3px;
     }
-    .leads-toolbar-actions {
-      margin-left: auto;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }
-
     .score-pill {
       display: inline-flex;
       align-items: center;
@@ -1415,13 +1396,6 @@
     }
 
     /* Owner Report */
-    .owner-report-grid {
-      display: grid;
-      grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
-      gap: 20px;
-      align-items: start;
-      max-width: 1160px;
-    }
     .or-preview-card {
       background: #fff;
       border: 1px solid #D8DFE5;
@@ -1429,32 +1403,7 @@
       box-shadow: 0 2px 6px rgba(0,0,0,0.08);
       overflow: hidden;
     }
-    .or-preview-banner {
-      background: #0277BD;
-      color: #fff;
-      padding: 16px 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
     .or-preview-body { padding: 20px; }
-    .or-prop-head {
-      display: flex;
-      gap: 16px;
-      align-items: center;
-      padding-bottom: 16px;
-      border-bottom: 1px solid #ECEFF1;
-      margin-bottom: 16px;
-    }
-    .or-prop-thumb {
-      width: 110px;
-      height: 76px;
-      object-fit: cover;
-      border-radius: 4px;
-      border: 1px solid #CFD8DC;
-      flex-shrink: 0;
-    }
     .or-metrics-table {
       width: 100%;
       border-collapse: collapse;
@@ -2064,7 +2013,14 @@ body:has(.modal-backdrop.open) { overflow:hidden; }
 .sync-fab span { font-size:28px; line-height:1; }
 .prop-scrim { font-size:17px; font-weight:500; }
 .rental-lease-fields { display:grid; grid-template-columns:1.3fr .75fr .75fr 1.35fr; gap:12px; }
-.leads-toolbar { display:flex; align-items:flex-end; flex-wrap:wrap; padding:0; background:transparent; border:0; box-shadow:none; }
+#viewing-availability { margin-top:21px; }
+#inline-general { margin-bottom:14px; }
+#inline-general summary { cursor:pointer; padding:7px 0; color:var(--blue); font-weight:600; }
+.availability-note { padding:9px 13px; background:#ffefd8; margin:9px 0; }
+.inline-hours-card { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:end; gap:10px 12px; min-width:0; border:1px solid var(--line); border-left:3px solid var(--blue); margin:10px 0; padding:10px 12px; }
+.inline-hours-card legend { padding:0 5px; color:var(--muted); }
+.inline-hours-card button { justify-self:start; }
+.practice-report-setting .practice-actions { flex-direction:column; align-items:flex-start; }
 .leads-toolbar .mat-switch { padding-bottom:8px; }
 .lead-search { margin-left:auto; }
 .lead-queue { padding:0; }
@@ -2087,6 +2043,7 @@ body:has(.modal-backdrop.open) { overflow:hidden; }
 #lead-note-form { margin-top:12px; flex-wrap:wrap; }
 #lead-note-form input { flex:1 1 220px; }
 .access-form > section { display:grid; gap:14px; }
+.access-form:has(#code-date) { max-width:460px; }
 .owner-report-hero { position:relative; isolation:isolate; display:flex; align-items:flex-end; min-height:clamp(165px,31vw,320px); padding:22px; color:white; background:#234356; }
 .owner-report-hero img,.owner-report-hero::after { position:absolute; inset:0; width:100%; height:100%; }
 .owner-report-hero img { object-fit:cover; z-index:-2; }
@@ -2095,6 +2052,10 @@ body:has(.modal-backdrop.open) { overflow:hidden; }
 .owner-report-hero p { margin:3px 0 0; }
 #orPrintBtn { display:grid; place-items:center; flex:none; width:42px; height:42px; margin-left:auto; border-radius:50%; padding:0; }
 .practice-report-results { padding:12px; }
+#practice-report-filters { justify-content:flex-start; gap:14px; padding-right:0; }
+#practice-report-filters .filter-left { gap:14px; }
+#practice-report-filters .mat-field { width:148px; min-width:0; }
+#practice-report-filters .mat-switch { padding-bottom:6px; }
 .practice-report-results .tt-table { min-width:570px; }
 .practice-report-results td,.practice-report-results th { padding:5px 8px; }
 .report-sort { padding:4px 0; text-align:left; font-weight:600; }
@@ -2114,6 +2075,7 @@ body:has(.modal-backdrop.open) { overflow:hidden; }
   .rental-lease-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:640px) {
+  .inline-hours-card { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .rental-lease-fields { grid-template-columns:minmax(0,1fr); }
   .lead-search { margin-left:0; flex:1 1 100%; }
   .rental-header .sync-fab { width:38px; height:38px; bottom:-19px; }

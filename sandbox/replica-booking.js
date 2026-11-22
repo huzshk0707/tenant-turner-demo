@@ -12,16 +12,42 @@ window.ReplicaBooking = (() => {
   };
   const overlaps = (a,b,c,d) => a < d && b > c;
 
-  function plan(state,rental,lead,date,time,method,{existing = '', confirm = false, now = Date.now()} = {}) {
+  function plan(state,rental,lead,date,time,method,options={}) {
+    const self=method==='self';
+    const primary=self ? rental.assignee : rental.viewing.inPerson.showingAgent || rental.assignee;
+    const duration=Number(self ? 30 : rental.viewing.inPerson.durationMinutes) || 30;
+    const day=days[(new Date(`${date}T12:00:00Z`).getUTCDay()+6)%7];
+    const rules=rental.availability.customHours?.[day];
+    const special=rental.availability.overrides?.some(row=>row.date===date && row.type==='open');
+    let agents=[primary];
+    if(!self && rental.availability.mode==='custom' && rules?.enabled && !special) {
+      const start=toTime(time);
+      const matches=rules.blocks.filter(block=>{
+        const end=toTime(block.end);
+        const minutes=value=>Number(value.slice(0,2))*60+Number(value.slice(3));
+        return start && end && start>=toTime(block.start) && minutes(start)+duration<=minutes(end);
+      });
+      if(matches.length) agents=[...new Set(matches.map(block=>block.agent || primary))];
+    }
+    const booked=options.confirm && state.viewingsList.find(v=>v.id===options.existing)?.agent;
+    if(booked) agents=[booked];
+    let failure;
+    for(const agent of agents) {
+      const result=planForAgent(state,rental,lead,date,time,method,agent,primary,duration,options);
+      if(!result.error) return result;
+      failure ??=result;
+    }
+    return failure;
+  }
+
+  function planForAgent(state,rental,lead,date,time,method,agent,primary,duration,{existing = '', confirm = false, now = Date.now()}) {
     const ip = rental.viewing.inPerson;
     const limits = rental.viewing.limits;
     const self = method === 'self';
-    const agent = self ? rental.assignee : ip.showingAgent || rental.assignee;
     const availability = state.generalAvailability[agent];
     const zone = availability?.timezone?.split(' ')[0] || 'Mountain';
     const today = localParts(now,zone).date;
     const start = epoch(date,toTime(time),zone);
-    const duration = Number(self ? 30 : ip.durationMinutes) || 30;
     const end = start + duration * minute;
     const fail = error => ({error});
     if (!rental.active) return fail('This rental is inactive.');
@@ -43,7 +69,7 @@ window.ReplicaBooking = (() => {
     const rules = weekly?.[day];
     const blocks = opens.length ? opens : self && rental.availability.mode !== 'custom' && availability
       ? [{start:availability.selfAccessStart,end:availability.selfAccessEnd}] : rules?.enabled ? rules.blocks : [];
-    const block=blocks.find(b => start >= epoch(date,toTime(b.start),zone) && end <= epoch(date,toTime(b.end),zone));
+    const block=blocks.find(b => (self || rental.availability.mode!=='custom' || opens.length || (b.agent || primary)===agent) && start >= epoch(date,toTime(b.start),zone) && end <= epoch(date,toTime(b.end),zone));
     if (!block) return fail('The showing must fit within available hours.');
     const active = state.viewingsList.filter(v => v.id !== existing && ['Confirmed','Pending Confirmation','Requested'].includes(v.status) && v.date >= today);
     const atRental = active.filter(v => v.rentalId === rental.id);

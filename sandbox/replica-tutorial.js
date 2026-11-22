@@ -31,13 +31,13 @@
       step('Set a showing limit','Adjust one of the showing limits under Viewing. Save to make it apply to the practice calendar.',setting('viewing'),'#limMaxPerDay','settings','0620-showing-limit',includes('limits')),
     ]},
     {id:'availability',title:'Availability and application fees',time:'06:28–06:58',steps:[
-      step('Set General Availability','From Viewings, open General Availability for a practice user. Review or change their weekly hours and choose Save General Availability.',{section:'general'},'#saveGaBtn','general-availability','0633-general-availability'),
-      step('Set rental-specific availability','Return to the rental’s Availability tab. Review its custom weekly hours or add a future date override. Save Availability when you finish.',route('availability'),'#saveRentalAvailBtn','availability','0648-rental-availability'),
+      step('Set General Availability','In Rental Settings → Viewing, expand General Availability. Change the showing agent’s weekly hours and choose Save Rental Settings.',setting('viewing'),'#inline-general-edit','settings','0633-general-availability',includes('general-availability')),
+      step('Set rental-specific availability','In the same Viewing section, turn on Rental-Specific Availability. Add or edit a recurring block with hours, a property manager, approval and capacity. Choose Save Rental Settings.',setting('viewing'),'#inline-custom-enabled','settings','0648-rental-availability',includes('rental-availability')),
       step('Set application fees','Return to Settings → Application & Fees. Update a sample application or admin fee, then click Save Rental Settings.',setting('fees'),'#appFee','settings','0655-application',includes('fees')),
     ]},
     {id:'lead-journey',title:'Lead review, booking and follow-up',time:'06:58–07:42',steps:[
       step('Open the lead queue','Use the rental’s LEADS tab. Turn on Show archived to reveal the practice lead that failed qualification.',route('leads'),'#show-archived-leads','show-archived','0712-lead-queue',data=>data.enabled),
-      step('Inspect a lead profile','Find a lead by name or select Details on a row. Review its source, desired move-in, income, and activity.',route('leads'),'[data-lead-view]','open-lead','0712-lead-queue',data=>data.rentalId==='r1'),
+      step('Inspect a lead profile','Select a lead’s name or open the three-dot menu and choose Open profile. Review activity, showing history and pre-qualification, then use the back arrow to return.',route('leads'),'[data-lead-view]','open-lead','0712-lead-queue',data=>data.rentalId==='r1'),
       step('Send a practice invitation','Choose Add Lead and invite a fictional prospect to pre-qualify. The invitation stays in the local Messages thread.',route('leads'),'#addLeadBtn','lead-invite','0712-lead-queue'),
       step('Practice a qualification decision','Choose Add Lead → Pre-qualify and schedule lead myself. To continue with this lead, enter fictional income that meets the rental’s rule and the required answers to any custom questions. A failed inquiry goes to Show archived.',route('leads'),'#addLeadBtn','lead-screen','0712-lead-queue'),
       step('Book a viewing','Use a qualified lead and an available appointment. Viewings → Upcoming Viewings can select a qualified lead from the practice rental.',route('upcoming'),'#scheduleShowingBtn','showing','0605-in-person'),
@@ -56,7 +56,7 @@
     ]},
     {id:'access',title:'CodeBox and authorized contacts',time:'09:33–10:21',steps:[
       step('Find a device','Open Access → CodeBox. Use Show unassigned to compare the assigned and unassigned cards.',route('access'),'#access-unassigned','access-filter','0938-access'),
-      step('Send a practice code','Select SEND on a CodeBox. Fill Date, Code type, Mobile phone, Name, Company, and Message. Use Practice send to record the code.',route('access'),'[data-code-send]','code','0950-send-code',data=>data.method==='Send'),
+      step('Send a practice code','Select Send on a CodeBox. Review Date, Code type, Mobile phone, Name, Company, and Message. Choose Send Code to save the simulated code.',route('access'),'[data-code-send]','code','0950-send-code',data=>data.method==='Send'),
       step('Manage a contact','Switch to Authorized Contacts. Add or edit a fictional vendor and save the contact.',route('contacts'),'#add-contact','contact','1005-authorized-contacts'),
     ]},
     {id:'support',title:'Open support and return to Rentals',time:'10:21–11:25',steps:[

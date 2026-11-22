@@ -715,6 +715,7 @@
       let state = loadState();
       let toastTimer = null;
       let settingsDraft = null;
+      const generalAvailabilityDrafts = new Map();
       let modalFocus = null;
       let detailPage = null;
       let reportView = {page:0, size:10, column:null, descending:false};
@@ -758,9 +759,9 @@
         modalFocus=null;
       }
 
-      function openDetailPage(title, backLabel, draw) {
+      function openDetailPage(title, backLabel, draw, opener) {
         const previous=detailPage;
-        detailPage={title,backLabel,draw,scroll:previous?.scroll ?? window.scrollY,opener:previous?.opener ?? document.activeElement?.dataset.leadView};
+        detailPage={title,backLabel,draw,scroll:previous?.scroll ?? window.scrollY,opener:previous?.opener ?? opener};
         render();
         window.scrollTo(0,0);
         byId('detailBackBtn').focus({preventScroll:true});
@@ -845,6 +846,7 @@
 
       function renderHeader() {
         const header = document.getElementById("topHeader");
+        const backIcon='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7"/></svg>';
         const rental = state.selectedRentalId
           ? state.rentals.find(r => r.id === state.selectedRentalId)
           : null;
@@ -856,7 +858,7 @@
           const backLabel=detailPage?.backLabel || 'Back to Reports';
           header.innerHTML=`<div class="top-header-inner">
             <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
-            <button id="detailBackBtn" class="back-arrow-btn" type="button" aria-label="${esc(backLabel)}">←</button>
+            <button id="detailBackBtn" class="back-arrow-btn" type="button" aria-label="${esc(backLabel)}">${backIcon}</button>
             <div><div class="company-name">${esc(state.account.companyName)}</div><h1 class="page-title">${esc(title)}</h1></div>
           </div>`;
           byId('detailBackBtn').onclick=detailPage ? backFromDetail : ()=>goto('reports');
@@ -871,10 +873,7 @@
             <div class="top-header-inner">
               <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Menu">☰</button>
               <button id="backRentalsBtn" class="back-arrow-btn" type="button" aria-label="Back to Rentals">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <line x1="19" y1="12" x2="5" y2="12"></line>
-                  <polyline points="12 19 5 12 12 5"></polyline>
-                </svg>
+                ${backIcon}
               </button>
               <div>
                 <div class="company-name">${esc(state.account.companyName)}</div>
@@ -1143,7 +1142,10 @@
         return state.users.filter(u=>u.active || u.name===selected).map(u=>`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`).join('');
       }
       function renderRentalSettings(original) {
-        if (!settingsDraft || settingsDraft.id!==original.id) settingsDraft=structuredClone(original);
+        if (!settingsDraft || settingsDraft.id!==original.id) {
+          settingsDraft=structuredClone(original);
+          generalAvailabilityDrafts.clear();
+        }
         const r=settingsDraft;
         const canvas = document.getElementById("canvas");
         const maxInstr = 200;
@@ -1419,7 +1421,7 @@
               <section id="sec-viewing" class="mat-card">
                 <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
                   <h2 class="mat-card-title" style="margin:0;">Viewing</h2>
-                  <button id="jumpToRentalAvailBtn" class="btn-flat btn-sm" type="button">Edit Availability Schedule →</button>
+                  <button id="jumpToRentalAvailBtn" class="btn-flat btn-sm" type="button">Edit Availability ↓</button>
                 </div>
 
                 <div class="sub-heading first">Viewing Methods</div>
@@ -1655,6 +1657,15 @@
                     </div>
                   </div>
                 </div>
+                <div id="viewing-availability">
+                  <h3 class="sub-heading">Availability</h3>
+                  <details id="inline-general">
+                    <summary id="inline-general-edit">General Availability · ${esc(ip.showingAgent || r.assignee)}</summary>
+                    <div id="inline-general-hours"></div>
+                  </details>
+                  <label class="mat-switch"><input id="inline-custom-enabled" type="checkbox" ${r.availability.mode==='custom' ? 'checked' : ''}><span class="switch-track"></span><span>Rental-Specific Availability</span></label>
+                  <div id="inline-custom-hours" ${r.availability.mode!=='custom' ? 'hidden' : ''}></div>
+                </div>
               </section>
 
               <!-- 5. APPLICATION & FEES CARD -->
@@ -1766,13 +1777,14 @@
           });
         }
 
-        const jumpAvailBtn = document.getElementById("jumpToRentalAvailBtn");
-        if (jumpAvailBtn) {
-          jumpAvailBtn.addEventListener("click", () => {
-            state.detailTab = "availability";
-            render();
-          });
-        }
+        byId('jumpToRentalAvailBtn').onclick=()=>byId('viewing-availability').scrollIntoView({block:'start'});
+        byId('inline-general').ontoggle=e=>{if(e.currentTarget.isConnected && e.currentTarget.open) renderInlineGeneral(r);};
+        byId('inline-custom-enabled').onchange=e=>{
+          r.availability.mode=e.target.checked ? 'custom' : 'general';
+          renderInlineRentalHours(r);
+          tutorial.draw();
+        };
+        renderInlineRentalHours(r);
 
         const instrEl = document.getElementById("vwInstr");
         if (instrEl) {
@@ -1786,7 +1798,11 @@
 
         // Viewing: In-Person Showings (0605-in-person.jpg)
         bindCheck("vwInPerson", v => { ip.enabled = v; r.viewing.inPerson = ip; }, true);
-        bindVal("ipAgent", v => { ip.showingAgent = v; });
+        bindVal("ipAgent", v => {
+          ip.showingAgent=v;
+          byId('inline-general-edit').textContent=`General Availability · ${v}`;
+          if(byId('inline-general').open) renderInlineGeneral(r);
+        });
         bindVal("ipDuration", v => { ip.durationMinutes = Number(v) || 30; });
         bindVal("ipBuffer", v => { ip.bufferMinutes = Number(v) || 0; });
         bindVal("ipNotice", v => { ip.advanceNoticeHours = Number(v) || 2; });
@@ -1829,13 +1845,19 @@
         canvas.querySelectorAll('[data-question-answer]').forEach(n=>n.onchange=()=>{r.qualifying.questions[Number(n.dataset.questionAnswer)].answer=n.value;});
         canvas.querySelectorAll('[data-question-remove]').forEach(n=>n.onclick=()=>{r.qualifying.questions.splice(Number(n.dataset.questionRemove),1);renderRentalSettings(r);});
         byId('saveSettingsBtn').onclick=()=>{
+          const current=state.rentals.find(item=>item.id===r.id);
+          const different=(keys,a,b)=>keys.some(key=>JSON.stringify(a[key])!==JSON.stringify(b[key]));
+          const availabilityChanged=different(['mode','customHours'],r.availability,current.availability);
           if ([...canvas.querySelectorAll('input[type=number],input[type=date],input[type=url]')].some(input=>!input.checkValidity()) || !r.dateAvailable) {
             byId('setting-error').textContent='Check the dates, amounts and application URL.';return;
           }
-          const current=state.rentals.find(item=>item.id===r.id);
+          const orderedHours=weekly=>Object.values(weekly).every(day=>!day.enabled || day.blocks.every(block=>
+            window.ReplicaBooking.toTime(block.start)<window.ReplicaBooking.toTime(block.end)));
+          if((availabilityChanged && r.availability.mode==='custom' && !orderedHours(r.availability.customHours)) || [...generalAvailabilityDrafts.values()].some(weekly=>!orderedHours(weekly))) {
+            byId('setting-error').textContent='End times must be later than start times.';return;
+          }
           const oldWaitlist=current.waitlist;
           const changed=['active','assignee','syndication','waitlist','waitlistMessage'].filter(key=>JSON.stringify(r[key])!==JSON.stringify(current[key]));
-          const different=(keys,a,b)=>keys.some(key=>JSON.stringify(a[key])!==JSON.stringify(b[key]));
           if (different(['applicationLink','applicationFee','adminFee'],r,current)) changed.push('fees');
           if (different(['selfAccess','viewingType','viewingApproval','requireId','instructions'],r.viewing,current.viewing)) changed.push('self-access');
           if (different(['serialNumber'],r,current)) changed.push('device');
@@ -1846,9 +1868,18 @@
           for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'');
           r.qualifying.questions=r.qualifying.questions.filter(q=>q.label.trim());
           if (different(['questions'],r.qualifying,current.qualifying)) changed.push('questions');
-          // Availability and lead operations can update independently of this edit form.
-          const {availability,leads,ownerReport}=current;
-          Object.assign(current,r,{availability,leads,ownerReport});
+          if (availabilityChanged) changed.push('rental-availability');
+          for(const [name,weekly] of generalAvailabilityDrafts) {
+            const availability=state.generalAvailability[name];
+            if(availability && JSON.stringify(weekly)!==JSON.stringify(availability.weekly)) {
+              availability.weekly=weekly;
+              if(!changed.includes('general-availability')) changed.push('general-availability');
+            }
+          }
+          // Date overrides and lead updates remain independent of the weekly settings draft.
+          const {overrides}=current.availability;
+          const {leads,ownerReport}=current;
+          Object.assign(current,r,{availability:{...r.availability,overrides},leads,ownerReport});
           if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id);
           if(oldWaitlist && !r.waitlist) current.leads.filter(l=>l.status==='Wait List').forEach(l=>{
             l.status='Pre-Qualified';wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
@@ -1857,6 +1888,69 @@
           showToast(`Saved rental settings for ${r.address}`);
         };
         byId('cancelSettingsBtn').onclick=()=>{settingsDraft=null;render();showToast('Unsaved rental changes discarded.');};
+      }
+
+      function renderInlineGeneral(r) {
+        const target=byId('inline-general-hours');
+        const agent=r.viewing.inPerson.showingAgent || r.assignee;
+        const availability=state.generalAvailability[agent];
+        if(!availability){target.textContent='Choose a showing agent to edit their weekly hours.';return;}
+        const weekly=generalAvailabilityDrafts.get(agent) || structuredClone(availability.weekly);
+        target.innerHTML=renderWeeklyScheduleEditor(weekly,'inline-ga');
+        bindWeeklyScheduleEditor(target,weekly,'inline-ga',()=>renderInlineGeneral(r),()=>generalAvailabilityDrafts.set(agent,weekly));
+      }
+
+      function renderInlineRentalHours(r) {
+        const target=byId('inline-custom-hours');
+        target.hidden=r.availability.mode!=='custom';
+        if(target.hidden){target.replaceChildren();return;}
+        const weekly=r.availability.customHours;
+        const timeOptions=time=>TIME_OPTIONS.map(value=>`<option ${value===time ? 'selected' : ''}>${value}</option>`).join('');
+        target.innerHTML=`<p class="availability-note">Blackout dates and the showing agent’s calendar still apply.</p>
+          ${DAYS.flatMap(day=>(weekly[day]?.enabled ? weekly[day].blocks : []).map((block,i)=>`<fieldset class="inline-hours-card" data-inline-day="${day}" data-index="${i}">
+            <legend>Repeats weekly</legend>
+            <label class="mat-field"><span class="mat-label">Day of week</span><select class="mat-select" data-hour-field="day">${DAYS.map(value=>`<option ${value===day ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
+            <label class="mat-field"><span class="mat-label">Property manager</span><select class="mat-select" data-hour-field="agent"><option value="">Rental showing agent</option>${agentOptions(block.agent)}</select></label>
+            <label class="mat-field"><span class="mat-label">From</span><select class="mat-select" data-hour-field="start">${timeOptions(block.start)}</select></label>
+            <label class="mat-field"><span class="mat-label">To</span><select class="mat-select" data-hour-field="end">${timeOptions(block.end)}</select></label>
+            <label class="mat-field"><span class="mat-label">Viewing approval</span><select class="mat-select" data-hour-field="approval"><option value="">Rental default</option>${['Take Requests','Set Appointments'].map(value=>`<option ${block.approval===value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
+            <label class="mat-field"><span class="mat-label">Max showings per time</span><input class="mat-input" type="number" min="1" max="15" data-hour-field="capacity" value="${esc(block.capacity ?? '')}"></label>
+            <button class="btn-flat" type="button" data-inline-remove aria-label="Remove ${day} block ${i+1}">Remove</button>
+          </fieldset>`)).join('')}
+          <button id="inline-custom-add" class="btn-blue" type="button">+ Add recurring hours</button>`;
+        const removeBlock=(day,index)=>{
+          const [block]=weekly[day].blocks.splice(index,1);
+          if(!weekly[day].blocks.length) weekly[day].enabled=false;
+          return block;
+        };
+        target.querySelectorAll('[data-inline-day]').forEach(row=>{
+          const {inlineDay:day,index}=row.dataset;
+          const block=weekly[day].blocks[index];
+          row.onchange=e=>{
+            const {value,dataset:{hourField}}=e.target;
+            if(hourField==='day') {
+              const destination=weekly[value];
+              if(!destination.enabled) destination.blocks=[];
+              destination.enabled=true;
+              destination.blocks.push(removeBlock(day,index));
+              renderInlineRentalHours(r);
+              target.querySelector(`[data-inline-day="${value}"][data-index="${destination.blocks.length-1}"] [data-hour-field="day"]`)?.focus({preventScroll:true});
+            } else if(hourField) block[hourField]=hourField==='capacity' ? (value ? Number(value) : null) : value;
+          };
+          row.querySelector('[data-inline-remove]').onclick=()=>{
+            removeBlock(day,index);renderInlineRentalHours(r);byId('inline-custom-add').focus({preventScroll:true});
+          };
+        });
+        byId('inline-custom-add').onclick=()=>{
+          const day=DAYS.find(name=>!weekly[name].enabled) || DAYS[0];
+          const hours=weekly[day];
+          if(!hours.enabled) hours.blocks=[];
+          hours.enabled=true;
+          const index=hours.blocks.length;
+          hours.blocks.push({start:'9:00 AM',end:'5:00 PM',approval:'',capacity:null,agent:''});
+          renderInlineRentalHours(r);
+          target.querySelector(`[data-inline-day="${day}"][data-index="${index}"] select`)?.focus();
+        };
       }
 
       function renderWeeklyScheduleEditor(weeklyObj, prefix, onChange) {
@@ -1881,7 +1975,7 @@
                         <select class="time-select ${prefix}-end" data-day="${day}" data-idx="${idx}">
                           ${TIME_OPTIONS.map(t => `<option value="${t}" ${blk.end === t ? "selected" : ""}>${t}</option>`).join("")}
                         </select>
-                        ${prefix==='rc'?`<label>Approval <select class="time-select rc-approval" data-day="${day}" data-idx="${idx}"><option value="">Rental default</option><option ${blk.approval==='Take Requests'?'selected':''}>Take Requests</option><option ${blk.approval==='Set Appointments'?'selected':''}>Set Appointments</option></select></label><label>Max per slot <input class="inline-num rc-capacity" type="number" min="1" max="15" data-day="${day}" data-idx="${idx}" value="${esc(blk.capacity ?? '')}"></label>`:''}
+                        ${prefix==='rc'?`<label>Property manager <select class="time-select rc-agent" data-day="${day}" data-idx="${idx}"><option value="">Rental showing agent</option>${agentOptions(blk.agent)}</select></label><label>Approval <select class="time-select rc-approval" data-day="${day}" data-idx="${idx}"><option value="">Rental default</option><option ${blk.approval==='Take Requests'?'selected':''}>Take Requests</option><option ${blk.approval==='Set Appointments'?'selected':''}>Set Appointments</option></select></label><label>Max per slot <input class="inline-num rc-capacity" type="number" min="1" max="15" data-day="${day}" data-idx="${idx}" value="${esc(blk.capacity ?? '')}"></label>`:''}
                         ${d.blocks.length > 1 ? `<button type="button" class="icon-x-btn ${prefix}-rm" data-day="${day}" data-idx="${idx}" title="Remove time block">×</button>` : ""}
                         ${idx === d.blocks.length - 1 ? `<button type="button" class="btn-flat btn-sm ${prefix}-add" data-day="${day}">+ Add hours</button>` : ""}
                       </div>
@@ -1894,7 +1988,7 @@
         }).join("");
       }
 
-      function bindWeeklyScheduleEditor(container, weeklyObj, prefix, onRerender) {
+      function bindWeeklyScheduleEditor(container, weeklyObj, prefix, onRerender, commit=saveState) {
         container.querySelectorAll(`.${prefix}-day-toggle`).forEach(cb => {
           cb.addEventListener("change", () => {
             const day = cb.dataset.day;
@@ -1902,7 +1996,7 @@
             if (cb.checked && (!weeklyObj[day].blocks || weeklyObj[day].blocks.length === 0)) {
               weeklyObj[day].blocks = [{ start: "9:00 AM", end: "5:00 PM" }];
             }
-            saveState();
+            commit();
             onRerender();
           });
         });
@@ -1910,7 +2004,7 @@
         container.querySelectorAll(`.${prefix}-start`).forEach(sel => {
           sel.addEventListener("change", () => {
             weeklyObj[sel.dataset.day].blocks[Number(sel.dataset.idx)].start = sel.value;
-            saveState();
+            commit();
             onRerender();
           });
         });
@@ -1918,24 +2012,24 @@
         container.querySelectorAll(`.${prefix}-end`).forEach(sel => {
           sel.addEventListener("change", () => {
             weeklyObj[sel.dataset.day].blocks[Number(sel.dataset.idx)].end = sel.value;
-            saveState();
+            commit();
             onRerender();
           });
         });
 
         if(prefix==='rc') {
-          container.querySelectorAll('.rc-approval,.rc-capacity').forEach(control=>control.onchange=()=>{
+          container.querySelectorAll('.rc-agent,.rc-approval,.rc-capacity').forEach(control=>control.onchange=()=>{
             if(!control.checkValidity()) {control.reportValidity();return;}
             const block=weeklyObj[control.dataset.day].blocks[Number(control.dataset.idx)];
-            if(control.matches('.rc-approval')) block.approval=control.value;
-            else block.capacity=control.value ? Number(control.value) : null;
-            saveState();
+            if(control.matches('.rc-capacity')) block.capacity=control.value ? Number(control.value) : null;
+            else block[control.matches('.rc-agent')?'agent':'approval']=control.value;
+            commit();
           });
         }
         container.querySelectorAll(`.${prefix}-add`).forEach(btn => {
           btn.addEventListener("click", () => {
             weeklyObj[btn.dataset.day].blocks.push({ start: "1:00 PM", end: "5:00 PM" });
-            saveState();
+            commit();
             onRerender();
           });
         });
@@ -1943,7 +2037,7 @@
         container.querySelectorAll(`.${prefix}-rm`).forEach(btn => {
           btn.addEventListener("click", () => {
             weeklyObj[btn.dataset.day].blocks.splice(Number(btn.dataset.idx), 1);
-            saveState();
+            commit();
             onRerender();
           });
         });
@@ -2058,7 +2152,8 @@
                       }
                       if (ip.enabled && dayCfg && dayCfg.enabled) {
                         dayCfg.blocks.forEach(b => {
-                          slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>In-Person</strong><br/>${esc(b.start)} – ${esc(b.end)}</div>`;
+                          const blockAgent=avail.mode==='custom' && b.agent;
+                          slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>In-Person</strong><br/>${esc(b.start)} – ${esc(b.end)}${blockAgent ? `<br/>${esc(blockAgent)}` : ''}</div>`;
                         });
                       }
                     }
@@ -2421,7 +2516,7 @@
 
       function openLeadProfile(r, lead) {
         if(!lead) return;
-        openDetailPage(lead.name,'Back to Leads',()=>renderLeadProfile(r,lead));
+        openDetailPage(lead.name,'Back to Leads',()=>renderLeadProfile(r,lead),lead.id);
         tutorial.record('open-lead',{rentalId:r.id});
       }
 
@@ -3498,7 +3593,13 @@
         if(Object.hasOwn(state.generalAvailability,oldName)) {
           state.generalAvailability[newName]=state.generalAvailability[oldName];delete state.generalAvailability[oldName];
         }
-        for(const r of state.rentals) {if(r.assignee===oldName) r.assignee=newName;if(r.viewing.inPerson.showingAgent===oldName) r.viewing.inPerson.showingAgent=newName;}
+        for(const r of state.rentals) {
+          if(r.assignee===oldName) r.assignee=newName;
+          if(r.viewing.inPerson.showingAgent===oldName) r.viewing.inPerson.showingAgent=newName;
+          for(const day of Object.values(r.availability.customHours)) {
+            for(const block of day.blocks) if(block.agent===oldName) block.agent=newName;
+          }
+        }
         for(const v of state.viewingsList) {if(v.agent===oldName) v.agent=newName;if(v.type===`In-Person (${oldName})`) v.type=`In-Person (${newName})`;}
         if(state.selectedAvailUser===oldName) state.selectedAvailUser=newName;
         if(state.filters.user===oldName) state.filters.user=newName;
@@ -3524,6 +3625,15 @@
       document.getElementById("ttModalClose").addEventListener("click", closeModal);
       document.getElementById("ttModal").addEventListener("click", e => {
         if (e.target.id === "ttModal") closeModal();
+      });
+      byId('ttModal').addEventListener('keydown',event=>{
+        if(event.key!=='Tab') return;
+        const controls=[...byId('ttModal').querySelectorAll('button, input:not([type="hidden"]), select, textarea, a[href]')]
+          .filter(control=>!control.disabled && control.getClientRects().length);
+        const first=controls[0];
+        const last=controls.at(-1);
+        if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}
+        if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}
       });
 
       const chatPop = document.getElementById("chatPopover");
@@ -3565,5 +3675,8 @@
         if(page==='apply') wf.application(r,lead);
       }
       window.addEventListener('hashchange',openSharedRoute);
+      new ResizeObserver(([{target:header}])=>{
+        if(header.classList.contains('rental-header')) header.parentElement.style.setProperty('--rental-header-height',`${header.offsetHeight}px`);
+      }).observe(byId('topHeader'));
       render();openSharedRoute();
     })();
