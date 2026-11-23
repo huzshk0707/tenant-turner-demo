@@ -112,11 +112,7 @@
           property: "all",
           type: "all"
         },
-        leadsFilter: {
-          search: "",
-          status: "all",
-          score: "all"
-        },
+        leadsFilter: { search: "" },
         messagesFilter: {
           search: "",
           tab: "all"
@@ -802,7 +798,7 @@
         return `<button id="${id}" class="sync-fab" type="button" title="${label}" aria-label="${label}"><span aria-hidden="true">+</span></button>`;
       }
 
-      function assignDeviceToRental(deviceId, newRentalId) {
+      function assignDeviceToRental(deviceId, newRentalId, persist = true) {
         const dev = state.devices.find(d => d.id === deviceId);
         if (!dev) return;
 
@@ -832,7 +828,7 @@
             targetRental.serialNumber = dev.serial;
           }
         }
-        saveState();
+        if(persist) saveState();
       }
 
       function closeMobileSidebar() {
@@ -1056,7 +1052,9 @@
             </div>
           ` : `
             <div class="rentals-grid">
-              ${visible.map(r => `
+              ${visible.map(r => {
+                const alerts=(r.alerts || 0)+r.leads.filter(l=>!l.archived && (l.idMetadataWarning || l.idRequested)).length;
+                return `
                 <article class="prop-card ${r.active ? "" : "inactive-card"}">
                   <div class="prop-photo-wrap" data-open-settings="${r.id}">
                     <img src="${esc(r.photo)}" alt="${esc(r.address)}" />
@@ -1078,14 +1076,14 @@
                         </svg>
                         ${esc(r.device)}
                       </span>` : ''}
-                      ${r.alerts > 0 ? `
+                      ${alerts > 0 ? `
                         <span class="tt-badge badge-alert">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                             <circle cx="12" cy="12" r="10"></circle>
                             <line x1="12" y1="8" x2="12" y2="12"></line>
                             <line x1="12" y1="16" x2="12.01" y2="16"></line>
                           </svg>
-                          ${r.alerts} ${r.alerts === 1 ? "Alert" : "Alerts"}
+                          ${alerts} ${alerts === 1 ? "Alert" : "Alerts"}
                         </span>
                       ` : ""}
                     </div>
@@ -1097,7 +1095,7 @@
                     <button class="card-link-btn" data-open-settings="${r.id}" type="button">SETTINGS</button>
                   </div>
                 </article>
-              `).join("")}
+              `;}).join("")}
             </div>
           `}
         `;
@@ -1164,6 +1162,21 @@
       function agentOptions(selected) {
         return state.users.filter(u=>u.active || u.name===selected).map(u=>`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`).join('');
       }
+      function listingPhotos(r) {
+        return [
+          [r.photo, 'Listing exterior'], ['assets/living-sample.jpg','Sample living room'],
+          ['assets/kitchen-sample.jpg','Sample kitchen'], ['assets/dining-sample.jpg','Sample dining area'],
+          ['assets/bedroom-sample.jpg','Sample bedroom'], ['assets/bath-sample.jpg','Sample bathroom'],
+        ];
+      }
+      function viewListingPhoto(photos,index) {
+        const [src,label]=photos[index];
+        openModal('Listing photos',`<figure class="listing-photo-preview">
+          <img src="${esc(src)}" alt="${esc(label)}"><figcaption>${esc(label)} · ${index+1} of ${photos.length}</figcaption></figure>`,
+          '<button id="listing-photo-prev" class="btn-outline" type="button">Previous photo</button><button id="listing-photo-next" class="btn-blue" type="button">Next photo</button>');
+        byId('listing-photo-prev').onclick=()=>viewListingPhoto(photos,(index+photos.length-1)%photos.length);
+        byId('listing-photo-next').onclick=()=>viewListingPhoto(photos,(index+1)%photos.length);
+      }
       function renderRentalSettings(original) {
         if (!settingsDraft || settingsDraft.id!==original.id) {
           settingsDraft=structuredClone(original);
@@ -1176,9 +1189,16 @@
         const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
         const lim = r.viewing.limits || defaultShowingLimits();
         const ipRemaining = Math.max(0, maxInstr - (ip.instructions || "").length);
+        const photos=listingPhotos(r);
+        const assignedDev = state.devices.find(d => d.serial === r.serialNumber && d.type === r.viewing.viewingType);
+        const selectableDevices=state.devices.filter(d=>d.type===r.viewing.viewingType &&
+          (!d.rentalId || d.rentalId===r.id || state.rentals.some(item=>item.id===d.rentalId && !item.active)));
+        const deviceGroups=[
+          ['Current assignment',selectableDevices.filter(d=>d.rentalId===r.id)],
+          ['Available inventory',selectableDevices.filter(d=>!d.rentalId)],
+          ['Assigned to inactive rentals',selectableDevices.filter(d=>d.rentalId && d.rentalId!==r.id)],
+        ];
 
-        const assignedDev = state.devices.find(d => d.serial === r.serialNumber);
-        const selectableDevices = state.devices.filter(d => d.type===r.viewing.viewingType && (!d.rentalId || d.rentalId===r.id));
         const viewingTypes=[['CodeBox','CodeBox'],['Instructions only','Instructions only'],['Lockbox','Combo lock box'],['Prempoint','Prempoint'],['SentriLock','SentriLock']];
         if(!viewingTypes.some(([type])=>type===r.viewing.viewingType)) viewingTypes.push([r.viewing.viewingType,r.viewing.viewingType]);
 
@@ -1190,6 +1210,7 @@
               <button class="subnav-link ${state.activeSubnav === "marketing" ? "active" : ""}" data-jump="marketing" type="button">Marketing</button>
               <button class="subnav-link ${state.activeSubnav === "qualifying" ? "active" : ""}" data-jump="qualifying" type="button">Qualifying</button>
               <button class="subnav-link ${state.activeSubnav === "viewing" ? "active" : ""}" data-jump="viewing" type="button">Viewing</button>
+              <button id="jumpToRentalAvailBtn" class="subnav-link" type="button">Availability hours</button>
               <button class="subnav-link ${state.activeSubnav === "fees" ? "active" : ""}" data-jump="fees" type="button">Application &amp; Fees</button>
             </nav>
 
@@ -1200,10 +1221,9 @@
                 <h2 class="mat-card-title">Status</h2>
                 <div class="grid-2" style="align-items:center;">
                   <div class="row-inline">
-                    <span class="status-dot ${r.active ? "" : "off"}"></span>
-                    <label class="mat-switch">
+                    <label class="status-control">
                       <input id="stActive" type="checkbox" ${r.active ? "checked" : ""} />
-                      <span class="switch-track"></span>
+                      <span class="status-dot ${r.active ? "" : "off"}" aria-hidden="true"></span>
                       <span>${r.active ? "Rental is active" : "Rental is inactive"}</span>
                     </label>
                   </div>
@@ -1222,27 +1242,28 @@
               <!-- 2. MARKETING CARD (0125, 0142, 0200, 0215) -->
               <section id="sec-marketing" class="mat-card">
                 <h2 class="mat-card-title">Marketing</h2>
+                ${r.imported ? '<p class="muted">Lease and property details come from the source listing.</p>' : ''}
 
                 <div class="sub-heading first">Lease Details</div>
                 <div class="rental-lease-fields">
                   <div class="mat-field">
                     <label class="mat-label" for="mkTerm">Lease Term</label>
-                    <select id="mkTerm" class="mat-select">
+                    <select id="mkTerm" class="mat-select" ${r.imported ? 'disabled' : ''}>
                       <option value="One Year" ${r.leaseTerm === "One Year" ? "selected" : ""}>One Year</option>
                       <option value="6 Months" ${r.leaseTerm === "6 Months" ? "selected" : ""}>6 Months</option>
                       <option value="Month-to-Month" ${r.leaseTerm === "Month-to-Month" ? "selected" : ""}>Month-to-Month</option>
                     </select>
                   </div>
                   <div class="imported-box">
-                    <div class="imported-head"><span>Rent</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-head"><span>Rent</span></div>
                     <div class="imported-val">${r.imported ? `$ ${r.rent}` : `<input class="mat-input" aria-label="Rent" id="field-rent" type="number" value="${esc(r.rent)}" min="0" step="any">`}</div>
                   </div>
                   <div class="imported-box">
-                    <div class="imported-head"><span>Deposit</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-head"><span>Deposit</span></div>
                     <div class="imported-val">${r.imported ? `$ ${r.deposit}` : `<input class="mat-input" aria-label="Deposit" id="field-deposit" type="number" value="${esc(r.deposit)}" min="0" step="any">`}</div>
                   </div>
                   <div class="imported-box">
-                    <div class="imported-head"><span>Date Available for Move-in</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-head"><span>Date Available for Move-in</span></div>
                     <div class="imported-val">${r.imported ? `${esc(r.dateAvailable)}` : `<input class="mat-input" aria-label="Date Available for Move-in" id="field-dateAvailable" type="date" value="${esc(r.dateAvailable)}">`}</div>
                   </div>
                 </div>
@@ -1251,7 +1272,7 @@
                 <div class="grid-2" style="margin-bottom:14px;">
                   <div class="mat-field">
                     <label class="mat-label" for="mkType">Property Type</label>
-                    <select id="mkType" class="mat-select">
+                    <select id="mkType" class="mat-select" ${r.imported ? 'disabled' : ''}>
                       <option value="Single Family House" ${r.propertyType === "Single Family House" ? "selected" : ""}>Single Family House</option>
                       <option value="Townhouse" ${r.propertyType === "Townhouse" ? "selected" : ""}>Townhouse</option>
                       <option value="Apartment / Condo" ${r.propertyType === "Apartment / Condo" ? "selected" : ""}>Apartment / Condo</option>
@@ -1259,48 +1280,45 @@
                   </div>
                   <div class="grid-3" style="gap:8px;">
                     <div class="imported-box">
-                      <div class="imported-head"><span>Beds</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
-                      <div class="imported-val">${r.imported ? `${r.bedrooms}` : `<input class="mat-input" aria-label="Beds" id="field-bedrooms" type="number" value="${esc(r.bedrooms)}" min="0" step="any">`}</div>
+                      <div class="imported-head"><span>Bedrooms</span></div>
+                      <div class="imported-val">${r.imported ? `${r.bedrooms}` : `<input class="mat-input" aria-label="Bedrooms" id="field-bedrooms" type="number" value="${esc(r.bedrooms)}" min="0" step="any">`}</div>
                     </div>
                     <div class="imported-box">
-                      <div class="imported-head"><span>Baths</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
-                      <div class="imported-val">${r.imported ? `${esc(r.bathrooms)}` : `<input class="mat-input" aria-label="Baths" id="field-bathrooms" type="number" value="${esc(r.bathrooms)}" min="0" step="any">`}</div>
+                      <div class="imported-head"><span>Bathrooms</span></div>
+                      <div class="imported-val">${r.imported ? `${esc(r.bathrooms)}` : `<input class="mat-input" aria-label="Bathrooms" id="field-bathrooms" type="number" value="${esc(r.bathrooms)}" min="0" step="any">`}</div>
                     </div>
                     <div class="imported-box">
-                      <div class="imported-head"><span>Sq Ft</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
-                      <div class="imported-val">${r.imported ? `${r.sqft}` : `<input class="mat-input" aria-label="Sq Ft" id="field-sqft" type="number" value="${esc(r.sqft)}" min="0" step="any">`}</div>
+                      <div class="imported-head"><span>Square Feet</span></div>
+                      <div class="imported-val">${r.imported ? `${r.sqft}` : `<input class="mat-input" aria-label="Square Feet" id="field-sqft" type="number" value="${esc(r.sqft)}" min="0" step="any">`}</div>
                     </div>
                   </div>
                 </div>
 
-                <div class="mat-field" style="margin-bottom:14px;">
-                  <label class="mat-label" for="mkTitle">Descriptive Title</label>
-                  <input id="mkTitle" class="mat-input" type="text" value="${esc(r.customTitle)}" />
+                <div class="grid-2" style="margin-bottom:14px;">
+                  <label class="mat-field"><span class="mat-label">Descriptive Title</span><input class="mat-input" type="text" value="${esc(r.descriptiveTitle || `${r.bedrooms}-bedroom ${r.propertyType} at ${r.address}`)}" readonly></label>
+                  <label class="mat-field"><span class="mat-label">Custom Title</span><input id="mkTitle" class="mat-input" type="text" value="${esc(r.customTitle)}" /></label>
                 </div>
                 <div class="mat-field" style="margin-bottom:16px;">
                   <label class="mat-label" for="mkDesc">Description</label>
-                  <textarea id="mkDesc" class="mat-textarea">${esc(r.description)}</textarea>
+                  <textarea id="mkDesc" class="mat-textarea" ${r.imported ? 'readonly' : ''}>${esc(r.description)}</textarea>
                 </div>
 
                 <div class="sub-heading">Photos</div>
-                <div class="grid-4" style="margin-bottom:16px;">
-                  <div class="photo-thumb-item"><img src="${esc(r.photo)}" alt="Exterior photo 1"/></div>
-                  <div class="photo-thumb-item"><img src="assets/kitchen-sample.jpg" alt="Practice kitchen"/></div>
-                  <div class="photo-thumb-item"><img src="assets/living-sample.jpg" alt="Practice interior"/></div>
-                  <div class="photo-thumb-item"><img src="${PHOTOS.cedar}" alt="Exterior photo 4"/></div>
+                <div class="listing-gallery">
+                  ${photos.map(([src,label], index)=>`<button class="photo-thumb-item" type="button" data-listing-photo="${index}" aria-label="View ${esc(label)}"><img src="${esc(src)}" alt="" loading="lazy"></button>`).join('')}
                 </div>
 
                 <div class="accordion-row">
-                  <button class="accordion-btn" type="button"><span>Amenities</span><span>▾</span></button>
+                  <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Amenities</span></button>
                   <div class="accordion-body">Central A/C, Dishwasher, Washer/Dryer Hookups, Attached Garage, Fenced Yard</div>
                 </div>
                 <div class="accordion-row">
-                  <button class="accordion-btn" type="button"><span>Utilities Included</span><span>▾</span></button>
+                  <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Utilities Included</span></button>
                   <div class="accordion-body">Trash &amp; HOA exterior maintenance included; tenant pays water, gas, and electric.</div>
                 </div>
                 <div class="accordion-row">
-                  <button class="accordion-btn" type="button"><span>Address</span><span>▾</span></button>
-                  <div class="accordion-body">${esc(r.address)} (Imported from PMS)</div>
+                  <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Address</span></button>
+                  <div class="accordion-body">${esc(r.address)}</div>
                 </div>
 
                 <div class="sub-heading">Syndication</div>
@@ -1446,7 +1464,6 @@
               <section id="sec-viewing" class="mat-card">
                 <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
                   <h2 class="mat-card-title" style="margin:0;">Viewing</h2>
-                  <button id="jumpToRentalAvailBtn" class="btn-flat btn-sm" type="button">Edit Availability ↓</button>
                 </div>
 
                 <div class="sub-heading first">Viewing Methods</div>
@@ -1480,7 +1497,7 @@
                     </label>
                     ${r.viewing.selfAccess ? `
                       <div class="blue-subpanel">
-                        <p class="availability-note">Help fight online rental scams by posting a notice at properties that allow self-access viewings. Give visitors the management office’s official contact details so they can verify the listing before paying anyone.</p>
+                        <p class="availability-note"><strong>Self-showing safety.</strong> Display the management office’s contact details at the property so visitors can verify a listing or payment request.</p>
                         <div class="grid-2">
                           <div class="mat-field">
                             <label class="mat-label" for="vwType">Viewing Type</label>
@@ -1497,33 +1514,26 @@
                           </div>
                         </div>
 
-                        ${r.viewing.viewingType!=='Instructions only' ? `<div class="grid-2" style="align-items:end;">
+                        ${r.viewing.viewingType!=='Instructions only' ? `
                           <div class="mat-field">
                             <div class="row-inline" style="justify-content:space-between;">
-                              <label class="mat-label" for="vwAssignedDevice">Assigned Access Device (from Inventory)</label>
-                              <span class="help-q" title="Assign an available lockbox or electronic access device from your Access inventory.">?</span>
+                              <label class="mat-label" for="vwAssignedDevice">Self-Access ${esc(r.viewing.viewingType)} Serial Number</label>
+                              <span class="help-q" title="Select a device from Access inventory. Saving can transfer a device from an inactive rental.">?</span>
                             </div>
                             <select id="vwAssignedDevice" class="mat-select">
-                              <option value="">-- Unassigned --</option>
-                              ${selectableDevices.map(d => `
-                                <option value="${d.id}" ${assignedDev && assignedDev.id === d.id ? "selected" : ""}>
-                                  ${esc(d.type)} — ${esc(d.serial)} (${esc(d.battery)})
-                                </option>
-                              `).join("")}
+                              <option value="">Unassigned</option>
+                              ${r.serialNumber && !selectableDevices.includes(assignedDev) ? `<option value="legacy" selected>${esc(r.serialNumber)} · Current record</option>` : ''}
+                              ${deviceGroups.filter(([,devices])=>devices.length).map(([label,devices])=>`<optgroup label="${label}">
+                                ${devices.map(d=>`<option value="${esc(d.id)}" ${assignedDev?.id===d.id?'selected':''}>
+                                  ${esc(d.serial)}${d.rentalId && d.rentalId!==r.id ? ` · ${esc(state.rentals.find(item=>item.id===d.rentalId)?.address)}` : ''}
+                                </option>`).join('')}</optgroup>`).join('')}
                             </select>
                           </div>
-                          <div class="row-inline" style="justify-content:flex-start;">
-                            <div class="mat-field" style="flex:1;">
-                              <label class="mat-label" for="vwSerial">Self-Access ${esc(r.viewing.viewingType)} Serial Number</label>
-                              <input id="vwSerial" class="mat-input" type="text" value="${esc(r.serialNumber)}" />
-                            </div>
-                            <button id="manageDevicesLink" class="btn-flat btn-sm" type="button">Manage Devices</button>
-                          </div>
-                        </div> ` : ''}
+                        ` : ''}
 
                         <div class="mat-field">
                           <label class="mat-label" for="vwInstr">Self-Access Viewing Instructions (optional)</label>
-                          <textarea id="vwInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(r.viewing.instructions)}</textarea>
+                          <textarea id="vwInstr" class="mat-textarea" rows="4" maxlength="${maxInstr}" aria-describedby="vwCounter">${esc(r.viewing.instructions)}</textarea>
                           <div id="vwCounter" class="char-counter">${remaining} remaining</div>
                         </div>
 
@@ -1719,9 +1729,11 @@
 
         // Accordions
         canvas.querySelectorAll(".accordion-btn").forEach(btn => {
+          btn.setAttribute('aria-expanded','false');
           btn.addEventListener("click", () => {
-            btn.parentElement.classList.toggle("open");
-            if(btn.textContent.includes('Amenities') && btn.parentElement.classList.contains('open')) tutorial.record('amenities',{rentalId:r.id});
+            const open=btn.parentElement.classList.toggle("open");
+            btn.setAttribute('aria-expanded',String(open));
+            if(btn.textContent.includes('Amenities') && open) tutorial.record('amenities',{rentalId:r.id});
           });
         });
 
@@ -1749,7 +1761,10 @@
         bindVal("mkTerm", v => { r.leaseTerm = v; });
         bindVal("mkType", v => { r.propertyType = v; });
         bindVal("mkTitle", v => { r.customTitle = v; });
-        bindVal("mkDesc", v => { r.description = v; });
+        if(!r.imported) bindVal("mkDesc", v => { r.description = v; });
+        canvas.querySelectorAll('[data-listing-photo]').forEach(button=>{
+          button.onclick=()=>viewListingPhoto(photos,Number(button.dataset.listingPhoto));
+        });
 
         canvas.querySelectorAll(".syn-toggle").forEach(cb => {
           cb.addEventListener("change", () => {
@@ -1780,26 +1795,15 @@
         bindCheck("vwSelfAccess", v => { r.viewing.selfAccess = v; }, true);
         bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v==='Instructions only'?'':v; r.serialNumber=''; }, true);
         bindVal("vwApproval", v => { r.viewing.viewingApproval = v; });
-        bindVal("vwSerial", v => { r.serialNumber = v; });
         bindCheck("vwReqId", v => { r.viewing.requireId = v; });
 
         const devSel=byId('vwAssignedDevice');
         devSel?.addEventListener('change',()=>{
+          if(devSel.value==='legacy') return;
           const device=state.devices.find(d=>d.id===devSel.value);
           r.serialNumber=device?.serial || '';
           if(device){r.device=device.type;r.viewing.viewingType=device.type;}
-          renderRentalSettings(r);
         });
-
-        const manageDevBtn = document.getElementById("manageDevicesLink");
-        if (manageDevBtn) {
-          manageDevBtn.addEventListener("click", () => {
-            state.section = "access";
-            state.accessTab = ["SentriLock","PointCentral"].includes(r.device) ? r.device : "CodeBox";
-            state.selectedRentalId = null;
-            render();
-          });
-        }
 
         byId('jumpToRentalAvailBtn').onclick=()=>byId('viewing-availability').scrollIntoView({block:'start'});
         byId('inline-general').ontoggle=e=>{if(e.currentTarget.isConnected && e.currentTarget.open) renderInlineGeneral(r);};
@@ -1888,8 +1892,11 @@
           if (different(['inPerson'],r.viewing,current.viewing)) changed.push('in-person');
           if (different(['limits'],r.viewing,current.viewing)) changed.push('limits');
           if (different(Object.keys(r.qualifying).filter(key=>key!=='questions'),r.qualifying,current.qualifying)) changed.push('qualifying');
-          const selected=state.devices.find(d=>d.serial===r.serialNumber);
-          for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'');
+          const selected=state.devices.find(d=>d.serial===r.serialNumber && d.type===r.viewing.viewingType);
+          if(selected?.rentalId && selected.rentalId!==r.id && state.rentals.find(item=>item.id===selected.rentalId)?.active) {
+            byId('setting-error').textContent='That device is assigned to an active rental.';return;
+          }
+          for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'',false);
           r.qualifying.questions=r.qualifying.questions.filter(q=>q.label.trim());
           if (different(['questions'],r.qualifying,current.qualifying)) changed.push('questions');
           if (availabilityChanged) changed.push('rental-availability');
@@ -1904,7 +1911,7 @@
           const {overrides}=current.availability;
           const {leads,ownerReport}=current;
           Object.assign(current,r,{availability:{...r.availability,overrides},leads,ownerReport});
-          if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id);
+          if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id,false);
           if(oldWaitlist && !r.waitlist) current.leads.filter(l=>l.status==='Wait List').forEach(l=>{
             l.status='Pre-Qualified';wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
           });
@@ -2681,31 +2688,28 @@
         const f=state.leadsFilter;
         const query=f.search.trim().toLowerCase();
         const filtered=r.leads.filter(lead=>{
-          if((lead.archived && !f.archived) || (f.status!=='all' && lead.status!==f.status)) return false;
-          const score=lead.score===null ? 'unscored' : lead.score>=6 ? 'qualified' : 'low';
-          if(f.score!=='all' && f.score!==score) return false;
+          if(lead.archived && !f.archived) return false;
           return `${lead.name} ${lead.email} ${lead.phone} ${lead.source} ${lead.status}`.toLowerCase().includes(query);
         });
+        const sort=f.sort || 'new';
         if(f.sort==='name') filtered.sort((a,b)=>a.name.localeCompare(b.name));
-        if(f.sort==='new') filtered.sort((a,b)=>(b.createdDate || '').localeCompare(a.createdDate || ''));
-        if(!f.sort || f.sort==='recent') filtered.sort((a,b)=>(b.notes[0]?.at || Date.parse(b.createdDate) || 0)-(a.notes[0]?.at || Date.parse(a.createdDate) || 0));
+        if(sort==='new') filtered.sort((a,b)=>(b.createdDate || '').localeCompare(a.createdDate || ''));
+        if(sort==='recent') filtered.sort((a,b)=>(b.notes[0]?.at || Date.parse(b.createdDate) || 0)-(a.notes[0]?.at || Date.parse(a.createdDate) || 0));
+        const listed=Date.parse(r.listed);
+        const marketDays=Math.max(0,Math.floor((Date.parse(dateOffset())-listed)/86_400_000));
+        const marketSummary=Number.isFinite(marketDays)
+          ? `Listed ${new Date(listed).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})} · ${marketDays} days on market` : 'Leads';
         const options=(rows,selected)=>rows.map(([value,label])=>`<option value="${esc(value)}" ${value===selected ? 'selected' : ''}>${esc(label)}</option>`).join('');
 
         canvas.innerHTML=`
           <div class="leads-toolbar">
-            <label class="mat-field"><span class="mat-label">Sort by</span><select id="leadSort" class="mat-select">${options([['recent','Recent activity'],['new','Newest lead'],['name','Lead name']],f.sort || 'recent')}</select></label>
-            <label class="mat-field"><span class="mat-label">Status</span><select id="leadStatusFilter" class="mat-select">${options([['all','All statuses'],...LEAD_STAGES.map(stage=>[stage,stage])],f.status)}</select></label>
-            <label class="mat-field"><span class="mat-label">Qualification</span><select id="leadScoreFilter" class="mat-select">${options([['all','Any'],['qualified','Qualified'],['low','Disqualified'],['unscored','Unscored']],f.score)}</select></label>
+            <label class="mat-field"><span class="mat-label">Sort by</span><select id="leadSort" class="mat-select">${options([['new','Newest'],['recent','Recent activity'],['name','Lead name']],sort)}</select></label>
             <label class="mat-switch"><input id="show-archived-leads" type="checkbox" ${f.archived ? 'checked' : ''}><span class="switch-track"></span><span>Show archived</span></label>
-            <label class="mat-field lead-search"><span class="mat-label">Search Leads</span><input id="leadSearchInput" class="mat-input" type="search" placeholder="Name, phone, or email" value="${esc(f.search)}"></label>
+            <label class="search-box lead-search"><span class="sr-only">Search leads</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="leadSearchInput" type="search" placeholder="Search" value="${esc(f.search)}"></label>
           </div>
           <section class="mat-card lead-queue">
             <div class="row-inline practice-between lead-queue-heading">
-              <h2 class="mat-card-title">Leads (${filtered.length})</h2>
-              <div class="row-inline">
-                <button id="copyTenantLinkBtn" class="btn-flat" type="button">Copy Tenant Link</button>
-                <button id="copyAgentLinkBtn" class="btn-flat" type="button">Copy Agent Link</button>
-              </div>
+              <h2 class="mat-card-title">${esc(marketSummary)}</h2>
             </div>
             ${filtered.length ? `<div class="table-scroll"><table class="tt-table">
               <thead><tr><th scope="col">Qualified</th><th scope="col">Lead</th><th scope="col">Stage</th><th scope="col">Activity</th><th scope="col">Action</th></tr></thead>
@@ -2716,7 +2720,8 @@
                 return `<tr class="lead-row-clickable" data-lead-row="${esc(lead.id)}">
                   <td><span class="lead-qual-dot ${qualified ? 'qualified' : ''}" role="img" aria-label="${qualification}" title="${qualification}"></span></td>
                   <td><button class="lead-name-link" type="button" data-lead-view="${esc(lead.id)}">${esc(lead.name)}</button>
-                    <small>${esc(lead.leadType)} · ${esc(lead.source)}</small></td>
+                    <small>${esc(lead.leadType)} · ${esc(lead.source)}</small>
+                    ${lead.idMetadataWarning || lead.idRequested ? '<span class="lead-identity-alert">Identity review needed</span>' : ''}</td>
                   <td><span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span></td>
                   <td>${esc(latest?.text || 'Lead added.')}<small>${esc(latest?.time || lead.createdAt)}</small></td>
                   <td><button class="lead-menu-btn" type="button" data-lead-menu="${esc(lead.id)}" aria-label="Actions for ${esc(lead.name)}" aria-expanded="false">⋮</button></td>
@@ -2738,21 +2743,17 @@
           byId('leadSearchInput').focus({preventScroll:true});
           byId('leadSearchInput').setSelectionRange(position,position);
         };
-        for(const [id,key] of [['leadSort','sort'],['leadStatusFilter','status'],['leadScoreFilter','score']]){
-          byId(id).onchange=e=>{
-            f[key]=e.target.value;
-            update();
-            byId(id).focus({preventScroll:true});
-          };
-        }
+        byId('leadSort').onchange=e=>{
+          f.sort=e.target.value;
+          update();
+          byId('leadSort').focus({preventScroll:true});
+        };
         byId('show-archived-leads').onchange=e=>{
           f.archived=e.target.checked;
           update();
           byId('show-archived-leads').focus({preventScroll:true});
           tutorial.record('show-archived',{enabled:f.archived});
         };
-        byId('copyTenantLinkBtn').onclick=()=>copyToClipboardSafe(practiceLink('qualify',r.id),'Copied Tenant Lead Link');
-        byId('copyAgentLinkBtn').onclick=()=>copyToClipboardSafe(practiceLink('qualify',r.id)+'/agent','Copied Agent Lead Link');
         byId('addLeadBtn').onclick=()=>openAddLeadModal(r);
         const menu=byId('lead-actions');
         const hideMenu=()=>{
@@ -3726,25 +3727,47 @@
       });
 
       const chatPop = document.getElementById("chatPopover");
-      document.getElementById("chatFab").addEventListener("click", () => {
-        const opened=chatPop.classList.toggle("open");
-        drawSupport();
-        tutorial.record(opened ? 'open-support' : 'close-support');
-      });
-      document.getElementById("closeChatBtn").addEventListener("click", () => {
-        chatPop.classList.remove("open");
-        tutorial.record('close-support');
-      });
-      function drawSupport() {
-        byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('');
+      const chatFab = byId('chatFab');
+      const supportTopics=[
+        ['Book a showing','Open a rental’s Leads tab, choose a qualified prospect and schedule an available appointment.'],
+        ['Review a practice ID','Open the alert on the prospect’s profile and work through the review options before booking.'],
+        ['Find a lockbox arrival','Open Reports and choose Lockbox Access to see completed practice check-ins.'],
+        ['Change weekly owner delivery','Open Reports, choose Scheduled and update the shared owner report time.'],
+      ];
+      function showSupport(open) {
+        chatPop.classList.toggle('open',open);
+        chatFab.setAttribute('aria-expanded',String(open));
+        if(open) {
+          drawSupport();
+          drawSupportTopics();
+          byId('closeChatBtn').focus();
+        } else chatFab.focus();
+        tutorial.record(open ? 'open-support' : 'close-support');
       }
+      chatFab.onclick=()=>showSupport(!chatPop.classList.contains('open'));
+      byId('closeChatBtn').onclick=()=>showSupport(false);
+      function drawSupport() {
+        byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('') || '<p>Practice messages appear here and stay in this browser.</p>';
+      }
+      function drawSupportTopics() {
+        const query=byId('practice-support-search').value.trim().toLowerCase();
+        const topics=supportTopics.filter(([title,body])=>`${title} ${body}`.toLowerCase().includes(query));
+        byId('practice-support-results').innerHTML=topics.map(([title,body])=>
+          `<details><summary>${esc(title)}</summary><p>${esc(body)}</p></details>`).join('') || '<p>No help topics match your search.</p>';
+      }
+      byId('practice-support-search').oninput=drawSupportTopics;
       byId('practice-support').onsubmit=event=>{
         event.preventDefault();const field=byId('practice-support-message');const request=field.value.trim();if(!request)return;
         state.support.push({from:'You',text:request},{from:'Practice support',text:'Your practice message was recorded in this browser.'});
         field.value='';saveState();drawSupport();
       };
       byId('signBackInBtn').onclick=()=>{state.signedOut=false;saveState();render();};
-      document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeModal();chatPop.classList.remove('open');closeMobileSidebar();}});
+      document.addEventListener('keydown',event=>{
+        if(event.key!=='Escape') return;
+        if(byId('ttModal').classList.contains('open')) closeModal();
+        else if(chatPop.classList.contains('open')) showSupport(false);
+        else closeMobileSidebar();
+      });
       function openSharedRoute() {
         if(state.signedOut || !location.hash) return;
         let parts;
