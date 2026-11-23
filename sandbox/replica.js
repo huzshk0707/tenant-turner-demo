@@ -1240,6 +1240,7 @@
         const remaining = Math.max(0, maxInstr - (r.viewing.instructions || "").length);
         const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
         const lim = r.viewing.limits || defaultShowingLimits();
+        const selfAccessHours=state.generalAvailability[r.assignee];
         const ipRemaining = Math.max(0, maxInstr - (ip.instructions || "").length);
         const photos=listingPhotos(r);
         const assignedDev = state.devices.find(d => d.serial === r.serialNumber && d.type === r.viewing.viewingType);
@@ -1698,6 +1699,8 @@
                 </details>
                 <div id="viewing-availability">
                   <h3 class="sub-heading">Availability</h3>
+                  ${r.viewing.selfAccess && selfAccessHours ? `<p class="availability-agents-caption">Self-access hours are ${esc(selfAccessHours.selfAccessStart)} to ${esc(selfAccessHours.selfAccessEnd)} daily.</p>` : ''}
+                  <p class="availability-agents-caption">Choose availability sources for in-person showings.</p>
                   <label class="mat-switch"><input id="inline-general-enabled" type="checkbox" ${r.availability.generalEnabled?'checked':''}><span class="switch-track"></span><span>General Availability</span></label>
                   <div id="inline-general-hours" ${r.availability.generalEnabled?'':'hidden'}></div>
                   <div class="row-inline">
@@ -1910,6 +1913,9 @@
             byId('setting-error').textContent='Enter a different label for each answer choice.';return;
           }
           r.applicationLink=applicationUrl;
+          if (ip.enabled && !r.availability.generalEnabled && r.availability.mode!=='custom') {
+            byId('setting-error').textContent='Enable at least one availability source for in-person showings.';return;
+          }
           const orderedHours=weekly=>Object.values(weekly).every(day=>!day.enabled || day.blocks.every(block=>
             window.ReplicaBooking.toTime(block.start)<window.ReplicaBooking.toTime(block.end)));
           const invalidOneTime=r.availability.oneTimeHours.some(block=>window.ReplicaBooking.toTime(block.start)>=window.ReplicaBooking.toTime(block.end));

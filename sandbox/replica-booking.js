@@ -89,17 +89,17 @@ window.ReplicaBooking = (() => {
     const opens=override.filter(block=>block.type==='open')
       .map(block=>normalize(block,'Date override',self ? primary : block.agent || primary)).filter(usable);
     const recurring=config.customHours?.[day];
-    const rentalHours=config.mode==='custom' && recurring?.enabled
-      ? recurring.blocks.map(block=>normalize(block,'Rental weekly',self ? primary : block.agent || primary)).filter(usable) : [];
-    const oneTime=config.mode==='custom' ? (config.oneTimeHours || []).filter(block=>block.date===date)
-      .map(block=>normalize(block,'Rental one-time',self ? primary : block.agent || primary)).filter(usable) : [];
-    const useGeneral=config.generalEnabled ?? config.mode!=='custom';
+    const rentalHours=!self && config.mode==='custom' && recurring?.enabled
+      ? recurring.blocks.map(block=>normalize(block,'Rental weekly',block.agent || primary)).filter(usable) : [];
+    const oneTime=!self && config.mode==='custom' ? (config.oneTimeHours || []).filter(block=>block.date===date)
+      .map(block=>normalize(block,'Rental one-time',block.agent || primary)).filter(usable) : [];
+    const useGeneral=self || (config.generalEnabled ?? config.mode!=='custom');
     const general=useGeneral ? (self ? [primary] : generalAgents(state,rental)).flatMap(agent=>{
       const settings=state.generalAvailability[agent];
       if (!settings) return [];
       const rules=settings.weekly?.[day];
       const blocks=self ? [{start:settings.selfAccessStart,end:settings.selfAccessEnd}] : rules?.enabled ? rules.blocks : [];
-      return blocks.map(block=>normalize(block,'General',agent)).filter(usable);
+      return blocks.map(block=>normalize(block,self ? 'Daily self-access' : 'General',agent)).filter(usable);
     }) : [];
     const combined=opens.length ? opens : [...oneTime,...subtractHours(rentalHours,oneTime),...subtractHours(general,[...rentalHours,...oneTime])];
     const rentalBlackouts=override.filter(block=>block.type==='block');

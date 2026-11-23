@@ -78,7 +78,9 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
       state.generalAvailability['Casey Nguyen'].blockedDates=[{date,start:'12:00',end:'13:00'}];
       const blocked=at('12:00');
       const remaining=at('13:30');
-      return {...base,sameSlot,limited,adjacent,changedAgent,secondTrip,travel,generalDisabled,blocked,remaining};
+      rental.availability.mode='general';
+      const selfAccess=booking.plan(state,rental,lead,date,'12:00','self',{now});
+      return {...base,sameSlot,limited,adjacent,changedAgent,secondTrip,travel,generalDisabled,blocked,remaining,selfAccess};
     });
     assert.equal(outcomes.morning.agent,'Jamie Taylor');
     assert.equal(outcomes.overlap.agent,'Casey Nguyen');
@@ -96,6 +98,7 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
     assert.match(outcomes.generalDisabled.error,/available hours/);
     assert.ok(outcomes.blocked.error);
     assert.equal(outcomes.remaining.agent,'Casey Nguyen');
+    assert.equal(outcomes.selfAccess.method,'self');
     assert.ok(outcomes.reportWindows.some(row=>row.source==='Rental one-time' && row.start==='13:00' && row.end==='13:30'));
 
     await page.evaluate(()=>{
