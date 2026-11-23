@@ -120,6 +120,7 @@
     }
     function catalog() {
       by('chatPopover').classList.remove('open');
+      by('chatFab').setAttribute('aria-expanded','false');
       guide().mode='tutorial';save();draw();
       open('Tutorial · follow the recording',`<div class="practice-lessons">${chapters.map(c=>`<button class="btn-outline tutorial-chapter" type="button" data-lesson="${c.id}"><strong>${esc(c.title)}</strong><small>${esc(c.time)} · ${progress(c)} of ${c.steps.length}</small></button>`).join('')}</div>`,button('tutorial-free','Free Practice','btn-ghost')+button('tutorial-close','Close','btn-blue'));
       by('ttModalBody').querySelectorAll('[data-lesson]').forEach(b=>b.onclick=()=>choose(b.dataset.lesson));
