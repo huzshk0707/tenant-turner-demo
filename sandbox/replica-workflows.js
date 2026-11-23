@@ -42,13 +42,18 @@ window.createReplicaWorkflows = api => {
   function table(headers,rows,message) {
     return `<div class="table-scroll"><table class="tt-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(row=>`<tr>${row.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}">${esc(message)}</td></tr>`}</tbody></table></div>`;
   }
-  function message(r,lead,text,label='Practice automation') {
+  function threadFor(r,lead) {
     let m=get().messages.find(row=>row.rentalId===r.id && (row.leadId ? row.leadId===lead.id : row.leadName===lead.name));
     if (!m) {
-      m={id:uid('message'),rentalId:r.id,leadId:lead.id,leadName:lead.name,phone:lead.phone,email:lead.email,channel:'SMS',unread:false,needsReply:false,aiHandled:true,thread:[]};
+      m={id:uid('message'),rentalId:r.id,leadId:lead.id,leadName:lead.name,phone:lead.phone,email:lead.email,channel:'SMS',unread:false,needsReply:false,aiHandled:false,thread:[]};
       get().messages.unshift(m);
     }
-    m.leadId=lead.id; m.updatedAt='Just now';m.score=lead.score;
+    m.leadId=lead.id;m.score=lead.score;
+    return m;
+  }
+  function message(r,lead,text,label='Practice automation') {
+    const m=threadFor(r,lead);
+    m.updatedAt='Just now';
     m.thread.push({sender:'auto',label,time:'Just now',date:date(),text});
     return m;
   }
@@ -315,5 +320,5 @@ window.createReplicaWorkflows = api => {
       lead.status='Applied';lead.archived=false;storeLead(r,lead);note(lead,'Practice application received.');message(r,lead,'Your fictional application was received.');finish('Practice application saved.');
     });
   }
-  return {blankLead,invite,qualify,book,scheduledFor,note,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,storeLead};
+  return {blankLead,invite,qualify,book,scheduledFor,note,threadFor,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,storeLead};
 };

@@ -607,9 +607,11 @@
           visit.acceptedOn ??= visit.date;
         }
         const sample=r?.leads.find(l=>l.id==='lead_r1_2');
-        if(sample && !sample.archived && !sample.answers) {
+        if(sample && !sample.archived && !sample.answers && !s.viewingsList.some(v=>v.id==='sample-prior-self-tour')) {
           sample.idMetadataWarning=true;
           sample.incomeSource='Income from employment';
+          sample.financialHistory='No issues to report.';
+          sample.notes.unshift({time:sample.createdAt,text:'Prospect asked about the fenced yard for a small dog.',internal:true});
           sample.qualifiedOn=sample.createdDate;
           s.viewingsList.push({id:'sample-prior-self-tour',rentalId:r.id,leadId:sample.id,leadName:sample.name,leadPhone:sample.phone,
             date:dateOffset(-3),acceptedOn:dateOffset(-4),time:'5:00 PM',type:'Self-Access (CodeBox)',status:'No-show',practiceCode:'SIM-PAST'});
@@ -773,6 +775,8 @@
         const m = document.getElementById("ttModal");
         m.classList.remove("open");
         m.setAttribute("aria-hidden", "true");
+        byId('ttModalBody').replaceChildren();
+        byId('ttModalFoot').replaceChildren();
         document.querySelector('.app-shell').inert=state.signedOut;
         if(modalFocus?.isConnected) modalFocus.focus({preventScroll:true});
         modalFocus=null;
@@ -2528,9 +2532,9 @@
       const LEAD_STAGES = ["Unscored","Pre-Qualified","Scheduled","Showing requested","Viewed","Applied","Wait List","Disqualified"];
 
       function openLeadMessages(r, lead) {
-        let thread=state.messages.find(m=>m.rentalId===r.id && (m.leadId ? m.leadId===lead.id : m.leadName===lead.name));
-        if(!thread) thread=wf.message(r,lead,`Conversation started for ${r.address}.`);
-        state.messagesFilter={search:'',tab:'all'};state.selectedThreadId=thread.id;
+        const thread=wf.threadFor(r,lead);
+        state.messagesFilter={search:'',tab:'all'};
+        state.selectedThreadId=thread.id;
         goto('messages');
       }
 
@@ -2565,7 +2569,9 @@
           if(!name) return;
           for(const row of [...state.messages,...state.viewingsList].filter(row=>row.rentalId===r.id && belongsToLead(row,lead))) {
             row.leadId=lead.id;row.leadName=name;
-            if(row.thread) {row.phone=phone;row.email=email;} else row.leadPhone=phone;
+            if(row.thread) {
+              row.phone=phone;row.email=email;
+            } else row.leadPhone=phone;
           }
           for(const f of r.ownerReport.feedback.filter(row=>belongsToLead(row,lead))) {f.leadId=lead.id;f.lead=name;}
           if(lead.status!==fields.get('status')) lead.archived=fields.get('status')==='Disqualified';
@@ -2593,7 +2599,7 @@
         const risks=answers && ['bankruptcy','judgment','eviction','felony'].filter(key=>answers[key]);
         const action=(id,label,disabled=false)=>`<button id="${id}" class="btn-flat" type="button" ${disabled?'disabled':''}>${esc(label)}</button>`;
         const fact=(label,value)=>`<dt>${esc(label)}</dt><dd>${esc(value ?? 'Not provided')}</dd>`;
-        const sampleId=lead.idReviewed || lead.idRequested || lead.idMetadataWarning;
+        const sampleId=lead.idReviewed || lead.idMetadataWarning;
         byId('canvas').innerHTML=`<div class="lead-profile">
           <section class="mat-card prospect-summary">
             <h2><span aria-label="${canSchedule?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${canSchedule?'qualified':''}"></span> ${esc(lead.name)}</h2>
@@ -2621,8 +2627,8 @@
           </section>
           <section class="mat-card prospect-qual"><h2>Pre-Qualification</h2><div class="prospect-facts">
             <article><h3>Lease Preference</h3><dl>${fact('Move In',lead.moveInDate)}${fact('Pets',lead.pets)}</dl></article>
-            <article><h3>Financial &amp; Legal History</h3><p>${!risks?'No answers on file.':risks.length?esc(risks.join(', ')):'No issues to report.'}</p></article>
-            <article><h3>Source of Rent</h3><dl>${fact('Source of Rent',answers?.voucher?'Voucher':lead.incomeSource)}${fact('Annual Income',lead.monthlyIncome ? '$'+Number(lead.monthlyIncome*12).toLocaleString('en-US'):null)}</dl></article>
+            <article><h3>Financial &amp; Legal History</h3><p>${!risks?esc(lead.financialHistory || 'No answers on file.'):risks.length?esc(risks.join(', ')):'No issues to report.'}</p></article>
+            <article><h3>Source of Rent</h3><dl>${fact('Source of Rent',answers?.voucher?'Voucher':lead.incomeSource)}${fact('Annual Income',lead.monthlyIncome ? '$'+Number(lead.monthlyIncome*12).toLocaleString('en-US')+(r.rent>0?` (~${(lead.monthlyIncome/r.rent).toFixed(1)}× rent)`:''):null)}</dl></article>
             <article><h3>Lead Source</h3><dl>${fact('Qualified on',lead.qualifiedOn)}${fact('Lead Source Channel',lead.source)}</dl></article>
             ${answers?`<article><h3>Additional Answers</h3><dl>${fact('Co-signer',answers.cosigner?'Yes':'No')}${fact('Credit score',answers.creditScore)}${fact('Smoking',answers.smoking?'Yes':'No')}${(lead.customResponses || []).map(q=>fact(q.label,q.answer)).join('')}</dl></article>`:''}
           </div></section></div>`;
@@ -3480,6 +3486,7 @@
             activeThread.channel = ch;
             activeThread.unread = false;
             activeThread.needsReply = false;
+            activeThread.aiHandled = false;
             activeThread.updatedAt = "Just now";
             activeThread.thread.push({
               sender: "outbound",
