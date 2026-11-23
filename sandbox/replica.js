@@ -257,7 +257,7 @@
           writeShowingsToCalendar: true
         },
         viewingsList: [
-          { id: "v1", rentalId: "r1", leadName: "Jordan Ellis", leadPhone: "(303) 555-0148", date: "2026-11-21", time: "10:00 AM", type: "Self-Access (CodeBox)", status: "Confirmed" },
+          { id: "v1", practiceCode: "SIM-V1", rentalId: "r1", leadName: "Jordan Ellis", leadPhone: "(303) 555-0148", date: "2026-11-21", time: "10:00 AM", type: "Self-Access (CodeBox)", status: "Confirmed" },
           { id: "v2", rentalId: "r1", leadName: "Priya Nair", leadPhone: "(303) 555-0192", date: "2026-11-21", time: "2:30 PM", type: "In-Person (Jamie Taylor)", status: "Confirmed" },
           { id: "v3", rentalId: "r3", leadName: "Elena Morales", leadPhone: "(303) 555-0183", date: "2026-11-22", time: "11:00 AM", type: "Self-Access (Lockbox)", status: "Pending Confirmation" },
           { id: "v4", rentalId: "r4", leadName: "Devon Brooks", leadPhone: "(303) 555-0164", date: "2026-11-23", time: "4:00 PM", type: "Self-Access (CodeBox)", status: "Confirmed" }
@@ -563,7 +563,7 @@
         if (l.status === "Prequalified") l.status = "Pre-Qualified";
         if (l.status === "Toured") l.status = "Viewed";
         if (!l.moveInDate) l.moveInDate = r.dateAvailable || "2026-12-01";
-        if (!l.monthlyIncome) l.monthlyIncome = Math.round((r.rent || 2200) * 3.2);
+        if (l.monthlyIncome == null) l.monthlyIncome = Math.round((r.rent || 2200) * 3.2);
         if (!l.pets) l.pets = r.qualifying && r.qualifying.allowPets ? "1 small dog (20 lbs)" : "None";
         if (l.manualOverride === undefined) l.manualOverride = false;
         if (!l.createdAt) l.createdAt = "Nov 19, 2026";
@@ -598,6 +598,27 @@
           support:[],
           contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}]};
       }
+      function seedProfileExamples(s) {
+        if(s.prospectExamplesAdded) return s;
+        const r=s.rentals.find(r=>r.id==='r1');
+        const visit=s.viewingsList.find(v=>v.id==='v1' && v.rentalId==='r1' && v.status==='Viewed' && v.type==='Self-Access (CodeBox)');
+        if(visit) {
+          visit.practiceCode ??= 'SIM-V1';
+          visit.acceptedOn ??= visit.date;
+        }
+        const sample=r?.leads.find(l=>l.id==='lead_r1_2');
+        if(sample && !sample.archived && !sample.answers && !s.viewingsList.some(v=>v.id==='sample-prior-self-tour')) {
+          sample.idMetadataWarning=true;
+          sample.incomeSource='Income from employment';
+          sample.financialHistory='No issues to report.';
+          sample.notes.unshift({time:sample.createdAt,text:'Prospect asked about the fenced yard for a small dog.',internal:true});
+          sample.qualifiedOn=sample.createdDate;
+          s.viewingsList.push({id:'sample-prior-self-tour',rentalId:r.id,leadId:sample.id,leadName:sample.name,leadPhone:sample.phone,
+            date:dateOffset(-3),acceptedOn:dateOffset(-4),time:'5:00 PM',type:'Self-Access (CodeBox)',status:'No-show',practiceCode:'SIM-PAST'});
+        }
+        s.prospectExamplesAdded=true;
+        return s;
+      }
       function cloneSeed() {
         const s = Object.assign(JSON.parse(JSON.stringify(SEED)),workspaceDefaults());
         s.viewingsFilter.status='upcoming';
@@ -621,7 +642,7 @@
         s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewed';}});
         s.rentals[0].ownerReport.feedback[0].leadId=s.rentals[0].leads[0].id;
         s.rentals[0].ownerReport.feedback[0].date=dateOffset(-1);
-        return s;
+        return seedProfileExamples(s);
       }
       function newRental(address,rent,available,imported) {
         const r=structuredClone(cloneSeed().rentals[0]);
@@ -671,7 +692,7 @@
           if (!raw) return cloneSeed();
           const parsed = JSON.parse(raw);
           const seed=cloneSeed();
-          const merged={...seed,...parsed};
+          const merged={...seed,...parsed,prospectExamplesAdded:parsed.prospectExamplesAdded};
           if(merged.section==='signout') merged.section='rentals';
           const legacyAccount=parsed.profile ? {companyName:parsed.profile.name,email:parsed.profile.email,defaultApplicationFee:parsed.profile.fee}:{};
           merged.account={...seed.account,...legacyAccount,...parsed.account};
@@ -698,7 +719,7 @@
               return r;
             });
           }
-          return merged;
+          return seedProfileExamples(merged);
         } catch (e) {
           return cloneSeed();
         }
@@ -754,6 +775,8 @@
         const m = document.getElementById("ttModal");
         m.classList.remove("open");
         m.setAttribute("aria-hidden", "true");
+        byId('ttModalBody').replaceChildren();
+        byId('ttModalFoot').replaceChildren();
         document.querySelector('.app-shell').inert=state.signedOut;
         if(modalFocus?.isConnected) modalFocus.focus({preventScroll:true});
         modalFocus=null;
@@ -1155,7 +1178,9 @@
         const ipRemaining = Math.max(0, maxInstr - (ip.instructions || "").length);
 
         const assignedDev = state.devices.find(d => d.serial === r.serialNumber);
-        const selectableDevices = state.devices.filter(d => !d.rentalId || d.rentalId === r.id);
+        const selectableDevices = state.devices.filter(d => d.type===r.viewing.viewingType && (!d.rentalId || d.rentalId===r.id));
+        const viewingTypes=[['CodeBox','CodeBox'],['Instructions only','Instructions only'],['Lockbox','Combo lock box'],['Prempoint','Prempoint'],['SentriLock','SentriLock']];
+        if(!viewingTypes.some(([type])=>type===r.viewing.viewingType)) viewingTypes.push([r.viewing.viewingType,r.viewing.viewingType]);
 
         canvas.innerHTML = `
           <div class="settings-layout">
@@ -1455,13 +1480,12 @@
                     </label>
                     ${r.viewing.selfAccess ? `
                       <div class="blue-subpanel">
+                        <p class="availability-note">Help fight online rental scams by posting a notice at properties that allow self-access viewings. Give visitors the management office’s official contact details so they can verify the listing before paying anyone.</p>
                         <div class="grid-2">
                           <div class="mat-field">
                             <label class="mat-label" for="vwType">Viewing Type</label>
                             <select id="vwType" class="mat-select">
-                              <option value="CodeBox" ${r.viewing.viewingType === "CodeBox" ? "selected" : ""}>CodeBox</option>
-                              <option value="SentriLock" ${r.viewing.viewingType === "SentriLock" ? "selected" : ""}>SentriLock</option>
-                              <option value="Lockbox" ${r.viewing.viewingType === "Lockbox" ? "selected" : ""}>Lockbox</option>
+                              ${viewingTypes.map(([type,label])=>`<option value="${esc(type)}" ${r.viewing.viewingType===type?'selected':''}>${esc(label)}</option>`).join('')}
                             </select>
                           </div>
                           <div class="mat-field">
@@ -1473,7 +1497,7 @@
                           </div>
                         </div>
 
-                        <div class="grid-2" style="align-items:end;">
+                        ${r.viewing.viewingType!=='Instructions only' ? `<div class="grid-2" style="align-items:end;">
                           <div class="mat-field">
                             <div class="row-inline" style="justify-content:space-between;">
                               <label class="mat-label" for="vwAssignedDevice">Assigned Access Device (from Inventory)</label>
@@ -1495,7 +1519,7 @@
                             </div>
                             <button id="manageDevicesLink" class="btn-flat btn-sm" type="button">Manage Devices</button>
                           </div>
-                        </div>
+                        </div> ` : ''}
 
                         <div class="mat-field">
                           <label class="mat-label" for="vwInstr">Self-Access Viewing Instructions (optional)</label>
@@ -1754,7 +1778,7 @@
         bindCheck("vwWaitlist", v => { r.waitlist = v; }, true);
         bindVal("vwWaitMsg", v => { r.waitlistMessage = v; });
         bindCheck("vwSelfAccess", v => { r.viewing.selfAccess = v; }, true);
-        bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v; }, true);
+        bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v==='Instructions only'?'':v; r.serialNumber=''; }, true);
         bindVal("vwApproval", v => { r.viewing.viewingApproval = v; });
         bindVal("vwSerial", v => { r.serialNumber = v; });
         bindCheck("vwReqId", v => { r.viewing.requireId = v; });
@@ -2508,99 +2532,148 @@
       const LEAD_STAGES = ["Unscored","Pre-Qualified","Scheduled","Showing requested","Viewed","Applied","Wait List","Disqualified"];
 
       function openLeadMessages(r, lead) {
-        let thread=state.messages.find(m=>m.rentalId===r.id && (m.leadId ? m.leadId===lead.id : m.leadName===lead.name));
-        if(!thread) thread=wf.message(r,lead,`Conversation started for ${r.address}.`);
+        const thread=wf.threadFor(r,lead);
+        state.messagesFilter={search:'',tab:'all'};
         state.selectedThreadId=thread.id;
         goto('messages');
       }
 
-      function openLeadProfile(r, lead) {
+      const leadTitle=(r,lead)=>`${lead.name} - Lead for ${r.address}`;
+      const belongsToLead=(row,lead)=>row.leadId ? row.leadId===lead.id : (row.leadName || row.lead)===lead.name;
+
+      function openLeadProfile(r,lead,feedbackId) {
         if(!lead) return;
-        openDetailPage(lead.name,'Back to Leads',()=>renderLeadProfile(r,lead),lead.id);
+        const fromReport=state.detailTab==='owner';
+        openDetailPage(leadTitle(r,lead),fromReport?'Back to Owner Report':'Back to Leads',
+          ()=>renderLeadProfile(r,lead,feedbackId),fromReport ? undefined : lead.id);
         tutorial.record('open-lead',{rentalId:r.id});
       }
 
-      function renderLeadProfile(r,lead) {
-        const canSchedule=Boolean(!lead.archived && (lead.score>=6 || lead.manualOverride));
-        const minIncome=Math.round(r.rent*(r.qualifying?.incomeRatio || 3));
-        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && (v.leadId ? v.leadId===lead.id : v.leadName===lead.name));
-        const feedback=r.ownerReport.feedback.filter(f=>f.leadId===lead.id || (!f.leadId && f.lead===lead.name));
-        byId('canvas').innerHTML=`
-          <div class="lead-profile">
-            <section class="mat-card">
-              <div class="row-inline practice-between">
-                <div><h2 class="mat-card-title">${esc(r.address)}</h2><div>${esc(lead.leadType)} · ${esc(lead.phone || 'No phone')} · ${esc(lead.email || 'No email')}</div></div>
-                <div class="row-inline">${scoreBadgeHtml(lead.score)} <span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span></div>
-              </div>
-              <div class="practice-actions">
-                <button id="ldMsgBtn" class="btn-blue" type="button">Open in Messages</button>
-                <button id="ldInviteBtn" class="btn-outline" type="button">Send Pre-Qual Invite</button>
-                <button id="ldScheduleBtn" class="btn-outline" type="button" ${canSchedule ? '' : 'disabled'}>Schedule Showing</button>
-                <button id="ldApplyBtn" class="btn-outline" type="button">Send Application Link</button>
-              </div>
-              <div class="grid-2">
-                <label class="mat-field"><span class="mat-label">Lead status</span><select id="ldStatusSel" class="mat-select">
-                  ${[...new Set([...LEAD_STAGES,lead.status])].map(status=>`<option ${status===lead.status ? 'selected' : ''}>${esc(status)}</option>`).join('')}
-                </select></label>
-                <label class="mat-switch"><input id="ldOverrideChk" type="checkbox" ${lead.manualOverride ? 'checked' : ''}><span class="switch-track"></span><span>Manual scheduling override</span></label>
-              </div>
-            </section>
-            <section class="mat-card">
-              <h2 class="mat-card-title">Activity &amp; Notes</h2>
-              <div id="ldNotesList" class="lead-activity">${lead.notes.map(n=>`<p><strong>${esc(n.time)}</strong> ${esc(n.text)}</p>`).join('') || '<p>No activity yet.</p>'}</div>
-              <form id="lead-note-form" class="row-inline"><input id="ldNoteInput" class="mat-input" aria-label="Internal note" placeholder="Add an internal note" required>
-              <button id="ldAddNoteBtn" class="btn-outline" type="submit">Log Note</button></form>
-            </section>
-            <section class="mat-card">
-              <h2 class="mat-card-title">ID Review &amp; Showing History</h2>
-              <label class="mat-switch"><input id="ldIdReviewed" type="checkbox" ${lead.idReviewed ? 'checked' : ''}><span class="switch-track"></span><span>Practice ID reviewed</span></label>
-              ${tours.length ? `<ul>${tours.map(v=>`<li>${esc(v.date)} · ${esc(v.time)} · ${esc(v.type)} · ${esc(v.status)}</li>`).join('')}</ul>` : '<p>No showings yet.</p>'}
-              <h3>Showing Feedback</h3>
-              ${feedback.map(f=>`<p>${esc(f.date)} · ${esc(f.comment)}</p>`).join('') || '<p>No showing feedback yet.</p>'}
-            </section>
-            <section class="mat-card">
-              <h2 class="mat-card-title">Pre-Qualification</h2>
-              <div class="qual-grid">${[
-                ['Lead source',lead.source],['Desired move-in',lead.moveInDate],
-                ['Monthly income',lead.monthlyIncome ? `$${Number(lead.monthlyIncome).toLocaleString()} (required $${minIncome.toLocaleString()})` : 'Pending'],
-                ['Pets',lead.pets]
-              ].map(([label,value])=>`<div class="qual-item"><div class="qual-item-label">${label}</div><div class="qual-item-val">${esc(value)}</div></div>`).join('')}</div>
-              <button id="ldQualifyBtn" class="btn-outline" type="button">Review Pre-Qualification</button>
-            </section>
-          </div>`;
-        const update=(note,focus)=>{
-          wf.note(lead,note);
-          saveState();
-          renderLeadProfile(r,lead);
-          byId(focus).focus({preventScroll:true});
-        };
-        byId('ldStatusSel').onchange=e=>{
-          lead.status=e.target.value;
-          lead.archived=lead.status==='Disqualified';
-          update(`Status updated to ${lead.status}.`,'ldStatusSel');
-        };
-        byId('ldOverrideChk').onchange=e=>{
-          lead.manualOverride=e.target.checked;
-          update(lead.manualOverride ? 'Manual scheduling override enabled.' : 'Manual scheduling override removed.','ldOverrideChk');
-        };
-        byId('ldIdReviewed').onchange=e=>{
-          lead.idReviewed=e.target.checked;
-          update(lead.idReviewed ? 'Practice ID marked as reviewed.' : 'Practice ID review cleared.','ldIdReviewed');
-        };
+      function editLead(r,lead) {
+        openModal('Edit Lead',`<form id="edit-lead">
+          <label class="mat-field">Name<input class="mat-input" name="name" value="${esc(lead.name)}" required></label>
+          <label class="mat-field">Email<input class="mat-input" type="email" name="email" value="${esc(lead.email)}"></label>
+          <label class="mat-field">Mobile phone<input class="mat-input" type="tel" name="phone" value="${esc(lead.phone)}"></label>
+          <label class="mat-field">Lead status<select name="status" class="mat-select">${[...new Set([...LEAD_STAGES,lead.status])].map(s=>`<option ${s===lead.status?'selected':''}>${esc(s)}</option>`).join('')}</select></label>
+          <label><input type="checkbox" name="override" ${lead.manualOverride?'checked':''}> Manual scheduling override</label>
+          <div class="practice-actions"><button id="ldInviteBtn" type="button" class="btn-flat">Send Pre-Qual Invite</button>
+          <button id="ldQualifyBtn" type="button" class="btn-flat">Review Pre-Qualification</button></div>
+          </form>`, '<button id="edit-cancel" class="btn-flat">Cancel</button><button class="btn-blue" form="edit-lead">Save</button>');
+        byId('edit-cancel').onclick=closeModal;
         byId('ldInviteBtn').onclick=()=>wf.invite(r,lead);
-        byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
+        byId('ldQualifyBtn').onclick=()=>wf.qualify(r,lead);
+        byId('edit-lead').onsubmit=e=>{
+          e.preventDefault();
+          const fields=new FormData(e.target);
+          const name=fields.get('name').trim(),phone=fields.get('phone').trim(),email=fields.get('email').trim();
+          if(!name) return;
+          for(const row of [...state.messages,...state.viewingsList].filter(row=>row.rentalId===r.id && belongsToLead(row,lead))) {
+            row.leadId=lead.id;row.leadName=name;
+            if(row.thread) {
+              row.phone=phone;row.email=email;
+            } else row.leadPhone=phone;
+          }
+          for(const f of r.ownerReport.feedback.filter(row=>belongsToLead(row,lead))) {f.leadId=lead.id;f.lead=name;}
+          if(lead.status!==fields.get('status')) lead.archived=fields.get('status')==='Disqualified';
+          Object.assign(lead,{name,phone,email,status:fields.get('status'),manualOverride:fields.has('override')});
+          if(lead.archived) cancelLeadViewings(r,lead);
+          wf.note(lead,'Lead details updated.');detailPage.title=leadTitle(r,lead);
+          saveState();closeModal();render();
+        };
+      }
+
+      function cancelLeadViewings(r,lead) {
+        for(const v of state.viewingsList.filter(v=>v.rentalId===r.id && belongsToLead(v,lead))) {
+          if(['Requested','Pending Confirmation','Confirmed'].includes(v.status)) {
+            v.status='Canceled';v.confirmBy=null;
+          }
+        }
+      }
+
+      function renderLeadProfile(r,lead,feedbackId) {
+        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && belongsToLead(v,lead)).sort((a,b)=>b.date.localeCompare(a.date));
+        const feedback=r.ownerReport.feedback.filter(f=>belongsToLead(f,lead));
+        if(feedbackId) feedback.sort((a,b)=>Number(b.id===feedbackId)-Number(a.id===feedbackId));
+        const canSchedule=!lead.archived && (lead.score>=6 || lead.manualOverride);
+        const answers=lead.answers;
+        const risks=answers && ['bankruptcy','judgment','eviction','felony'].filter(key=>answers[key]);
+        const action=(id,label,disabled=false)=>`<button id="${id}" class="btn-flat" type="button" ${disabled?'disabled':''}>${esc(label)}</button>`;
+        const fact=(label,value)=>`<dt>${esc(label)}</dt><dd>${esc(value ?? 'Not provided')}</dd>`;
+        const sampleId=lead.idReviewed || lead.idMetadataWarning;
+        byId('canvas').innerHTML=`<div class="lead-profile">
+          <section class="mat-card prospect-summary">
+            <h2><span aria-label="${canSchedule?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${canSchedule?'qualified':''}"></span> ${esc(lead.name)}</h2>
+            <div class="prospect-contact">${esc(lead.email)}<br>${esc(lead.phone)}</div>
+            ${action('ldApplyBtn','Send Application Link')}
+            <div class="prospect-actions">${action('ldArchive',lead.archived?'Unarchive':'Archive')}${action('ldDecline','Decline',lead.archived)}${action('ldEdit','Edit')}${action('ldMsgBtn','Send Message')}</div>
+          </section>
+          <section class="mat-card prospect-viewing"><h2>Viewing</h2>
+            <div class="prospect-feedback"><h3>Feedback</h3>
+              ${feedback.map(f=>`<div><p><b>Rating:</b> ${esc(f.rating != null ? f.rating+'/5' : f.interest)}</p><p><b>Comments:</b> ${esc(f.comment)}</p>
+              <button class="btn-flat" data-profile-feedback="${esc(f.id)}" type="button">${f.visible?'Hide on Owner Report':'Show on Owner Report'}</button></div>`).join('')}
+              ${feedback.length?'':`<form id="ldFeedback"><label class="mat-field">Rating<input class="mat-input" type="number" name="rating" min="0" max="5" step="1" required></label><small>0 = Don't rate it · 1 = Poor · 5 = Great</small>
+              <label class="mat-field">Comments<textarea class="mat-textarea" name="comment" rows="2"></textarea></label>
+              <button class="btn-flat">Submit Feedback</button></form>`}
+            </div>
+            ${sampleId?`<div class="prospect-id" role="img" aria-label="Fictional identification sample"><strong>Practice ID</strong><span>${esc(lead.name)}</span><small>Fictional sample</small></div>`:''}
+            <p>${lead.idRequested?'New ID requested. Self-access is on hold pending review.':lead.idMetadataWarning?'The sample ID has missing or suspicious metadata. Review the viewing request, request a new ID, or archive this lead.':lead.idReviewed?'The fictional identification has been reviewed.':'No identification on file.'}</p>
+            ${tours.map(v=>`<div class="prospect-visit"><strong>${esc(v.date)} at ${esc(v.time)}</strong> <span class="status-chip">${esc(v.status)}</span>
+              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The code assigned for this viewing is ${esc(v.practiceCode)}.</p>`:''}${v.acceptedOn?`<p>Automatically accepted on ${esc(v.acceptedOn)}.</p>`:''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
+            <div class="prospect-actions">${action('ldRequestId','Request New ID',Boolean(lead.archived || lead.idRequested))}${action('ldScheduleBtn',tours.length?'Reschedule':'Schedule',!canSchedule)}</div>
+          </section>
+          <section class="mat-card prospect-notes"><h2>Notes</h2>
+            <form id="lead-note-form"><textarea id="ldNoteInput" aria-label="Internal note" class="mat-textarea" placeholder="Compose internal note here..." required></textarea><button id="ldAddNoteBtn" class="btn-flat">Add</button></form>
+            ${lead.notes.filter(n=>n.internal || !('internal' in n)).map(n=>`<div class="prospect-note">${esc(n.text)}<small>${esc(n.time)}</small></div>`).join('')}
+          </section>
+          <section class="mat-card prospect-qual"><h2>Pre-Qualification</h2><div class="prospect-facts">
+            <article><h3>Lease Preference</h3><dl>${fact('Move In',lead.moveInDate)}${fact('Pets',lead.pets)}</dl></article>
+            <article><h3>Financial &amp; Legal History</h3><p>${!risks?esc(lead.financialHistory || 'No answers on file.'):risks.length?esc(risks.join(', ')):'No issues to report.'}</p></article>
+            <article><h3>Source of Rent</h3><dl>${fact('Source of Rent',answers?.voucher?'Voucher':lead.incomeSource)}${fact('Annual Income',lead.monthlyIncome ? '$'+Number(lead.monthlyIncome*12).toLocaleString('en-US')+(r.rent>0?` (~${(lead.monthlyIncome/r.rent).toFixed(1)}× rent)`:''):null)}</dl></article>
+            <article><h3>Lead Source</h3><dl>${fact('Qualified on',lead.qualifiedOn)}${fact('Lead Source Channel',lead.source)}</dl></article>
+            ${answers?`<article><h3>Additional Answers</h3><dl>${fact('Co-signer',answers.cosigner?'Yes':'No')}${fact('Credit score',answers.creditScore)}${fact('Smoking',answers.smoking?'Yes':'No')}${(lead.customResponses || []).map(q=>fact(q.label,q.answer)).join('')}</dl></article>`:''}
+          </div></section></div>`;
+        const refresh=(focus)=>{saveState();render();byId(focus)?.focus({preventScroll:true});};
+        byId('ldEdit').onclick=()=>editLead(r,lead);
+        byId('ldMsgBtn').onclick=()=>openLeadMessages(r,lead);
         byId('ldApplyBtn').onclick=()=>{
           wf.message(r,lead,`Practice application: ${practiceLink('apply',r.id,lead.id)}`);
-          update('Practice application link added to Messages.','ldApplyBtn');
-          showToast('Practice application link added to Messages.');
+          wf.note(lead,'Practice application link sent.');refresh('ldApplyBtn');showToast('Application link saved in Messages.');
         };
-        byId('ldQualifyBtn').onclick=()=>wf.qualify(r,lead);
-        byId('ldMsgBtn').onclick=()=>openLeadMessages(r,lead);
+        byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
+        byId('ldRequestId').onclick=()=>{
+          lead.idReviewed=false;lead.idRequested=true;lead.idMetadataWarning=false;
+          for(const v of tours.filter(v=>v.type.startsWith('Self-Access') && ['Pending Confirmation','Confirmed'].includes(v.status))) {v.status='Requested';v.confirmBy=null;}
+          wf.message(r,lead,'Please provide a new practice ID for review.');wf.note(lead,'Requested a new practice ID.');
+          refresh('ldScheduleBtn');showToast('New ID request saved in Messages.');
+        };
+        byId('ldArchive').onclick=()=>{
+          lead.archived=!lead.archived;
+          if(lead.archived) cancelLeadViewings(r,lead);
+          wf.note(lead,lead.archived?'Lead archived.':'Lead restored to the queue.');refresh('ldArchive');
+        };
+        byId('ldDecline').onclick=()=>{
+          openModal('Decline Lead',`<p>Decline ${esc(lead.name)} and cancel their pending practice appointments?</p>`,
+            '<button class="btn-flat" id="decline-cancel">Cancel</button><button class="btn-blue" id="decline-confirm">Decline</button>');
+          byId('decline-cancel').onclick=closeModal;
+          byId('decline-confirm').onclick=()=>{
+            lead.status='Disqualified';lead.archived=true;lead.score=2;lead.manualOverride=false;
+            cancelLeadViewings(r,lead);wf.note(lead,'Lead declined.');closeModal();refresh('ldArchive');
+          };
+        };
         byId('lead-note-form').onsubmit=e=>{
-          e.preventDefault();
-          const note=byId('ldNoteInput').value.trim();
-          if(note) update(note,'ldNoteInput');
+          e.preventDefault();const text=byId('ldNoteInput').value.trim();if(!text) return;
+          wf.note(lead,text);lead.notes[0].internal=true;refresh('ldNoteInput');
         };
+        const form=byId('ldFeedback');
+        if(form) form.onsubmit=e=>{
+          e.preventDefault();const data=new FormData(form);addFeedback(r,lead,Number(data.get('rating')),data.get('comment').trim());
+          refresh();showToast('Feedback saved to the owner report.');
+        };
+        document.querySelectorAll('[data-profile-feedback]').forEach(button=>button.onclick=()=>{
+          const f=feedback.find(row=>row.id===button.dataset.profileFeedback);f.visible=!f.visible;
+          saveState();render();wf.done('owner');
+          byId('canvas').querySelector(`[data-profile-feedback="${CSS.escape(f.id)}"]`).focus({preventScroll:true});
+        });
       }
 
       function renderRentalLeads(r) {
@@ -2945,7 +3018,12 @@
           byId('feedback-visibility').onclick=()=>{item.visible=!item.visible;saveState();closeModal();render();wf.done('owner');showToast(item.visible?'Feedback included in owner report.':'Feedback hidden from owner report.');};
         };
         canvas.querySelectorAll('[data-toggle-fb]').forEach(btn=>btn.onclick=()=>openFeedback(btn.dataset.toggleFb));
-        canvas.querySelectorAll('[data-feedback-detail]').forEach(btn=>btn.onclick=()=>openFeedback(btn.dataset.feedbackDetail));
+        canvas.querySelectorAll('[data-feedback-detail]').forEach(btn=>btn.onclick=()=>{
+          const f=or.feedback.find(row=>row.id===btn.dataset.feedbackDetail);
+          const lead=f && r.leads.find(l=>belongsToLead(f,l));
+          if(lead) openLeadProfile(r,lead,f.id);
+          else openFeedback(btn.dataset.feedbackDetail);
+        });
       }
 
       function renderRentalSubTab(r) {
@@ -3408,6 +3486,7 @@
             activeThread.channel = ch;
             activeThread.unread = false;
             activeThread.needsReply = false;
+            activeThread.aiHandled = false;
             activeThread.updatedAt = "Just now";
             activeThread.thread.push({
               sender: "outbound",
@@ -3417,7 +3496,7 @@
             });
             saveState();
             renderMessagesSection();
-            showToast(`Practice ${ch} reply saved for ${activeThread.leadName}`);wf.done("reply");
+            showToast(`Practice ${ch} reply saved for ${activeThread.leadName}`);wf.done('reply',{threadId:activeThread.id});
           };
 
           document.getElementById("msgSendBtn").addEventListener("click", sendReply);
@@ -3542,6 +3621,16 @@
         if(state.signedOut) return;
         const {section,rentalId,jump,id}=typeof request==='string'?{section:request}:request;
         if(section==='signout') {full.openSignOut();return;}
+        if(section==='practice-prospect' || section==='practice-conversation') {
+          const r=state.rentals.find(r=>r.id==='r1');
+          const lead=r?.leads.find(l=>l.id===(id || 'lead_r1_1'));
+          if(lead) {
+            goto({section:'leads',rentalId:r.id});
+            if(section==='practice-conversation') openLeadMessages(r,lead);
+            else openLeadProfile(r,lead);
+          }
+          return;
+        }
         detailPage=null;
         reportView={...reportView,page:0,column:null,descending:false};
         const selected=rentalId || 'r1';
