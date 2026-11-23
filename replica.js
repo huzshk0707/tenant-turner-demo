@@ -1204,6 +1204,25 @@
           [r.photo, 'Listing exterior'], ['assets/living-sample.jpg','Sample living room'],
           ['assets/kitchen-sample.jpg','Sample kitchen'], ['assets/dining-sample.jpg','Sample dining area'],
           ['assets/bedroom-sample.jpg','Sample bedroom'], ['assets/bath-sample.jpg','Sample bathroom'],
+          ['assets/kitchen-counter.jpg','Kitchen counter'],
+          ['assets/kitchen-island.jpg','Kitchen island'],
+          ['assets/lounge.jpg','Main lounge'],
+          ['assets/lounge-windows.jpg','Lounge windows'],
+          ['assets/sitting-room.jpg','Sitting room'],
+          ['assets/family-room.jpg','Family room'],
+          ['assets/window-seat.jpg','Window seating'],
+          ['assets/bedroom-window.jpg','Bedroom window'],
+          ['assets/guest-bedroom.jpg','Guest bedroom'],
+          ['assets/bath-vanity.jpg','Bathroom vanity'],
+          ['assets/walk-in-bath.jpg','Walk-in bath'],
+          ['assets/open-plan.jpg','Open-plan living area'],
+          ['assets/lounge-terrace.jpg','Terrace lounge'],
+          ['assets/entry-exterior.jpg','Entry exterior'],
+          ['assets/courtyard.jpg','Courtyard'],
+          ['assets/terrace.jpg','Terrace'],
+          ['assets/evening-garden.jpg','Garden at dusk'],
+          ['assets/garden.jpg','Garden view'],
+          ['assets/pool.jpg','Pool'],
         ];
       }
       function viewListingPhoto(photos,index) {
@@ -1356,10 +1375,15 @@
                   <textarea id="mkDesc" class="mat-textarea" ${r.imported ? 'readonly' : ''}>${esc(r.description)}</textarea>
                 </div>
 
-                <div class="sub-heading">Photos</div>
+                <details class="listing-visuals">
+                  <summary>Visuals</summary>
+                  <label class="mat-field"><span class="mat-label">Virtual Tour</span>
+                    <input id="listing-virtual-tour" class="mat-input" type="url" value="${esc(r.virtualTour || '')}" ${r.imported?'readonly':''}>
+                  </label>
                 <div class="listing-gallery">
                   ${photos.map(([src,label], index)=>`<button class="photo-thumb-item" type="button" data-listing-photo="${index}" aria-label="View ${esc(label)}"><img src="${esc(src)}" alt="" loading="lazy"></button>`).join('')}
                 </div>
+                </details>
 
                 <div class="accordion-row">
                   <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Amenities</span></button>
@@ -1770,7 +1794,10 @@
         bindVal("mkTerm", v => { r.leaseTerm = v; });
         bindVal("mkType", v => { r.propertyType = v; });
         bindVal("mkTitle", v => { r.customTitle = v; });
-        if(!r.imported) bindVal("mkDesc", v => { r.description = v; });
+        if(!r.imported) {
+          bindVal("mkDesc", v => { r.description = v; });
+          bindVal("listing-virtual-tour", v => { r.virtualTour = v.trim(); });
+        }
         canvas.querySelectorAll('[data-listing-photo]').forEach(button=>{
           button.onclick=()=>viewListingPhoto(photos,Number(button.dataset.listingPhoto));
         });
@@ -3789,6 +3816,7 @@
       }
       function resetPractice() {
         byId('chatPopover').classList.remove('open');
+        byId('chatFab').setAttribute('aria-expanded','false');
         openModal('Reset practice data?','<p>Restore fictional records and clear tutorial progress in this browser.</p>','<button id="reset-cancel" class="btn-ghost">Cancel</button><button id="reset-confirm" class="btn-orange">Reset practice data</button>');
         byId('reset-cancel').onclick=closeModal;
         byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;detailPage=null;saveState();closeModal();render();showToast('Practice data reset.');};
@@ -3800,7 +3828,7 @@
         overlay.setAttribute('aria-hidden',String(!state.signedOut));
         document.querySelector('.app-shell').inert=state.signedOut || byId('ttModal').classList.contains('open');
         byId('chatFab').hidden=state.signedOut;
-        if(state.signedOut){byId('chatPopover').classList.remove('open');byId('signBackInBtn').focus();tutorial.draw();return;}
+        if(state.signedOut){byId('chatPopover').classList.remove('open');byId('chatFab').setAttribute('aria-expanded','false');byId('signBackInBtn').focus();tutorial.draw();return;}
         recordDueOwnerReports();
         wf.reminders();renderSidebar();renderHeader();
         const rental=state.section==='rentals' && state.rentals.find(r=>r.id===state.selectedRentalId);
@@ -3886,11 +3914,26 @@
         ['Find a lockbox arrival','Open Reports and choose Lockbox Access to see completed practice check-ins.'],
         ['Change weekly owner delivery','Open Reports, choose Scheduled and update the shared owner report time.'],
       ];
+      let supportThreadId;
+      let threadOpenedFrom;
+      const supportThreadKey = row => row.threadId || 'previous-practice';
+
+      function showSupportView(id) {
+        for(const view of ['support-home','support-conversations','support-conversation']) {
+          byId(view).hidden=view!==id;
+        }
+        chatPop.querySelector('.chat-pop-body').scrollTop=0;
+      }
       function showSupport(open) {
         chatPop.classList.toggle('open',open);
         chatFab.setAttribute('aria-expanded',String(open));
         if(open) {
-          drawSupport();
+          showSupportView('support-home');
+          byId('support-avatars').innerHTML=state.users.slice(0,3).map(user=>{
+            const initials=user.name.split(/\s+/).map(part=>part[0]).slice(0,2).join('');
+            return `<span>${esc(initials)}</span>`;
+          }).join('');
+          byId('support-status-text').textContent=navigator.onLine ? 'Online · local practice replies available' : 'Offline · local practice replies available';
           drawSupportTopics();
           byId('closeChatBtn').focus();
         } else chatFab.focus();
@@ -3899,8 +3942,46 @@
       chatFab.onclick=()=>showSupport(!chatPop.classList.contains('open'));
       byId('closeChatBtn').onclick=()=>showSupport(false);
       function drawSupport() {
-        byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('') || '<p>Practice messages appear here and stay in this browser.</p>';
+        const messages=state.support.filter(row=>supportThreadKey(row)===supportThreadId);
+        byId('support-thread-title').textContent=messages[0]?.text || 'New conversation';
+        const log=byId('practice-support-thread');
+        log.innerHTML=messages.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('');
+        log.scrollTop=log.scrollHeight;
       }
+      function openSupportThread(id,from) {
+        supportThreadId=id;
+        threadOpenedFrom=from;
+        showSupportView('support-conversation');
+        drawSupport();
+        byId('practice-support-message').value='';
+        byId('practice-support-message').focus();
+      }
+      function openSupportHistory() {
+        const threads=new Map();
+        for(const row of state.support) {
+          const id=supportThreadKey(row);
+          if(!threads.has(id)) threads.set(id,row.text);
+        }
+        showSupportView('support-conversations');
+        const list=byId('support-conversation-list');
+        list.innerHTML=[...threads].reverse().map(([id,title])=>
+          `<button type="button" class="support-thread-link" data-support-thread="${esc(id)}">${esc(title)}</button>`
+        ).join('') || '<p>Your practice conversations will appear here.</p>';
+        list.querySelectorAll('[data-support-thread]').forEach(button=>{
+          button.onclick=()=>openSupportThread(button.dataset.supportThread,'history');
+        });
+        chatPop.querySelector('[data-support-home]').focus();
+      }
+      byId('support-new').onclick=()=>openSupportThread(uid('support'),'home');
+      byId('support-history').onclick=openSupportHistory;
+      chatPop.querySelector('[data-support-home]').onclick=()=>{
+        showSupportView('support-home');
+        byId('support-history').focus();
+      };
+      byId('support-back').onclick=()=>{
+        if(threadOpenedFrom==='history') openSupportHistory();
+        else {showSupportView('support-home');byId('support-new').focus();}
+      };
       function drawSupportTopics() {
         const query=byId('practice-support-search').value.trim().toLowerCase();
         const topics=supportTopics.filter(([title,body])=>`${title} ${body}`.toLowerCase().includes(query));
@@ -3910,7 +3991,9 @@
       byId('practice-support-search').oninput=drawSupportTopics;
       byId('practice-support').onsubmit=event=>{
         event.preventDefault();const field=byId('practice-support-message');const request=field.value.trim();if(!request)return;
-        state.support.push({from:'You',text:request},{from:'Practice support',text:'Your practice message was recorded in this browser.'});
+        const topic=supportTopics.find(([title])=>title.toLowerCase().split(' ').some(word=>word.length>3 && request.toLowerCase().includes(word)));
+        const reply=topic?.[1] || 'Your practice message is saved. You can look up rental, identity, lockbox and reporting steps in Search for help.';
+        state.support.push({threadId:supportThreadId,from:'You',text:request},{threadId:supportThreadId,from:'Practice support',text:reply});
         field.value='';saveState();drawSupport();
       };
       byId('signBackInBtn').onclick=()=>{state.signedOut=false;saveState();render();};

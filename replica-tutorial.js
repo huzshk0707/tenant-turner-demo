@@ -13,7 +13,7 @@
     ]},
     {id:'marketing',title:'Status, marketing and syndication',time:'01:24–02:23',steps:[
       step('Review Status','Change the rental’s assigned user to another practice agent. Scroll to the bottom and choose Save Rental Settings.',setting(),'#stAssignee','settings','0125-rental-settings',includes('assignee')),
-      step('Review imported fields and photos','Marketing shows locked rent and property fields on an imported rental. Scroll past Photos and expand Amenities.',setting('marketing'),'#sec-marketing .accordion-btn','amenities','0200-photos'),
+      step('Review imported fields and photos','Marketing shows locked rent and property fields on an imported rental. Expand Visuals to review the virtual tour field and listing photos. Then expand Amenities.',setting('marketing'),'#sec-marketing .accordion-btn','amenities','0200-photos'),
       step('Set a syndication channel','Change a listing channel, then save the rental. Compare with the combined Zillow, Trulia, & HotPads switch in the recording.',setting('marketing'),'.syn-toggle','settings','0215-syndication',includes('syndication')),
     ]},
     {id:'qualifying',title:'Qualifying rules and custom questions',time:'02:23–03:04',steps:[
@@ -120,6 +120,7 @@
     }
     function catalog() {
       by('chatPopover').classList.remove('open');
+      by('chatFab').setAttribute('aria-expanded','false');
       guide().mode='tutorial';save();draw();
       open('Tutorial · follow the recording',`<div class="practice-lessons">${chapters.map(c=>`<button class="btn-outline tutorial-chapter" type="button" data-lesson="${c.id}"><strong>${esc(c.title)}</strong><small>${esc(c.time)} · ${progress(c)} of ${c.steps.length}</small></button>`).join('')}</div>`,button('tutorial-free','Free Practice','btn-ghost')+button('tutorial-close','Close','btn-blue'));
       by('ttModalBody').querySelectorAll('[data-lesson]').forEach(b=>b.onclick=()=>choose(b.dataset.lesson));
