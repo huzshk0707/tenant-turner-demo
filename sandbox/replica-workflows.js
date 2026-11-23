@@ -65,6 +65,7 @@ window.createReplicaWorkflows = api => {
   }
   function invite(r,l) {
     storeLead(r,l);
+    startFollowUps(r,l,'invitation');
     const url=link('qualify',r.id,l.id);
     note(l,'Practice pre-qualification invitation recorded.');
     message(r,l,`Complete practice pre-qualification: ${url}`);
@@ -129,102 +130,241 @@ window.createReplicaWorkflows = api => {
     }
   }
   function book(r,l,existing=null) {
+    if (engine.identityHold(l)) {
+      toast('Scheduling is on hold. Resolve the practice identity review on the lead profile.');
+      return;
+    }
     const methods=[r.viewing.selfAccess && ['self','Self-Access'],r.viewing.inPerson.enabled && ['person','In-Person']].filter(Boolean);
     if (!methods.length) {toast('Enable a viewing method in Settings first.');return;}
-    const getMethod = row => row?.method || (row?.type.startsWith('In-Person') ? 'person' : 'self');
-    const preferred=existing ? getMethod(existing) : methods.find(([m])=>m==='person')?.[0] || methods[0][0];
+    if (methods.length===1 && methods[0][0]==='self' && r.viewing.requireId && !l.idReviewed) {
+      storeLead(r,l);
+      finish('Open the lead profile to review the practice ID before booking self-access.');
+      return;
+    }
+    const previous=existing?.method || (existing?.type.startsWith('In-Person') ? 'person' : 'self');
+    const preferred=existing && methods.some(([method])=>method===previous) ? previous : methods.find(([method])=>method==='person')?.[0] || methods[0][0];
     const available=engine.firstSlot(get(),r,l,preferred,api.times,existing?.id);
     form(existing ? 'Reschedule showing':'Schedule showing', `<div class="grid-2">${select('book-method','Showing method',methods.map(([key,label])=>opt(key,label,preferred)).join(''))}${input('book-date','Date',existing?.date || available?.date || date(1),'date','required')}${input('book-time','Time',engine.toTime(existing?.time || available?.time || '11:00 AM'),'time','required')}</div>
-      ${(r.viewing.requireId || l.idRequested) ? toggle('book-id',l.idRequested?'Replacement practice ID reviewed':'Practice ID reviewed',l.idReviewed) : ''}<p class="practice-note">Calendar, access and messages use fictional data.</p>`, 'Save showing', () => {
+      ${r.viewing.selfAccess && r.viewing.requireId && !l.idReviewed ? '<p class="practice-note">Review the practice ID on the lead profile to enable self-access.</p>' : ''}`, 'Save showing', () => {
       const method=val('book-method');
-      const reviewed=l.idReviewed || on('book-id');
-      const outcome=engine.plan(get(),r,{...l,idReviewed:reviewed},val('book-date'),val('book-time'),method,{existing:existing?.id});
+      const outcome=engine.plan(get(),r,l,val('book-date'),val('book-time'),method,{existing:existing?.id});
       if (outcome.error) return alert(outcome.error);
-      l.idReviewed=reviewed;if(reviewed) l.idRequested=false;l.status=outcome.status==='Confirmed'?'Scheduled':'Showing requested';
+      l.status=outcome.status==='Confirmed'?'Scheduled':'Showing requested';
+      delete l.followUp;
       storeLead(r,l);
       const v=existing || {id:uid('showing'),rentalId:r.id,leadId:l.id,leadName:l.name,leadPhone:l.phone};
       const start=window.LeasingSchedule.epoch(outcome.date,engine.toTime(outcome.time),outcome.zone);
-      Object.assign(v,outcome,{reminder:false,confirmBy:outcome.status==='Pending Confirmation'?Math.max(Date.now()+60000,start-2*3600000):null});
+      const prior=existing && {status:v.status,date:v.date,time:v.time,method:v.method,type:v.type};
+      Object.assign(v,outcome,{instructions:method==='self'?r.viewing.instructions:r.viewing.inPerson.instructions,
+        reminder:false,confirmBy:outcome.status==='Pending Confirmation'?Math.max(Date.now()+60000,start-2*3600000):null});
+      const moved=!prior || prior.date!==v.date || prior.time!==v.time || (prior.method || (prior.type.startsWith('In-Person')?'person':'self'))!==method;
+      if (moved || prior?.status==='Reschedule Requested') {
+        v.visitVersion=uid('appointment');
+        delete v.practiceCode;
+        delete v.checkedInAt;
+        delete v.checkedInDevice;
+        delete v.codeExpiresAt;
+      }
       if (!existing) get().viewingsList.push(v);
       note(l,`${outcome.status} showing for ${outcome.date} at ${outcome.time}.`);
-      message(r,l,`Practice showing ${outcome.status.toLowerCase()}: ${outcome.date} at ${outcome.time}.`);
-      delete v.practiceCode;
-      if(outcome.status==='Confirmed' && method==='person' && r.viewing.inPerson.notifyOccupants) note(l,'Practice occupant notice recorded.');
+      message(r,l,appointmentMessage(r,v));
+      if(outcome.status==='Confirmed' && method==='person' && (moved || prior?.status!=='Confirmed')) notifyOccupants(r,l,v);
       finish('Practice showing saved.','showing');
     });
-    const suggestSlot=()=>{
-      const current=engine.firstSlot(get(),r,{...l,idReviewed:l.idReviewed || on('book-id')},val('book-method'),api.times,existing?.id);
+    el('book-method').addEventListener('change',()=>{
+      const current=engine.firstSlot(get(),r,l,val('book-method'),api.times,existing?.id);
       if (current) {el('book-date').value=current.date;el('book-time').value=engine.toTime(current.time);}
-    };
-    el('book-method').addEventListener('change',suggestSlot);
-    el('book-id')?.addEventListener('change',suggestSlot);
+    });
   }
   function linkedLead(v,r) { return r.leads.find(l=>v.leadId ? l.id===v.leadId : l.name===v.leadName); }
-  function scheduledFor(r,l) { return get().viewingsList.find(v=>v.rentalId===r.id && (v.leadId ? v.leadId===l.id : v.leadName===l.name) && ['Confirmed','Pending Confirmation','Requested'].includes(v.status)); }
+  function scheduledFor(r,l) { return get().viewingsList.find(v=>v.rentalId===r.id && linkedLead(v,r)===l && ['Confirmed','Pending Confirmation','Requested','Reschedule Requested'].includes(v.status)); }
+  const codeBoxVisit = v => v.type==='Self-Access (CodeBox)';
+  const appointmentUrl = (r,v) => link('visit',r.id,v.id,...(v.visitVersion ? [v.visitVersion] : []));
+  function appointmentMessage(r,v) {
+    return `Practice showing ${v.status.toLowerCase()}: ${v.date} at ${v.time}.` +
+      (v.status==='Confirmed' && codeBoxVisit(v) ? ` Use your appointment link when you arrive: ${appointmentUrl(r,v)}` : '');
+  }
+  function notifyOccupants(r,l,v) {
+    if (!r.viewing.inPerson.notifyOccupants) return;
+    note(l,'Practice occupant notice recorded.');
+    api.recordNotice?.(r,{type:'Occupant',recipient:'Current occupants',message:`Viewing scheduled for ${v.date} at ${v.time}.`});
+  }
+  const followUpDelay = 48 * 60 * 60 * 1000;
+  function startFollowUps(r,l,kind='booking') {
+    l.status='Waiting on Lead';
+    l.followUp={kind,attempts:0,dueAt:Date.now()+followUpDelay};
+  }
+  function sendDueFollowUp(r,l,now) {
+    const followUp=l.followUp;
+    if (!followUp) return false;
+    if (l.archived || l.status!=='Waiting on Lead') {
+      delete l.followUp;
+      return true;
+    }
+    if (engine.identityHold(l) || !r.active || r.waitlist || followUp.dueAt>now) return false;
+    if (followUp.attempts>=2) {
+      l.archived=true;
+      l.status='Archived';
+      delete l.followUp;
+      const pending=scheduledFor(r,l);
+      if(pending?.status==='Reschedule Requested') pending.status='Canceled';
+      note(l,'Archived for inactivity after two unanswered practice follow-ups.');
+      return true;
+    }
+    followUp.attempts++;
+    followUp.dueAt=now+followUpDelay;
+    const text=followUp.kind==='reschedule' ? 'Do you still want to reschedule your practice showing? Reply with a time that works for you.'
+      : followUp.kind==='invitation' ? `Are you still interested? Complete practice pre-qualification here: ${link('qualify',r.id,l.id)}`
+      : 'Are you still interested? Reply for help choosing an available practice showing time.';
+    message(r,l,text);
+    note(l,`48-hour practice follow-up ${followUp.attempts} recorded.`);
+    return true;
+  }
   function reminders() {
     const now=Date.now(); let changed=false;
     for (const v of get().viewingsList) {
       const r=rental(v.rentalId); const l=r && linkedLead(v,r);
-      if(v.status==='Pending Confirmation' && v.confirmBy && v.confirmBy<=now && l) {
-        v.status='Canceled';l.status='Pre-Qualified';message(r,l,'Practice showing canceled because it was not confirmed.');changed=true;continue;
+      if(!l || l.archived) continue;
+      if(engine.identityHold(l) && ['Confirmed','Pending Confirmation'].includes(v.status)) {
+        v.status='Requested';v.confirmBy=null;
+        l.status='Showing requested';
+        note(l,'Showing held for practice identity review.');
+        changed=true;
+        continue;
       }
-      const ts=window.LeasingSchedule.epoch(v.date,engine.toTime(v.time),v.zone || 'Mountain');
-      if (v.reminder || !['Confirmed','Pending Confirmation'].includes(v.status) || ts<=now || ts-now>86400000) continue;
-      if (!l) continue;
-      message(r,l,`Reminder for your practice viewing on ${v.date} at ${v.time}.`);v.reminder=true;changed=true;
+      if(engine.identityHold(l)) continue;
+      if(v.status==='Pending Confirmation' && v.confirmBy && v.confirmBy<=now) {
+        requestReschedule(r,l,v,'The practice showing was not confirmed. Reply to choose a different time.');
+        changed=true;
+        continue;
+      }
+      if(v.reminder || !['Confirmed','Pending Confirmation'].includes(v.status)) continue;
+      const zone=v.zone || 'Mountain';
+      const ts=window.LeasingSchedule.epoch(v.date,engine.toTime(v.time),zone);
+      if (ts<=now || window.LeasingSchedule.localParts(now,zone).date!==v.date) continue;
+      const request=v.status==='Pending Confirmation'?'Please confirm your practice viewing':'Reminder for your practice viewing';
+      message(r,l,`${request} on ${v.date} at ${v.time}.`);v.reminder=true;changed=true;
+    }
+    for(const r of get().rentals) {
+      for(const lead of r.leads) if(sendDueFollowUp(r,lead,now)) changed=true;
     }
     if (changed) save();
   }
-  function practiceArrival(r,l,v) {
-    const device=get().devices.find(d=>d.type==='CodeBox' && d.rentalId===r.id && d.serial===r.serialNumber);
-    const body=`<p>${esc(r.address)} · ${esc(v.date)} at ${esc(v.time)}</p>
-      <p>This exercise moves the practice clock to the appointment. The fictional box at the door is <strong>${esc(device?.serial || 'unassigned')}</strong>.</p>
-      ${select('arrival-time','Arrival',['At the confirmed appointment','Outside the permitted hours'].map(x=>fmt(x,'At the confirmed appointment')).join(''))}
-      ${input('arrival-device','Box shown at the door','','text','required')}`;
-    form('Practice CodeBox arrival',body,'Check in',()=>{
-      if(v.status!=='Confirmed' || !r.active || !r.viewing.selfAccess || r.viewing.viewingType!=='CodeBox' || l.archived || l.idRequested || (r.viewing.requireId && !l.idReviewed))
-        return alert('Access held. Review the appointment, rental and ID before checking in.');
-      if(val('arrival-time')!=='At the confirmed appointment') return alert('Outside the appointment window. Contact the leasing office.');
-      if(!device || val('arrival-device')!==device.serial) return alert('This box does not match the assigned rental.');
-      if(!v.practiceCode) {
-        v.practiceCode='SIM-'+uid('visit').slice(-8).toUpperCase();
-        message(r,l,`Practice arrival confirmed. Your code for this visit is ${v.practiceCode}. Return the key and secure the property when you leave.`);
-        note(l,'Practice self-access check-in recorded.');save();
+  function requestReschedule(r,l,v,reply='Choose another time for your practice showing.') {
+    v.status='Reschedule Requested';
+    v.confirmBy=null;
+    startFollowUps(r,l,'reschedule');
+    note(l,'Reschedule requested. A practice follow-up is due in 48 hours.');
+    message(r,l,reply);
+  }
+  function openVisit(r,v,version) {
+    const lead=linkedLead(v,r);
+    if(!lead || !codeBoxVisit(v) || (v.visitVersion || '')!==(version || '')) {
+      toast('This practice appointment link has expired.');
+      return;
+    }
+    const device=()=>get().devices.find(d=>d.type==='CodeBox' && d.rentalId===r.id && d.serial===r.serialNumber);
+    const appointmentTime=engine.toTime(v.time);
+    const accessAllowed=()=>v.status==='Confirmed' && !lead.archived && !engine.identityHold(lead) && r.active && r.viewing.selfAccess &&
+       r.viewing.viewingType==='CodeBox' && (!r.viewing.requireId || lead.idReviewed);
+    const body=()=>`<div class="practice-note"><strong>Prospect exercise</strong> · Use fictional details.</div>
+      <p>${esc(r.address)} · ${esc(v.date)} at ${esc(v.time)} ${esc(v.zone || 'Mountain')}</p>
+      <p>${esc(v.instructions || r.viewing.instructions || 'Follow the showing instructions to find the assigned box at the property.')}</p>
+      <p>Use the time you arrive and enter the serial visible on the fictional box at the property. Adjust the practice time to try different arrival scenarios.</p>
+      <p>Fictional box at the property: <strong>${esc(device()?.serial || 'Unassigned')}</strong></p>
+      ${input('arrival-moment','Practice arrival date and time',`${v.date}T${appointmentTime}`,'datetime-local','required')}
+      ${input('arrival-device','CodeBox serial','','text','required')}
+      <p id="visit-code" class="practice-note" aria-live="polite" hidden></p>`;
+    const record=()=>{
+      if(!accessAllowed()) return alert('Access is on hold. Contact the practice leasing team about the appointment.');
+      const zone=v.zone || 'Mountain';
+      const schedule=window.LeasingSchedule;
+      const [arrivalDate,arrivalTime]=val('arrival-moment').split('T');
+      const scheduledArrival=schedule.epoch(v.date,appointmentTime,zone);
+      const actualArrival=schedule.epoch(arrivalDate,arrivalTime,zone);
+      const appointmentEnd=scheduledArrival+(v.duration || 30)*60_000;
+      if (arrivalDate!==v.date || !Number.isFinite(actualArrival) || actualArrival<scheduledArrival || actualArrival>=appointmentEnd)
+        return alert('Outside the appointment window. Contact the practice leasing team.');
+      const assigned=device();
+      if(!assigned || (v.checkedInDevice && v.checkedInDevice!==assigned.serial) || val('arrival-device').toUpperCase()!==assigned.serial.toUpperCase()) return alert('This box does not match the assigned rental.');
+      if(!v.checkedInAt) {
+        v.practiceCode=`SIM-${uid('visit').slice(-8).toUpperCase()}`;
+        v.checkedInAt=actualArrival;
+        v.checkedInDevice=assigned.serial;
+        v.codeExpiresAt=Math.min(actualArrival+90*60_000,schedule.epoch(schedule.shiftDate(arrivalDate,1),'00:00',zone));
+        get().accessEvents.unshift({id:uid('access'),device:assigned.serial,rentalId:r.id,viewingId:v.id,recipient:lead.name,code:v.practiceCode,
+          date:arrivalDate,action:'Arrival',type:'Showing check-in',actualArrival,scheduledArrival,zone});
+        message(r,lead,`Practice arrival confirmed. Your code for this visit is ${v.practiceCode}. Return the key and secure the property when you leave.`);
+        note(lead,'Practice self-access check-in recorded.');
+        save();
       }
-      modal('Practice check-in',`<p>Code for this visit: <strong>${esc(v.practiceCode)}</strong></p><p>The recording describes a code for the appointment date with 90 minutes of access after activation. This practice code opens no lock.</p>`,button('arrival-done','Done'));
-      click('arrival-done',()=>{close();render();});
-    });
+      el('practice-error').hidden=true;
+      const code=el('visit-code');
+      code.hidden=false;
+      code.textContent=`Your practice code is ${v.practiceCode}. The example code runs from activation for up to 90 minutes on the appointment date.`;
+      if(el('access-secondary')) el('access-secondary').hidden=true;
+    };
+    if(v.status==='Reschedule Requested') {
+      openDetail('Practice self-showing','Back to Leads',()=>{el('canvas').innerHTML='<section class="mat-card"><h2>Reschedule requested</h2><p>The practice leasing team will follow up about a new showing time.</p></section>';});
+      return;
+    }
+    pageForm('Practice self-showing','Back to Leads',body(),'Check in',record,
+      accessAllowed() && !v.checkedInAt ? {label:'Request a new time',run:()=>{
+        if(!accessAllowed() || v.checkedInAt) return;
+        const thread=threadFor(r,lead);
+        thread.thread.push({sender:'inbound',label:lead.name,time:'Just now',date:date(),text:'Could I reschedule my practice showing?'});
+        thread.unread=true;thread.needsReply=true;
+        requestReschedule(r,lead,v,'We received your practice reschedule request.');
+        save();openVisit(r,v,version);
+      }} : null);
   }
   function showingAction(action,id) {
     const v=get().viewingsList.find(row=>row.id===id);
     const r=v && rental(v.rentalId);if(!r) return;
-    const l=linkedLead(v,r) || blankLead(r,{name:v.leadName,phone:v.leadPhone,manualOverride:true,idReviewed:true});
-    if (action==='arrival') {practiceArrival(r,l,v);return;}
+    const l=linkedLead(v,r);
+    if (!l) {toast('Open the rental’s Leads tab to locate the practice prospect.');return;}
     if (action==='edit') {book(r,l,v);return;}
     if (action==='confirm') {
       const method=v.method || (v.type.startsWith('In-Person')?'person':'self');
       const result=engine.plan(get(),r,l,v.date,v.time,method,{existing:v.id,confirm:true});
       if (result.error) {toast(result.error);return;}
-      v.status='Confirmed';v.confirmBy=null;l.status='Scheduled';if(method==='person' && r.viewing.inPerson.notifyOccupants) note(l,'Practice occupant notice recorded.');storeLead(r,l);message(r,l,'Practice showing confirmed.');finish('Showing confirmed.');return;
+      v.status='Confirmed';v.confirmBy=null;l.status='Scheduled';
+      delete l.followUp;
+      if(method==='person') notifyOccupants(r,l,v);
+      note(l,'Practice showing confirmed.');
+      message(r,l,appointmentMessage(r,v));
+      finish('Showing confirmed.');return;
     }
     if (action==='complete') {
       form('Record viewing feedback',`${select('view-rating','Rating',[1,2,3,4,5].map(x=>fmt(x,5)).join(''))}${textarea('view-comments','Comments')}`,'Complete viewing',()=>{
-        v.status='Viewed';l.status='Viewed';storeLead(r,l);note(l,'Practice viewing completed.');
-        if (val('view-comments')) addFeedback(r,l,Number(val('view-rating')),val('view-comments'));
-        message(r,l,`Thanks for visiting. Share feedback with the leasing team or open the sample application: ${link('apply',r.id,l.id)}`);
+        v.status='Viewed';l.status='Viewing Completed';delete l.followUp;note(l,'Practice viewing completed.');
+        if (val('view-comments')) addFeedback(r,l,Number(val('view-rating')),val('view-comments'),v);
+        message(r,l,`Thanks for visiting. Share feedback with the leasing team or open the sample application: ${applicationUrl(r,l)}`);
         finish('Viewing completed and practice follow-up recorded.','complete');
       });return;
     }
-    v.status=action==='no-show'?'No-show':'Canceled';
-    l.status='Pre-Qualified';storeLead(r,l);note(l,`Practice showing marked ${v.status}.`);
-    message(r,l,`Practice showing ${v.status.toLowerCase()}. Contact the leasing team to reschedule.`);
-    finish(`Showing ${v.status.toLowerCase()}.`);
+    if (action==='no-show') {
+      requestReschedule(r,l,v,'You missed the practice showing. Reply to choose a different time.');
+      finish('Practice reschedule follow-up queued.');return;
+    }
+    v.status='Canceled';v.confirmBy=null;
+    l.status='Pre-Qualified';delete l.followUp;
+    note(l,'Practice showing canceled.');
+    message(r,l,'Practice showing canceled. Contact the leasing team to arrange a new time.');
+    finish('Showing canceled.');
   }
   function renderShowings() {
     const filters=get().viewingsFilter;
-    const rows=get().viewingsList.filter(v=>(filters.property==='all'||filters.property===v.rentalId) && (filters.type==='all'||v.type.startsWith(filters.type==='self'?'Self-Access':'In-Person')) && (filters.status==='all'||(filters.status==='upcoming'?v.date>=date() && ['Confirmed','Requested','Pending Confirmation'].includes(v.status):v.date<date() || !['Confirmed','Requested','Pending Confirmation'].includes(v.status))));
+    const upcoming=v=>v.status==='Reschedule Requested' || (v.date>=date() && ['Confirmed','Requested','Pending Confirmation'].includes(v.status));
+    const rows=get().viewingsList.filter(v=>(filters.property==='all'||filters.property===v.rentalId) && (filters.type==='all'||v.type.startsWith(filters.type==='self'?'Self-Access':'In-Person')) && (filters.status==='all'||(filters.status==='upcoming'?upcoming(v):!upcoming(v))));
+    const availableActions=v=>{
+      if (v.status==='Confirmed') return [['complete','Complete'],['no-show','No-show'],['edit','Reschedule'],['cancel','Cancel']];
+      if (v.status==='Reschedule Requested') return [['edit','Reschedule'],['cancel','Cancel']];
+      if (['Requested','Pending Confirmation'].includes(v.status)) return [['confirm','Confirm'],['edit','Reschedule'],['cancel','Cancel']];
+      return [];
+    };
     el('canvas').innerHTML=`<div class="practice-width"><div class="filter-bar"><div class="filter-left">${select('show-prop','Property',opt('all','All Rentals',filters.property)+get().rentals.map(r=>opt(r.id,r.address,filters.property)).join(''))}${select('show-type','Showing type',[['all','All types'],['self','Self-Access'],['person','In-Person']].map(([k,v])=>opt(k,v,filters.type)).join(''))}${select('show-status','Viewings',[['upcoming','Upcoming'],['past','Past and closed'],['all','All viewings']].map(([k,v])=>opt(k,v,filters.status)).join(''))}</div>${button('scheduleShowingBtn','+ Schedule Practice Showing')}</div>
-      <div class="mat-card practice-table">${table(['Date & Time','Property','Lead','Showing Method','Status','Actions'],rows.map(v=>[`${esc(v.date)}<br>${esc(v.time)}`,esc(rental(v.rentalId)?.address),esc(v.leadName),esc(v.type),esc(v.status),['Confirmed','Requested','Pending Confirmation'].includes(v.status) ? `<div class="practice-actions">${(v.status==='Confirmed'?[...(v.type==='Self-Access (CodeBox)' ? [['arrival','Practice arrival']] : []),['complete','Complete'],['no-show','No-show']]:[['confirm','Confirm']]).concat([['edit','Reschedule'],['cancel','Cancel']]).map(([k,label])=>`<button class="btn-flat btn-sm" type="button" data-show-action="${k}" data-vid="${esc(v.id)}">${label}</button>`).join('')}</div>`:'—']),'No viewings match these filters.')}</div></div>`;
+      <div class="mat-card practice-table">${table(['Date & Time','Property','Lead','Showing Method','Status','Actions'],rows.map(v=>[`${esc(v.date)}<br>${esc(v.time)}`,esc(rental(v.rentalId)?.address),esc(v.leadName),esc(v.type),esc(v.status),availableActions(v).length ? `<div class="practice-actions">${availableActions(v).map(([k,label])=>`<button class="btn-flat btn-sm" type="button" data-show-action="${k}" data-vid="${esc(v.id)}">${label}</button>`).join('')}</div>`:'—']),'No viewings match these filters.')}</div></div>`;
     for (const [id,key] of [['show-prop','property'],['show-type','type'],['show-status','status']]) el(id).addEventListener('change',()=>{filters[key]=val(id);save();renderShowings();});
     el('canvas').querySelectorAll('[data-show-action]').forEach(btn=>btn.onclick=()=>showingAction(btn.dataset.showAction,btn.dataset.vid));
     click('scheduleShowingBtn',()=>form('Select rental and lead',`${select('pick-rental','Rental',get().rentals.filter(r=>r.active).map(r=>opt(r.id,r.address)).join(''))}${select('pick-lead','Lead','')}`,'Continue to showing',()=>{
@@ -535,5 +675,5 @@ window.createReplicaWorkflows = api => {
       lead.status='Applied';lead.archived=false;storeLead(r,lead);note(lead,'Practice application received.');message(r,lead,'Your fictional application was received.');finish('Practice application saved.');
     });
   }
-  return {blankLead,invite,qualify,book,scheduledFor,note,threadFor,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,applicationUrl,storeLead};
+  return {blankLead,invite,qualify,book,scheduledFor,note,threadFor,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,applicationUrl,storeLead,openVisit,appointmentUrl,startFollowUps};
 };

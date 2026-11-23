@@ -56,8 +56,10 @@ window.ReplicaBooking = (() => {
       return '';
     }
   }
+  const identityHold = lead => Boolean(lead.idMetadataWarning || lead.idRequested);
 
   function plan(state,rental,lead,date,time,method,options={}) {
+    if (identityHold(lead)) return {error:'Scheduling is on hold. Resolve the practice identity review on the lead profile.'};
     const self=method==='self';
     const primary=self ? rental.assignee : rental.viewing.inPerson.showingAgent || rental.assignee;
     const duration=Number(self ? 30 : rental.viewing.inPerson.durationMinutes) || 30;
@@ -100,7 +102,7 @@ window.ReplicaBooking = (() => {
     if ((!lead.manualOverride && (lead.score === null || lead.score < 6)) || lead.archived) return fail('Review pre-qualification before booking, or record a manual override.');
     if (!self && !state.users.some(user=>user.name===agent && user.active && user.canShow!==false)) return fail('Choose an active showing agent in Viewing settings.');
     if (!(self ? rental.viewing.selfAccess : ip.enabled)) return fail('This viewing method is off for this rental.');
-    if (self && (rental.viewing.requireId || lead.idRequested) && !lead.idReviewed) return fail('Mark the practice ID reviewed before scheduling self-access.');
+    if (self && rental.viewing.requireId && !lead.idReviewed) return fail('Review the practice ID on the lead profile before scheduling self-access.');
     if (!Number.isFinite(start) || start <= now) return fail('Choose a valid future showing time.');
     const notice = self ? (parseInt(limits.selfAccessAdvanceNotice,10) || 0) * (limits.selfAccessAdvanceNotice.includes('hour') ? 60 : 1) : Number(ip.advanceNoticeHours) * 60;
     if (!confirm && start - now < notice * minute) return fail(`Choose a showing with at least ${notice} minutes’ notice.`);
@@ -145,6 +147,7 @@ window.ReplicaBooking = (() => {
   }
 
   function firstSlot(state,rental,lead,method,times,existing = '') {
+    if (identityHold(lead) || (method==='self' && rental.viewing.requireId && !lead.idReviewed)) return null;
     const start = dateOffset();
     for (let offset=0; offset<=Number(rental.viewing.limits.maxDaysAdvance || 7); offset++) {
       const date=shiftDate(start,offset);
@@ -192,5 +195,5 @@ window.ReplicaBooking = (() => {
     return reasons;
   }
 
-  return {dateOffset,toTime,plan,firstSlot,screen,historyRestrictions,historyPolicy,builtInQuestions,questionChoices,qualificationQuestions,webUrl};
+  return {dateOffset,toTime,plan,firstSlot,screen,historyRestrictions,historyPolicy,builtInQuestions,questionChoices,qualificationQuestions,webUrl,identityHold};
 })();

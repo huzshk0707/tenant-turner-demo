@@ -546,6 +546,7 @@
           "Pre-Qualified": 8,
           "Toured": 10,
           "Viewed": 10,
+          "Viewing Completed": 10,
           "Applied": 9,
           "Wait List": 7,
           "Disqualified": 2,
@@ -557,7 +558,7 @@
         if (!l.leadType) l.leadType = "Tenant lead";
         if (l.score === undefined) l.score = (l.status in scoreMap) ? scoreMap[l.status] : 8;
         if (l.status === "Prequalified") l.status = "Pre-Qualified";
-        if (l.status === "Toured") l.status = "Viewed";
+        if (l.status === "Toured" || l.status === "Viewed") l.status = "Viewing Completed";
         if (!l.moveInDate) l.moveInDate = r.dateAvailable || "2026-12-01";
         if (l.monthlyIncome == null) l.monthlyIncome = Math.round((r.rent || 2200) * 3.2);
         if (!l.pets) l.pets = r.qualifying && r.qualifying.allowPets ? "1 small dog (20 lbs)" : "None";
@@ -613,6 +614,7 @@
         const sample=r?.leads.find(l=>l.id==='lead_r1_2');
         if(sample && !sample.archived && !sample.answers && !s.viewingsList.some(v=>v.id==='sample-prior-self-tour')) {
           sample.idMetadataWarning=true;
+          sample.idReviewed=false;
           sample.incomeSource='Income from employment';
           sample.financialHistory='No issues to report.';
           sample.notes.unshift({time:sample.createdAt,text:'Prospect asked about the fenced yard for a small dog.',internal:true});
@@ -645,7 +647,7 @@
           for(const l of r.leads){l.createdDate=dateOffset(-2);l.archived=l.status==='Disqualified';l.idReviewed=l.score>=6;}
         });
         for(const a of Object.values(s.generalAvailability)) a.blockedDates=[];
-        s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewed';}});
+        s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewing Completed';}});
         s.rentals[0].ownerReport.feedback[0].leadId=s.rentals[0].leads[0].id;
         s.rentals[0].ownerReport.feedback[0].date=dateOffset(-1);
         return seedProfileExamples(s);
@@ -692,9 +694,10 @@
         document.body.removeChild(ta);
       }
 
+      let savedWorkspace;
       function loadState() {
         try {
-          const raw = localStorage.getItem(STORAGE_KEY);
+          const raw = savedWorkspace = localStorage.getItem(STORAGE_KEY);
           if (!raw) return cloneSeed();
           const parsed = JSON.parse(raw);
           const seed=cloneSeed();
@@ -733,7 +736,9 @@
 
       function saveState() {
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          const serialized = JSON.stringify(state);
+          localStorage.setItem(STORAGE_KEY, serialized);
+          savedWorkspace=serialized;
         } catch (e) {
           // ignore storage errors
         }
@@ -2456,10 +2461,10 @@
         const k = String(status || "").toLowerCase().replace(/[^a-z]/g, "");
         if (k === "scheduled") return "st-scheduled";
         if (k === "prequalified") return "st-prequalified";
-        if (k === "viewed" || k === "toured") return "st-viewed";
+        if (k === "viewed" || k === "toured" || k === "viewingcompleted") return "st-viewed";
         if (k === "applied") return "st-applied";
-        if (k === "waitlist") return "st-waitlist";
-        if (k === "disqualified") return "st-disqualified";
+        if (k === "waitlist" || k === "waitingonlead") return "st-waitlist";
+        if (k === "disqualified" || k === "archived") return "st-disqualified";
         return "st-unscored";
       }
 
@@ -2559,7 +2564,7 @@
         });
       }
 
-      const LEAD_STAGES = ["Unscored","Pre-Qualified","Scheduled","Showing requested","Viewed","Applied","Wait List","Disqualified"];
+      const LEAD_STAGES = ["Unscored","Pre-Qualified","Waiting on Lead","Scheduled","Showing requested","Viewing Completed","Applied","Wait List","Disqualified","Archived"];
 
       function openLeadMessages(r, lead) {
         const thread=wf.threadFor(r,lead);
@@ -2604,7 +2609,7 @@
             } else row.leadPhone=phone;
           }
           for(const f of r.ownerReport.feedback.filter(row=>belongsToLead(row,lead))) {f.leadId=lead.id;f.lead=name;}
-          if(lead.status!==fields.get('status')) lead.archived=fields.get('status')==='Disqualified';
+          if(lead.status!==fields.get('status')) lead.archived=['Disqualified','Archived'].includes(fields.get('status'));
           Object.assign(lead,{name,phone,email,status:fields.get('status'),manualOverride:fields.has('override')});
           if(lead.archived) cancelLeadViewings(r,lead);
           wf.note(lead,'Lead details updated.');detailPage.title=leadTitle(r,lead);
@@ -2624,16 +2629,29 @@
         const tours=state.viewingsList.filter(v=>v.rentalId===r.id && belongsToLead(v,lead)).sort((a,b)=>b.date.localeCompare(a.date));
         const feedback=r.ownerReport.feedback.filter(f=>belongsToLead(f,lead));
         if(feedbackId) feedback.sort((a,b)=>Number(b.id===feedbackId)-Number(a.id===feedbackId));
-        const canSchedule=!lead.archived && (lead.score>=6 || lead.manualOverride);
+        const hold=window.ReplicaBooking.identityHold(lead);
+        const qualified=!lead.archived && (lead.score>=6 || lead.manualOverride);
+        const canSchedule=qualified && !hold;
         const answers=lead.answers;
         const risks=answers && ['bankruptcy','judgment','eviction','felony'].filter(key=>answers[key]);
         const action=(id,label,disabled=false)=>`<button id="${id}" class="btn-flat" type="button" ${disabled?'disabled':''}>${esc(label)}</button>`;
         const fact=(label,value)=>`<dt>${esc(label)}</dt><dd>${esc(value ?? 'Not provided')}</dd>`;
-        const sampleId=lead.idReviewed || lead.idMetadataWarning;
+        const displayDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeZone:'UTC'}).format(new Date(`${value}T12:00:00Z`))
+          : value;
+        const displayTime=value=>/^\d{2}:\d{2}$/.test(value)
+          ? new Intl.DateTimeFormat('en-US',{timeStyle:'short',timeZone:'UTC'}).format(new Date(`2000-01-01T${value}:00Z`))
+          : value;
+        const reviewLabel=lead.idRequested?'Review replacement ID':lead.idMetadataWarning?'Review identity flag':'Mark ID reviewed';
+        const followUpDue=lead.status==='Waiting on Lead' && !lead.archived && Number.isFinite(lead.followUp?.dueAt)
+          ? new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short'}).format(lead.followUp.dueAt)
+          : '';
         byId('canvas').innerHTML=`<div class="lead-profile">
           <section class="mat-card prospect-summary">
-            <h2><span aria-label="${canSchedule?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${canSchedule?'qualified':''}"></span> ${esc(lead.name)}</h2>
+            <h2><span aria-label="${qualified?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${qualified?'qualified':''}"></span> ${esc(lead.name)}</h2>
             <div class="prospect-contact">${esc(lead.email)}<br>${esc(lead.phone)}</div>
+            ${hold ? '<p class="practice-error" role="status">Staff review required. Scheduling is on hold.</p>' : ''}
+            ${followUpDue ? `<p>Waiting on Lead · Follow-up due ${esc(followUpDue)} (local time)</p>` : ''}
             ${action('ldApplyBtn','Send Application Link')}
             <div class="prospect-actions">${action('ldArchive',lead.archived?'Unarchive':'Archive')}${action('ldDecline','Decline',lead.archived)}${action('ldEdit','Edit')}${action('ldMsgBtn','Send Message')}</div>
           </section>
@@ -2645,18 +2663,21 @@
               <label class="mat-field">Comments<textarea class="mat-textarea" name="comment" rows="2"></textarea></label>
               <button class="btn-flat">Submit Feedback</button></form>`}
             </div>
-            ${sampleId?`<div class="prospect-id" role="img" aria-label="Fictional identification sample"><strong>Practice ID</strong><span>${esc(lead.name)}</span><small>Fictional sample</small></div>`:''}
-            <p>${lead.idRequested?'New ID requested. Self-access is on hold pending review.':lead.idMetadataWarning?'The sample ID has missing or suspicious metadata. Review the viewing request, request a new ID, or archive this lead.':lead.idReviewed?'The fictional identification has been reviewed.':'No identification on file.'}</p>
-            ${tours.map(v=>`<div class="prospect-visit"><strong>${esc(v.date)} at ${esc(v.time)}</strong> <span class="status-chip">${esc(v.status)}</span>
-              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The code assigned for this viewing is ${esc(v.practiceCode)}.</p>`:''}${v.acceptedOn?`<p>Automatically accepted on ${esc(v.acceptedOn)}.</p>`:''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
-            <div class="prospect-actions">${action('ldRequestId','Request New ID',Boolean(lead.archived || lead.idRequested))}${action('ldScheduleBtn',tours.length?'Reschedule':'Schedule',!canSchedule)}</div>
+            <h3>Identity review</h3>
+            <p>${lead.idRequested?'New ID requested. All scheduling is on hold pending review.':lead.idMetadataWarning?'The sample ID has missing or suspicious metadata. Review the flag, request a new ID, or archive this lead.':lead.idReviewed?'The fictional identification has been reviewed.':'No practice identification has been reviewed.'}</p>
+            <p><small>Identity review in Leasing Lab records a practice decision in this browser. Use fictional information for the exercise.</small></p>
+            <div class="prospect-actions">${action('ldReviewId',reviewLabel,lead.archived || (lead.idReviewed && !hold))}${action('ldRequestId','Request New ID',Boolean(lead.archived || lead.idRequested))}</div>
+            ${tours.map(v=>`<div class="prospect-visit"><strong>${esc(displayDate(v.date))} at ${esc(displayTime(v.time))}</strong> <span class="status-chip">${esc(v.status==='Viewed'?'Viewing Completed':v.status)}</span>
+              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The practice code recorded for this viewing is ${esc(v.practiceCode)}.</p>`:''}${v.acceptedOn?`<p>Automatically accepted on ${esc(displayDate(v.acceptedOn))}.</p>`:''}
+              ${!hold && v.status==='Confirmed' && v.type==='Self-Access (CodeBox)' ? `<a class="btn-flat" data-visit-link href="${esc(wf.appointmentUrl(r,v))}">Open prospect appointment</a>` : ''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
+            <div class="prospect-actions">${action('ldScheduleBtn',wf.scheduledFor(r,lead)?'Reschedule':'Schedule',!canSchedule)}</div>
           </section>
           <section class="mat-card prospect-notes"><h2>Notes</h2>
             <form id="lead-note-form"><textarea id="ldNoteInput" aria-label="Internal note" class="mat-textarea" placeholder="Compose internal note here..." required></textarea><button id="ldAddNoteBtn" class="btn-flat">Add</button></form>
             ${lead.notes.filter(n=>n.internal || !('internal' in n)).map(n=>`<div class="prospect-note">${esc(n.text)}<small>${esc(n.time)}</small></div>`).join('')}
           </section>
           <section class="mat-card prospect-qual"><h2>Pre-Qualification</h2><div class="prospect-facts">
-            <article><h3>Lease Preference</h3><dl>${fact('Move In',lead.moveInDate)}${fact('Pets',lead.pets)}</dl></article>
+            <article><h3>Lease Preference</h3><dl>${fact('Move In',displayDate(lead.moveInDate))}</dl></article>
             <article><h3>Financial &amp; Legal History</h3><p>${!risks?esc(lead.financialHistory || 'No answers on file.'):risks.length?esc(risks.join(', ')):'No issues to report.'}</p></article>
             <article><h3>Source of Rent</h3><dl>${fact('Source of Rent',answers?.voucher?'Voucher':lead.incomeSource)}${fact('Annual Income',lead.monthlyIncome ? '$'+Number(lead.monthlyIncome*12).toLocaleString('en-US')+(r.rent>0?` (~${(lead.monthlyIncome/r.rent).toFixed(1)}× rent)`:''):null)}</dl></article>
             <article><h3>Lead Source</h3><dl>${fact('Qualified on',lead.qualifiedOn)}${fact('Lead Source Channel',lead.source)}</dl></article>
@@ -2670,15 +2691,28 @@
           wf.note(lead,'Practice application link sent.');refresh('ldApplyBtn');showToast('Application link saved in Messages.');
         };
         byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
+        byId('ldReviewId').onclick=()=>{
+          openModal(reviewLabel,`<p>Review the fictional identity for ${esc(lead.name)} and record your judgment before permitting access.</p>
+            <label><input type="checkbox" id="ld-id-ack"> I reviewed the fictional identification and resolved any identity issue.</label>`,
+            '<button class="btn-flat" id="ld-id-cancel">Cancel</button><button class="btn-blue" id="ld-id-resolve" disabled>Save ID review</button>');
+          byId('ld-id-cancel').onclick=closeModal;
+          byId('ld-id-ack').onchange=e=>{byId('ld-id-resolve').disabled=!e.target.checked;};
+          byId('ld-id-resolve').onclick=()=>{
+            if(!byId('ld-id-ack').checked) return;
+            lead.idReviewed=true;lead.idRequested=false;lead.idMetadataWarning=false;
+            wf.note(lead,'Staff reviewed the practice identity and cleared it for scheduling.');
+            closeModal();refresh('ldScheduleBtn');showToast('Practice ID review saved.');
+          };
+        };
         byId('ldRequestId').onclick=()=>{
-          lead.idReviewed=false;lead.idRequested=true;lead.idMetadataWarning=false;
-          for(const v of tours.filter(v=>v.type.startsWith('Self-Access') && ['Pending Confirmation','Confirmed'].includes(v.status))) {v.status='Requested';v.confirmBy=null;}
+          lead.idReviewed=false;lead.idRequested=true;
           wf.message(r,lead,'Please provide a new practice ID for review.');wf.note(lead,'Requested a new practice ID.');
-          refresh('ldScheduleBtn');showToast('New ID request saved in Messages.');
+          refresh('ldReviewId');showToast('New ID request saved in Messages.');
         };
         byId('ldArchive').onclick=()=>{
           lead.archived=!lead.archived;
           if(lead.archived) cancelLeadViewings(r,lead);
+          if(!lead.archived && lead.status==='Archived') lead.status=lead.score>=6?'Pre-Qualified':'Unscored';
           wf.note(lead,lead.archived?'Lead archived.':'Lead restored to the queue.');refresh('ldArchive');
         };
         byId('ldDecline').onclick=()=>{
@@ -3797,23 +3831,36 @@
         if(state.signedOut || !location.hash) return;
         let parts;
         try {parts=location.hash.slice(1).split('/').map(decodeURIComponent);} catch {return;}
-        const [page,rid,lid]=parts;
+        const [page,rid,lid,version]=parts;
         if(page==='listings'||page==='referral') {
           history.replaceState(null,'',location.pathname+location.search);
           if(page==='listings') state.filters.user=state.users.find(u=>u.id===rid)?.name || 'anyone';
           goto(page==='listings'?'rentals':'rewards');return;
         }
         const r=state.rentals.find(row=>row.id===rid);
-        if(!r || !['qualify','apply','owner-report'].includes(page)) return;
+        if(!r || !['qualify','apply','owner-report','visit'].includes(page)) return;
         const lead=r.leads.find(l=>l.id===lid);
         history.replaceState(null,'',location.pathname+location.search);
+        detailPage=null;
         state.section='rentals';state.selectedRentalId=r.id;state.detailTab=page==='owner-report'?'owner':'leads';saveState();render();
         if(page==='qualify') wf.qualify(r,lead || wf.blankLead(r,{leadType:lid==='agent'?'Agent lead':'Tenant lead'}),{prospect:true});
         if(page==='apply') wf.application(r,lead);
+        if(page==='visit') {
+          const visit=state.viewingsList.find(v=>v.rentalId===rid && v.id===lid);
+          if(visit) wf.openVisit(r,visit,version);
+          else showToast('This practice appointment link is unavailable.');
+        }
       }
       window.addEventListener('hashchange',openSharedRoute);
       new ResizeObserver(([{target:header}])=>{
         if(header.classList.contains('rental-header')) header.parentElement.style.setProperty('--rental-header-height',`${header.offsetHeight}px`);
       }).observe(byId('topHeader'));
       render();openSharedRoute();
+      window.setInterval(()=>{
+        if(document.hidden || state.signedOut) return;
+        try {
+          if(localStorage.getItem(STORAGE_KEY)!==savedWorkspace) return;
+        } catch { /* Keep the practice workflow available without storage. */ }
+        wf.reminders();
+      },60_000);
     })();
