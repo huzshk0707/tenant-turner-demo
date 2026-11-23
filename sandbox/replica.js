@@ -4,7 +4,7 @@
       const dateOffset = window.ReplicaBooking.dateOffset;
       const uid = (kind) => `${kind}-${crypto.randomUUID()}`;
       const byId = (id) => document.getElementById(id);
-      const practiceLink = (...segments) => `${location.origin}${location.pathname}#${segments.map(encodeURIComponent).join('/')}`;
+      const practiceLink = (...segments) => `${location.href.split(/[?#]/,1)[0]}#${segments.map(encodeURIComponent).join('/')}`;
       const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
       const TIME_OPTIONS = [
         "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM",
@@ -573,6 +573,14 @@
       }
 
       function ensureStep4RentalFields(r) {
+        const rules=r.qualifying;
+        rules.questions=(rules.questions || []).map(question=>({
+          label:question.label,
+          options:window.ReplicaBooking.questionChoices(question),
+        }));
+        if (location.origin==='null' && r.applicationLink===`null${location.pathname}#apply/${encodeURIComponent(r.id)}`) {
+          r.applicationLink=practiceLink('apply',r.id);
+        }
         if (!r.ownerReport) r.ownerReport = defaultOwnerReport(r);
         if (!Array.isArray(r.leads)) r.leads = [];
         // Add an extra realistic unscored/disqualified lead on r1 if only the initial 2 exist
@@ -631,7 +639,9 @@
           ensureStep4RentalFields(r);
           r.imported=true;r.dateAvailable=dateOffset(5+i);r.listed=dateOffset(-18-i*4);
           r.applicationFee=s.account.defaultApplicationFee;r.adminFee=0;r.applicationLink=practiceLink('apply',r.id);
-          r.availability.overrides=[];r.qualifying.questions=[];r.ownerReport.onMarketDate=r.listed;
+          r.availability.overrides=[];r.ownerReport.onMarketDate=r.listed;
+          delete r.qualifying.qNoSmoking;
+          if (r.id==='r1') r.qualifying.historyPolicies={bankruptcy:'older',judgment:'reject',eviction:'reject',felony:'reject'};
           for(const l of r.leads){l.createdDate=dateOffset(-2);l.archived=l.status==='Disqualified';l.idReviewed=l.score>=6;}
         });
         for(const a of Object.values(s.generalAvailability)) a.blockedDates=[];
@@ -1177,6 +1187,21 @@
         byId('listing-photo-prev').onclick=()=>viewListingPhoto(photos,(index+photos.length-1)%photos.length);
         byId('listing-photo-next').onclick=()=>viewListingPhoto(photos,(index+1)%photos.length);
       }
+      function qualifyingQuestionEditor(question,index) {
+        return `<fieldset class="qualifying-question">
+          <legend>Question ${index+1}</legend>
+          <label class="mat-field"><span class="mat-label">Question</span><input class="mat-input" data-question-label="${index}" value="${esc(question.label)}"></label>
+          <div class="qualifying-choices">${question.options.map((option,i)=>`<div class="qualifying-choice">
+            <label class="mat-field"><span class="mat-label">Answer ${i+1}</span><input class="mat-input" data-option-label="${index}:${i}" value="${esc(option.label)}"></label>
+            <label><input type="checkbox" data-option-knockout="${index}:${i}" ${option.knockout?'checked':''}> Knockout</label>
+            <button class="btn-flat" type="button" data-option-remove="${index}:${i}" aria-label="Remove answer ${i+1}" ${question.options.length<=2?'disabled':''}>Remove</button>
+          </div>`).join('')}</div>
+          <div class="practice-actions">
+            <button class="btn-outline" type="button" data-option-add="${index}">Add answer</button>
+            <button class="btn-flat" type="button" data-question-remove="${index}">Remove question</button>
+          </div>
+        </fieldset>`;
+      }
       function renderRentalSettings(original) {
         if (!settingsDraft || settingsDraft.id!==original.id) {
           settingsDraft=structuredClone(original);
@@ -1405,59 +1430,34 @@
                     ` : ""}
                   </div>
 
-                  <label class="mat-switch">
-                    <input id="qBankruptcy" type="checkbox" ${r.qualifying.rejectBankruptcy ? "checked" : ""} />
-                    <span class="switch-track"></span>
-                    <span>Reject leads with a bankruptcy</span>
-                  </label>
-
-                  <label class="mat-switch">
-                    <input id="qEviction" type="checkbox" ${r.qualifying.rejectEviction ? "checked" : ""} />
-                    <span class="switch-track"></span>
-                    <span>Reject leads with an eviction</span>
-                  </label>
-
-                  <label class="mat-switch">
-                    <input id="qFelony" type="checkbox" ${r.qualifying.rejectFelony ? "checked" : ""} />
-                    <span class="switch-track"></span>
-                    <span>Reject leads with a felony</span>
-                  </label>
+                  <div class="grid-2 practice-grid-gap">
+                    ${window.ReplicaBooking.historyRestrictions.map(({key,id,label,years})=>{
+                      const policy=window.ReplicaBooking.historyPolicy(r.qualifying,key);
+                      return `<label class="mat-field"><span class="mat-label">${label}</span><select id="${id}" class="mat-select" data-history-policy="${key}">
+                        <option value="reject" ${policy==='reject'?'selected':''}>Reject any record</option>
+                        <option value="older" ${policy==='older'?'selected':''}>Allow only if more than ${years} years old</option>
+                        <option value="allow" ${policy==='allow'?'selected':''}>Allow records of any age</option>
+                      </select></label>`;
+                    }).join('')}
+                  </div>
                 </div>
 
                 <div class="sub-heading">Custom Questions</div>
                 <div class="toggle-list">
-                  <div>
+                  ${window.ReplicaBooking.builtInQuestions.filter(question=>!question.legacy || r.qualifying[question.key]).map(question=>`<div>
                     <label class="mat-switch">
-                      <input id="cqCredit" type="checkbox" ${r.qualifying.qCredit700 ? "checked" : ""} />
+                      <input id="${question.settingId}" type="checkbox" ${r.qualifying[question.key] ? 'checked' : ''}>
                       <span class="switch-track"></span>
-                      <span>Is your credit score over 700?</span>
+                      <span>${esc(question.label)}</span>
                     </label>
-                    ${r.qualifying.qCredit700 ? `
-                      <div class="blue-subpanel" style="gap:6px; font-size:13.5px; color:var(--muted);">
-                        <div>1. Yes</div>
-                        <div>2. no <span style="color:var(--alert-red); font-weight:500;">(knockout)</span></div>
-                      </div>
+                    ${r.qualifying[question.key] ? `<div class="practice-note">${question.numeric
+                      ? 'Records the number of occupants for review.'
+                      : `Knockout answer: ${question.options.find(option=>option.knockout).label}`}</div>
                     ` : ""}
-                  </div>
-
-                  <div>
-                    <label class="mat-switch">
-                      <input id="cqSmoke" type="checkbox" ${r.qualifying.qNoSmoking ? "checked" : ""} />
-                      <span class="switch-track"></span>
-                      <span>Do you understand this is a strictly non-smoking property?</span>
-                    </label>
-                    ${r.qualifying.qNoSmoking ? `
-                      <div class="blue-subpanel" style="gap:6px; font-size:13.5px; color:var(--muted);">
-                        <div>1. Yes</div>
-                        <div>2. No <span style="color:var(--alert-red); font-weight:500;">(knockout)</span></div>
-                      </div>
-                    ` : ""}
-                  </div>
+                  </div>`).join('')}
                 </div>
-                <label class="mat-switch"><input id="qJudgment" type="checkbox" ${r.qualifying.rejectJudgment?'checked':''}><span class="switch-track"></span><span>Civil judgment restriction</span></label>
-                <div class="sub-heading">Custom Questions</div>
+                ${r.qualifying.questions.map(qualifyingQuestionEditor).join('')}
                 <div class="practice-actions"><button type="button" class="btn-outline" id="add-custom-question">+ Add question</button></div>
-                ${r.qualifying.questions.map((q,i)=>`<div class="grid-3 practice-grid-gap"><input class="mat-input" aria-label="Question" data-question-label="${i}" value="${esc(q.label)}"><select class="mat-select" aria-label="Required answer" data-question-answer="${i}"><option>Yes</option><option ${q.answer==='No'?'selected':''}>No</option></select><button class="btn-flat" type="button" data-question-remove="${i}">Remove</button></div>`).join('')}
               </section>
 
               <!-- 4. VIEWING CARD (0314-wait-list.jpg, 0548-device-assignment.jpg, 0605-in-person.jpg, 0620-showing-limit.jpg) -->
@@ -1707,8 +1707,8 @@
                 <h2 class="mat-card-title">Application &amp; Fees</h2>
                 <div class="grid-3">
                   <label class="mat-field"><span class="mat-label">Application Link</span><input id="appLink" class="mat-input" type="url" value="${esc(r.applicationLink)}"></label>
-                  <label class="mat-field"><span class="mat-label">Application Fee</span><input id="appFee" class="mat-input" type="number" min="0" value="${r.applicationFee ?? state.account.defaultApplicationFee}"></label>
-                  <label class="mat-field"><span class="mat-label">Lease Admin Fee</span><input id="adminFee" class="mat-input" type="number" min="0" value="${r.adminFee || 0}"></label>
+                  <label class="mat-field"><span class="mat-label">Application Fee</span><span class="currency-input"><span aria-hidden="true">$</span><input id="appFee" class="mat-input" type="number" min="0" step="0.01" value="${r.applicationFee ?? state.account.defaultApplicationFee}"></span></label>
+                  <label class="mat-field"><span class="mat-label">Lease Admin Fee</span><span class="currency-input"><span aria-hidden="true">$</span><input id="adminFee" class="mat-input" type="number" min="0" step="0.01" value="${r.adminFee || 0}"></span></label>
                 </div>
               </section>
               <div class="practice-actions"><button id="saveSettingsBtn" class="btn-orange" type="button">Save Rental Settings</button><button id="cancelSettingsBtn" class="btn-ghost" type="button">Cancel</button><span id="setting-error" class="practice-error" role="alert"></span></div>
@@ -1783,11 +1783,11 @@
         bindCheck("qCats", v => { r.qualifying.allowCats = v; });
         bindCheck("qSmallDogs", v => { r.qualifying.allowSmallDogs = v; });
         bindCheck("qLargeDogs", v => { r.qualifying.allowLargeDogs = v; });
-        bindCheck("qBankruptcy", v => { r.qualifying.rejectBankruptcy = v; });
-        bindCheck("qEviction", v => { r.qualifying.rejectEviction = v; });
-        bindCheck("qFelony", v => { r.qualifying.rejectFelony = v; });
-        bindCheck("cqCredit", v => { r.qualifying.qCredit700 = v; }, true);
-        bindCheck("cqSmoke", v => { r.qualifying.qNoSmoking = v; }, true);
+        for (const {id,key} of window.ReplicaBooking.historyRestrictions) bindVal(id,v=>{
+          r.qualifying.historyPolicies ??= {};
+          r.qualifying.historyPolicies[key]=v;
+        });
+        for (const {settingId,key} of window.ReplicaBooking.builtInQuestions) bindCheck(settingId,v=>{r.qualifying[key]=v;},true);
 
         // Viewing: Wait List & Self-Access & Device Assignment
         bindCheck("vwWaitlist", v => { r.waitlist = v; }, true);
@@ -1862,23 +1862,46 @@
         bindVal("limMaxAdv", v => { lim.maxDaysAdvance = Number(v) || 7; });
 
         for (const key of ['rent','deposit','dateAvailable','bedrooms','bathrooms','sqft']) bindVal('field-'+key,v=>{r[key]=key==='dateAvailable'?v:Number(v);});
-        bindVal('appLink',v=>{r.applicationLink=v;});
+        bindVal('appLink',v=>{r.applicationLink=v.trim();});
         bindVal('appFee',v=>{r.applicationFee=Number(v);});
         bindVal('adminFee',v=>{r.adminFee=Number(v);});
-        bindCheck('qJudgment',v=>{r.qualifying.rejectJudgment=v;});
         byId('add-custom-question')?.addEventListener('click',()=>{
-          r.qualifying.questions.push({label:'',answer:'Yes'});renderRentalSettings(r);
+          r.qualifying.questions.push({label:'',options:window.ReplicaBooking.questionChoices({answer:'Yes'})});renderRentalSettings(r);
+          canvas.querySelector(`[data-question-label="${r.qualifying.questions.length-1}"]`)?.focus();
         });
         canvas.querySelectorAll('[data-question-label]').forEach(n=>n.oninput=()=>{r.qualifying.questions[Number(n.dataset.questionLabel)].label=n.value;});
-        canvas.querySelectorAll('[data-question-answer]').forEach(n=>n.onchange=()=>{r.qualifying.questions[Number(n.dataset.questionAnswer)].answer=n.value;});
         canvas.querySelectorAll('[data-question-remove]').forEach(n=>n.onclick=()=>{r.qualifying.questions.splice(Number(n.dataset.questionRemove),1);renderRentalSettings(r);});
+        for (const [action,listener] of Object.entries({
+          label:(answers,i,input)=>{answers[i].label=input.value;},
+          knockout:(answers,i,input)=>{answers[i].knockout=input.checked;},
+          remove:(answers,i)=>{answers.splice(i,1);renderRentalSettings(r);},
+          add:answers=>{answers.push({label:'',knockout:false});renderRentalSettings(r);},
+        })) canvas.querySelectorAll(`[data-option-${action}]`).forEach(control=>{
+          const event=action==='label'?'input':action==='knockout'?'change':'click';
+          control.addEventListener(event,()=>{
+            const [index,option]=control.getAttribute(`data-option-${action}`).split(':').map(Number);
+            listener(r.qualifying.questions[index].options,option,control);
+          });
+        });
         byId('saveSettingsBtn').onclick=()=>{
           const current=state.rentals.find(item=>item.id===r.id);
           const different=(keys,a,b)=>keys.some(key=>JSON.stringify(a[key])!==JSON.stringify(b[key]));
           const availabilityChanged=different(['mode','customHours'],r.availability,current.availability);
-          if ([...canvas.querySelectorAll('input[type=number],input[type=date],input[type=url]')].some(input=>!input.checkValidity()) || !r.dateAvailable) {
+          const applicationUrl=byId('appLink').value.trim();
+          if (applicationUrl && applicationUrl!==practiceLink('apply',r.id) && !window.ReplicaBooking.webUrl(applicationUrl)) {
+            byId('setting-error').textContent='Enter an HTTP or HTTPS application link.';return;
+          }
+          if ([...canvas.querySelectorAll('input[type=number],input[type=date]')].some(input=>!input.checkValidity()) || !r.dateAvailable) {
             byId('setting-error').textContent='Check the dates, amounts and application URL.';return;
           }
+          const questions=r.qualifying.questions.filter(q=>q.label.trim()).map(q=>({
+            label:q.label.trim(),
+            options:q.options.map(option=>({...option,label:option.label.trim()})),
+          }));
+          if (questions.some(({options})=>options.some(option=>!option.label) || new Set(options.map(option=>option.label.toLowerCase())).size!==options.length)) {
+            byId('setting-error').textContent='Enter a different label for each answer choice.';return;
+          }
+          r.applicationLink=applicationUrl;
           const orderedHours=weekly=>Object.values(weekly).every(day=>!day.enabled || day.blocks.every(block=>
             window.ReplicaBooking.toTime(block.start)<window.ReplicaBooking.toTime(block.end)));
           if((availabilityChanged && r.availability.mode==='custom' && !orderedHours(r.availability.customHours)) || [...generalAvailabilityDrafts.values()].some(weekly=>!orderedHours(weekly))) {
@@ -1897,7 +1920,7 @@
             byId('setting-error').textContent='That device is assigned to an active rental.';return;
           }
           for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'',false);
-          r.qualifying.questions=r.qualifying.questions.filter(q=>q.label.trim());
+          r.qualifying.questions=questions;
           if (different(['questions'],r.qualifying,current.qualifying)) changed.push('questions');
           if (availabilityChanged) changed.push('rental-availability');
           for(const [name,weekly] of generalAvailabilityDrafts) {
@@ -2637,13 +2660,13 @@
             <article><h3>Financial &amp; Legal History</h3><p>${!risks?esc(lead.financialHistory || 'No answers on file.'):risks.length?esc(risks.join(', ')):'No issues to report.'}</p></article>
             <article><h3>Source of Rent</h3><dl>${fact('Source of Rent',answers?.voucher?'Voucher':lead.incomeSource)}${fact('Annual Income',lead.monthlyIncome ? '$'+Number(lead.monthlyIncome*12).toLocaleString('en-US')+(r.rent>0?` (~${(lead.monthlyIncome/r.rent).toFixed(1)}× rent)`:''):null)}</dl></article>
             <article><h3>Lead Source</h3><dl>${fact('Qualified on',lead.qualifiedOn)}${fact('Lead Source Channel',lead.source)}</dl></article>
-            ${answers?`<article><h3>Additional Answers</h3><dl>${fact('Co-signer',answers.cosigner?'Yes':'No')}${fact('Credit score',answers.creditScore)}${fact('Smoking',answers.smoking?'Yes':'No')}${(lead.customResponses || []).map(q=>fact(q.label,q.answer)).join('')}</dl></article>`:''}
+            ${answers?`<article><h3>Additional Answers</h3><dl>${fact('Co-signer',answers.cosigner?'Yes':'No')}${fact('Pets',lead.pets)}${answers.creditScore ? fact('Sample credit score',answers.creditScore) : ''}${typeof answers.smoking==='boolean' ? fact('Smoking',answers.smoking?'Yes':'No') : ''}${(lead.customResponses || []).map(q=>fact(q.label,q.answer)).join('')}</dl></article>`:''}
           </div></section></div>`;
         const refresh=(focus)=>{saveState();render();byId(focus)?.focus({preventScroll:true});};
         byId('ldEdit').onclick=()=>editLead(r,lead);
         byId('ldMsgBtn').onclick=()=>openLeadMessages(r,lead);
         byId('ldApplyBtn').onclick=()=>{
-          wf.message(r,lead,`Practice application: ${practiceLink('apply',r.id,lead.id)}`);
+          wf.message(r,lead,`Practice application: ${wf.applicationUrl(r,lead)}`);
           wf.note(lead,'Practice application link sent.');refresh('ldApplyBtn');showToast('Application link saved in Messages.');
         };
         byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
@@ -3314,9 +3337,10 @@
       }
 
       function messageBody(body) {
-        return String(body).split(/(https?:\/\/[^\s]+)/).map(piece=>{
-          if(!piece.startsWith(practiceLink('qualify')+'/')&&!piece.startsWith(practiceLink('apply')+'/'))return esc(piece);
-          return `<a href="${esc(piece)}">${esc(piece)}</a>`;
+        return String(body).split(/((?:https?|file):\/\/[^\s]+)/i).map(piece=>{
+          const practiceRoute=['qualify','apply','visit'].some(route=>piece.startsWith(`${practiceLink(route)}/`));
+          if (!practiceRoute && !window.ReplicaBooking.webUrl(piece)) return esc(piece);
+          return `<a href="${esc(piece)}"${practiceRoute ? '' : ' target="_blank" rel="noopener noreferrer"'}>${esc(piece)}</a>`;
         }).join('');
       }
 
@@ -3340,6 +3364,7 @@
         let activeThread = filtered.find(m => m.id === state.selectedThreadId) || filtered[0] || null;
         if (activeThread) state.selectedThreadId = activeThread.id;
         const activeRental = activeThread ? state.rentals.find(r => r.id === activeThread.rentalId) : null;
+        const activeLead=activeRental?.leads.find(lead=>activeThread.leadId ? lead.id===activeThread.leadId : lead.name===activeThread.leadName);
         const unreadCount = state.messages.filter(m => m.unread).length;
 
         canvas.innerHTML = `
@@ -3410,7 +3435,7 @@
                   <div class="msg-templates">
                     <button class="msg-tpl-chip" type="button" data-tpl="Driveway parking is available right in front of the house. Enjoy your tour!">Parking Info</button>
                     <button class="msg-tpl-chip" type="button" data-tpl="Your showing is confirmed! Please reply YES to confirm 2 hours prior.">Confirm Showing</button>
-                    <button class="msg-tpl-chip" type="button" data-tpl="Thanks for touring! Here is the link to submit your online rental application.">Send Application</button>
+                    ${activeRental ? `<button class="msg-tpl-chip" type="button" data-tpl="Thanks for touring! Here is your application link: ${esc(wf.applicationUrl(activeRental,activeLead))}">Send Application</button>` : ''}
                     <button class="msg-tpl-chip" type="button" data-tpl="Showings are now open for this property—use your link to pick a time!">Wait List Open</button>
                   </div>
                   <div class="msg-input-row">

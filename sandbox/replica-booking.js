@@ -11,6 +11,51 @@ window.ReplicaBooking = (() => {
     return `${String(Number(match[1]) % 12 + (match[3] === 'PM' ? 12 : 0)).padStart(2,'0')}:${match[2]}`;
   };
   const overlaps = (a,b,c,d) => a < d && b > c;
+  const historyRestrictions = [
+    {key:'bankruptcy',id:'qBankruptcy',label:'Bankruptcy',years:10},
+    {key:'judgment',id:'qJudgment',label:'Filed civil judgment',years:7},
+    {key:'eviction',id:'qEviction',label:'Eviction',years:7},
+    {key:'felony',id:'qFelony',label:'Felony against people or property',years:5},
+  ];
+  const creditChoices = [{label:'Yes',knockout:false},{label:'No',knockout:true}];
+  const builtInQuestions = [
+    {key:'qCredit620',settingId:'cqCredit620',label:'Is your credit score over 620?',options:creditChoices,credit:620},
+    {key:'qOccupants',settingId:'cqOccupants',label:'How many occupants will be in the home?',numeric:true},
+    {key:'qCredit700',settingId:'cqCredit',label:'Is your credit score over 700?',options:creditChoices,credit:700},
+    {key:'qNoSmoking',settingId:'cqSmoke',label:'Will anyone on this practice application smoke in the rental?',options:[{label:'Yes',knockout:true},{label:'No',knockout:false}],legacy:true},
+  ];
+
+  function historyPolicy(settings,key) {
+    const configured=settings.historyPolicies?.[key];
+    if (configured) return configured;
+    const legacy=`reject${key[0].toUpperCase()}${key.slice(1)}`;
+    return settings[legacy] ? 'reject' : 'allow';
+  }
+
+  function questionChoices(question) {
+    return question.options || [
+      {label:'Yes',knockout:question.answer==='No'},
+      {label:'No',knockout:question.answer!=='No'},
+    ];
+  }
+
+  function qualificationQuestions(settings) {
+    return [
+      ...builtInQuestions.filter(rule=>settings[rule.key]),
+      ...(settings.questions || []).map((question,index)=>({key:`custom-${index}`,label:question.label,options:questionChoices(question),index})),
+    ];
+  }
+
+  function webUrl(value) {
+    const input=String(value || '').trim();
+    if (!/^https?:\/\//i.test(input) || /\s/.test(input)) return '';
+    try {
+      const url=new URL(input);
+      return url.username || url.password ? '' : input;
+    } catch {
+      return '';
+    }
+  }
 
   function plan(state,rental,lead,date,time,method,options={}) {
     const self=method==='self';
@@ -111,7 +156,7 @@ window.ReplicaBooking = (() => {
     return null;
   }
 
-  function screen(rental,answers) {
+  function screen(rental,answers,today=dateOffset()) {
     const q=rental.qualifying;
     const reasons=[];
     const reject=(when,label)=>{ if (when) reasons.push(label); };
@@ -120,16 +165,32 @@ window.ReplicaBooking = (() => {
     reject(answers.voucher && !q.allowVouchers,'This practice rule does not allow the selected voucher.');
     reject(answers.pets && (!q.allowPets || answers.pets>q.maxPets),'The number of pets exceeds the practice limit.');
     reject(answers.pets && ((answers.petType==='cat' && !q.allowCats) || (answers.petType==='small' && !q.allowSmallDogs) || (answers.petType==='large' && !q.allowLargeDogs)),'The selected pet type does not meet the practice rule.');
-    reject(q.rejectBankruptcy && answers.bankruptcy,'Bankruptcy answer requires review.');
-    reject(q.rejectJudgment && answers.judgment,'Civil judgment answer requires review.');
-    reject(q.rejectEviction && answers.eviction,'Prior eviction does not meet the practice rule.');
-    reject(q.rejectFelony && answers.felony,'Criminal history answer requires review.');
-    const minimumCredit=Math.max(Number(q.minCredit) || 0,q.qCredit700 ? 700 : 0);
-    reject(minimumCredit && answers.creditScore<minimumCredit,'The sample credit answer does not meet the requirement.');
-    reject(q.qNoSmoking && answers.smoking,'The sample smoking answer does not meet the requirement.');
-    for (const [i,rule] of (q.questions || []).entries()) reject(answers.custom[i]!==rule.answer,`Custom question did not qualify: ${rule.label}`);
+    for (const {key,label,years} of historyRestrictions) {
+      if (!answers[key]) continue;
+      const policy=historyPolicy(q,key);
+      if (policy==='allow') continue;
+      const cutoff=new Date(`${today}T00:00:00Z`);
+      cutoff.setUTCFullYear(cutoff.getUTCFullYear()-years);
+      const eventDate=answers.historyDates?.[key] || '';
+      const timestamp=Date.parse(eventDate);
+      const isOld=Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0,10)===eventDate && timestamp<cutoff.getTime();
+      reject(policy!=='older' || !isOld,policy==='older'
+        ? `${label}: The sample event must be more than ${years} years old.`
+        : `${label}: The sample event does not meet this rule.`);
+    }
+    const minimumCredit=Number(q.minCredit) || 0;
+    reject(minimumCredit && (!Number.isFinite(answers.creditScore) || answers.creditScore<minimumCredit),'The sample credit answer does not meet the required minimum.');
+    for (const rule of qualificationQuestions(q)) {
+      if (rule.numeric) continue;
+      let answer=answers.questionAnswers?.[rule.key];
+      if (answer===undefined && rule.credit && Number.isFinite(answers.creditScore)) answer=answers.creditScore>rule.credit?'Yes':'No';
+      if (answer===undefined && rule.legacy && typeof answers.smoking==='boolean') answer=answers.smoking?'Yes':'No';
+      if (answer===undefined && rule.index!==undefined) answer=answers.custom?.[rule.index];
+      const choice=rule.options.find(option=>option.label===answer);
+      reject(!choice || choice.knockout,`Custom question did not qualify: ${rule.label}`);
+    }
     return reasons;
   }
 
-  return {dateOffset,toTime,plan,firstSlot,screen};
+  return {dateOffset,toTime,plan,firstSlot,screen,historyRestrictions,historyPolicy,builtInQuestions,questionChoices,qualificationQuestions,webUrl};
 })();

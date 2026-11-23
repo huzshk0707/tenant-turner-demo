@@ -320,6 +320,25 @@
       width: 100%;
     }
 
+    .currency-input { display:flex; align-items:center; gap:6px; }
+    .currency-input .mat-input { width:100%; min-width:0; }
+    .qualifying-question {
+      min-width:0;
+      margin:12px 0;
+      padding:10px 14px;
+      border:1px solid var(--line);
+      border-radius:8px;
+    }
+    .qualifying-question legend { padding:0 4px; }
+    .qualifying-choices { display:grid; gap:6px; margin:8px 0; }
+    .qualifying-choice {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto auto;
+      gap:8px;
+      align-items:center;
+    }
+    .qualifying-choice .mat-field { min-width:0; }
+
     /* Material Toggle Switch */
     .mat-switch {
       display: inline-flex;

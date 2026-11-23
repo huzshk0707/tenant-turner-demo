@@ -72,16 +72,36 @@ window.createReplicaWorkflows = api => {
   }
   function qualify(r,l=blankLead(r),{prospect = false, thenBook = false}={}) {
     const q=r.qualifying;
+    const today=date();
+    const questions=engine.qualificationQuestions(q);
+    const history=engine.historyRestrictions.map(({key,label})=>{
+      const dateField=engine.historyPolicy(q,key)==='older'
+        ? `<div data-history-date="${key}" hidden>${input(`pq-${key}-date`,`Sample ${label.toLowerCase()} date`,'','date',`max="${today}" disabled`)}</div>` : '';
+      return `<div>${toggle(`pq-${key}`,`Sample ${label.toLowerCase()} answer is Yes`)}${dateField}</div>`;
+    }).join('');
     form(`Pre-qualification — ${r.address}`,`
       <div class="grid-2">${prospect ? input('pq-name','Name',l.name,'text','required') : ''}
         ${input('pq-move','Move-in date',r.dateAvailable || date(10),'date','required')}${input('pq-income','Monthly income',Math.round(r.rent*3),'number','required min="0"')}
         ${input('pq-pets','Number of pets',0,'number','required min="0" max="15"')}${select('pq-type','Pet type',[['cat','Cat'],['small','Small dog'],['large','Large dog']].map(([k,v])=>opt(k,v,'cat')).join(''))}</div>
-      <div class="grid-2 practice-grid-gap">${toggle('pq-cosigner','I have a co-signer')}${toggle('pq-voucher','I have a voucher')}${toggle('pq-bankruptcy','Sample bankruptcy answer is Yes')}${toggle('pq-judgment','Sample civil judgment answer is Yes')}${toggle('pq-eviction','Sample eviction answer is Yes')}${toggle('pq-felony','Sample criminal-history answer is Yes')}${input('pq-credit-score','Sample credit score',720,'number','required min="300" max="850"')}${toggle('pq-smoking','Sample smoking answer is Yes')}</div>
-      ${(q.questions || []).map((question,i)=>select(`pq-custom-${i}`,question.label,['Yes','No'].map(x=>fmt(x,'Yes')).join(''))).join('')}`, 'Submit practice answers', () => {
+      <div class="grid-2 practice-grid-gap">${toggle('pq-cosigner','I have a co-signer')}${toggle('pq-voucher','I have a voucher')}${history}</div>
+      ${Number(q.minCredit)>0 ? input('pq-credit-score','Sample credit score',720,'number','required min="300" max="850"') : ''}
+      ${questions.map(question=>{
+        const id=`pq-question-${question.key}`;
+        if (question.numeric) return input(id,question.label,1,'number','required min="1"');
+        const initial=question.options.find(answer=>!answer.knockout)?.label;
+        return select(id,question.label,question.options.map(({label})=>opt(label,label,initial)).join(''));
+      }).join('')}`, 'Submit practice answers', () => {
       if (prospect) { const name=val('pq-name');if(!name) return alert('Enter a sample name.');l.name=name; }
-      const answers={moveIn:val('pq-move'),income:Number(val('pq-income')),pets:Number(val('pq-pets')),petType:val('pq-type'),cosigner:on('pq-cosigner'),voucher:on('pq-voucher'),bankruptcy:on('pq-bankruptcy'),judgment:on('pq-judgment'),eviction:on('pq-eviction'),felony:on('pq-felony'),creditScore:Number(val('pq-credit-score')),smoking:on('pq-smoking'),custom:(q.questions || []).map((_,i)=>val(`pq-custom-${i}`))};
-      const reasons=engine.screen(r,answers);
-      l.answers=answers;l.customResponses=(q.questions || []).map((item,i)=>({label:item.label,answer:answers.custom[i]}));
+      const answers={
+        moveIn:val('pq-move'),income:Number(val('pq-income')),pets:Number(val('pq-pets')),petType:val('pq-type'),
+        cosigner:on('pq-cosigner'),voucher:on('pq-voucher'),
+        ...Object.fromEntries(engine.historyRestrictions.map(({key})=>[key,on(`pq-${key}`)])),
+        historyDates:Object.fromEntries(engine.historyRestrictions.filter(({key})=>on(`pq-${key}`) && el(`pq-${key}-date`)).map(({key})=>[key,val(`pq-${key}-date`)])),
+        ...(el('pq-credit-score') ? {creditScore:Number(val('pq-credit-score'))} : {}),
+        questionAnswers:Object.fromEntries(questions.map(({key})=>[key,val(`pq-question-${key}`)])),
+      };
+      const reasons=engine.screen(r,answers,today);
+      l.answers=answers;l.customResponses=questions.map(({key,label})=>({label,answer:answers.questionAnswers[key]}));
       l.qualifiedOn=reasons.length ? null : date();
       l.score=reasons.length ? 2 : 9;
       l.archived=Boolean(reasons.length);
@@ -92,8 +112,21 @@ window.createReplicaWorkflows = api => {
       const outcome=reasons.length ? `Archived: ${reasons.join(' ')}` : r.waitlist ? r.waitlistMessage : 'Pre-qualified. Choose a showing from the available hours.';
       message(r,l,outcome);
       if (!reasons.length && !r.waitlist && (thenBook || prospect)) { save();done('lead-screen',{qualified:true});book(r,l); }
-      else { finish(outcome);done('lead-screen',{qualified:!reasons.length}); }
+      else {
+        if (!reasons.length && !r.waitlist && typeof startFollowUps==='function') startFollowUps(r,l,'Waiting on Lead');
+        finish(outcome);done('lead-screen',{qualified:!reasons.length});
+      }
     });
+    for (const {key} of engine.historyRestrictions) {
+      const input=el(`pq-${key}-date`);
+      if (!input) continue;
+      el(`pq-${key}`).addEventListener('change',()=>{
+        const shown=on(`pq-${key}`);
+        input.closest('[data-history-date]').hidden=!shown;
+        input.disabled=!shown;
+        input.required=shown;
+      });
+    }
   }
   function book(r,l,existing=null) {
     const methods=[r.viewing.selfAccess && ['self','Self-Access'],r.viewing.inPerson.enabled && ['person','In-Person']].filter(Boolean);
@@ -490,6 +523,11 @@ window.createReplicaWorkflows = api => {
     });
   }
   const done = (action,detail) => api.onAction(action,detail);
+  function applicationUrl(r,l) {
+    const configured=engine.webUrl(r.applicationLink);
+    if (configured && configured!==link('apply',r.id)) return configured;
+    return l ? link('apply',r.id,l.id) : link('apply',r.id);
+  }
   function application(r,l) {
     form(`Practice application — ${r.address}`,`${input('application-name','Name',l?.name || '','text','required')}${input('application-email','Practice email',l?.email || '','email','required')}<p>Application fee ${esc(r.applicationFee ?? get().account.defaultApplicationFee)} · practice only</p>`,'Submit practice application',()=>{
       const lead=l || blankLead(r,{name:val('application-name'),email:val('application-email')});
@@ -497,5 +535,5 @@ window.createReplicaWorkflows = api => {
       lead.status='Applied';lead.archived=false;storeLead(r,lead);note(lead,'Practice application received.');message(r,lead,'Your fictional application was received.');finish('Practice application saved.');
     });
   }
-  return {blankLead,invite,qualify,book,scheduledFor,note,threadFor,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,storeLead};
+  return {blankLead,invite,qualify,book,scheduledFor,note,threadFor,message,renderShowings,reminders,renderAccess,scheduledReports,reportExports,importRental,done,application,applicationUrl,storeLead};
 };
