@@ -3527,32 +3527,31 @@
           const availability=r.availability;
           const agent=r.viewing.inPerson.showingAgent || r.assignee;
           const methods=[...(r.viewing.selfAccess?['Self-Access']:[]),...(r.viewing.inPerson.enabled?['In-Person']:[])];
-          if (availability.generalEnabled ?? availability.mode!=='custom') {
-            const generalNames=window.ReplicaBooking.generalAgents?.(state,r) || [agent];
-            for (const name of generalNames) {
+          if (r.viewing.selfAccess) {
+            const access=state.generalAvailability[r.assignee];
+            if (access?.selfAccessStart && access?.selfAccessEnd) {
+              slots(r,'Self-Access',r.assignee,'Self-access hours','Daily',[{start:access.selfAccessStart,end:access.selfAccessEnd}]);
+            }
+          }
+          if (r.viewing.inPerson.enabled && (availability.generalEnabled ?? availability.mode!=='custom')) {
+            for (const name of window.ReplicaBooking.generalAgents(state,r)) {
               const general=state.generalAvailability[name];
-              if (r.viewing.inPerson.enabled) for (const [day,entry] of Object.entries(general?.weekly || {})) {
+              for (const [day,entry] of Object.entries(general.weekly || {})) {
                 if (entry.enabled) slots(r,'In-Person',name,'General',day,entry.blocks);
               }
             }
-            const access=state.generalAvailability[r.assignee];
-            if (r.viewing.selfAccess && access?.selfAccessStart && access?.selfAccessEnd) {
-              slots(r,'Self-Access',r.assignee,'General','Daily',[{start:access.selfAccessStart,end:access.selfAccessEnd}]);
-            }
           }
-          if (availability.mode==='custom') {
+          if (r.viewing.inPerson.enabled && availability.mode==='custom') {
             for (const [day,entry] of Object.entries(availability.customHours || {})) {
               if (!entry.enabled) continue;
-              for (const method of methods) for (const block of entry.blocks) {
-                slots(r,method,block.agent || agent,'Rental-specific',day,[block]);
-              }
+              for (const block of entry.blocks) slots(r,'In-Person',block.agent || agent,'Rental-specific',day,[block]);
             }
             for (const block of availability.oneTimeHours || []) if (inRange(block.date)) {
-              for (const method of methods) slots(r,method,block.agent || agent,'Rental-specific',block.date,[block]);
+              slots(r,'In-Person',block.agent || agent,'Rental-specific',block.date,[block]);
             }
           }
           for (const block of availability.overrides || []) if (inRange(block.date)) {
-            for (const method of methods) slots(r,method,block.agent || agent,block.type==='block'?'Blocked':'One-time opening',block.date,[block]);
+            for (const method of methods) slots(r,method,method==='Self-Access' ? r.assignee : block.agent || agent,block.type==='block'?'Blocked':'One-time opening',block.date,[block]);
           }
         }
         return groups;

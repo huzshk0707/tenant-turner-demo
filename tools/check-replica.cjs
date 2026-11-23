@@ -112,6 +112,7 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
 
     await nav('Rentals').click();await rentalButton('Settings').click();await click('[data-tab="owner"]');
     assert.ok(await $('.owner-report-hero img').isVisible());assert.ok(await $('#orPrintBtn').isVisible());
+    assert.equal(await $('.owner-report-settings input[type="time"], .owner-report-settings select').count(),0);
     const feedback=$('tr').filter({hasText:'Good practice viewing'});
     await feedback.locator('[data-feedback-detail]').click();assert.match(await $('h1').innerText(),/Alex Practice - Lead for/);
     await click('[data-profile-feedback]');await click('#detailBackBtn');
@@ -150,6 +151,10 @@ const base=process.env.LEASING_URL || 'http://127.0.0.1:8777/';
       assert.ok(download.suggestedFilename().endsWith('.'+format));
       const bytes=await fs.readFile(await download.path());assert.ok(bytes.subarray(0,160).toString().includes(magic),`${format} export header`);
     }
+    await click('#detailBackBtn');await click('[data-report-id="lead_source"]');
+    const callCenter=$('tr').filter({hasText:'Tanya Vance'});
+    assert.ok(await callCenter.getByRole('cell',{name:'Phone',exact:true}).isVisible());
+    assert.ok(await callCenter.getByRole('cell',{name:'Call Center',exact:true}).isVisible());
     await click('#detailBackBtn');await click('[data-report-tab="scheduled"]');await pick('owner-day','Wednesday');await fill('owner-time','10:30');
     await $('label:has(#schedule-0-Weekly)').click();await fill('schedule-email-0','owner@example.com');await click('#save-report-schedule');
     assert.equal((await store()).ownerDelivery.day,'Wednesday');assert.equal((await store()).standardDelivery.rental_activity.Weekly,true);
