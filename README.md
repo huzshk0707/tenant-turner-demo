@@ -4,7 +4,7 @@ A screenshot walkthrough and frame archive of Larry Hancock’s 11-minute Tenant
 
 ## Practice sandbox
 
-Leasing Lab uses the full supplied HTML interface and fictional records. Practice rentals, qualification, viewing availability, follow-up, owner reports and access in the recorded navigation order. [Open on GitHub Pages](https://huzshk0707.github.io/tenant-turner-demo/?v=full-practice)
+Leasing Lab uses fictional records and its own visual design. Practice rentals, qualification, viewing availability, follow-up, owner reports and access in the recorded navigation order. [Open on GitHub Pages](https://huzshk0707.github.io/tenant-turner-demo/)
 
 The header switches between **Free Practice** and **Tutorial**. Tutorial chapters follow the video in order, with links to screenshots and timestamps. Workspace changes and tutorial progress are saved in the current browser. **Account → Reset practice data** restores the fictional starting records. [Sandbox usage and hosting](SANDBOX.md)
 

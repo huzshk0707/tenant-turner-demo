@@ -9,7 +9,7 @@
   const chapters = [
     {id:'rentals',title:'Find a rental and open Settings', time:'00:00–01:24',steps:[
       step('Find a rental','From Rentals, set User to anyone and type Wren in Search. Look for the practice listing at 24 Wren Lane.',route('rentals'),'#searchInput','rental-search','0000-rentals',data=>/wren/i.test(data.query || '')),
-      step('Open its Settings','Choose SETTINGS on the 24 Wren Lane card. Check the four rental tabs in the blue header.',route('rentals'),'button[data-open-settings="r1"]','rental-settings','0125-rental-settings',data=>data.rentalId==='r1'),
+      step('Open its Settings','Choose SETTINGS on the 24 Wren Lane card. Check the four rental tabs in the header.',route('rentals'),'button[data-open-settings="r1"]','rental-settings','0125-rental-settings',data=>data.rentalId==='r1'),
     ]},
     {id:'marketing',title:'Status, marketing and syndication',time:'01:24–02:23',steps:[
       step('Review Status','Change the rental’s assigned user to another practice agent. Scroll to the bottom and choose Save Rental Settings.',setting(),'#stAssignee','settings','0125-rental-settings',includes('assignee')),
@@ -18,7 +18,7 @@
     ]},
     {id:'qualifying',title:'Qualifying rules and custom questions',time:'02:23–03:04',steps:[
       step('Change a restriction','In Qualifying, change a practice income, move-in or pet rule. Save Rental Settings.',setting('qualifying'),'#qIncomeRatio','settings','0232-qualifying',data=>data.changed?.includes('qualifying') && !data.changed.includes('questions')),
-      step('Set a required answer','Add a fictional custom question, pick Yes or No as the required answer, and save. The answer is evaluated when a prospect submits the questionnaire.',setting('qualifying'),'#add-custom-question','settings','0253-custom-questions',includes('questions')),
+      step('Set a knockout answer','Add a fictional custom question, mark one answer as Knockout, and save. Try that answer when you practice qualifying a lead.',setting('qualifying'),'#add-custom-question','settings','0253-custom-questions',includes('questions')),
     ]},
     {id:'waitlist',title:'Wait list and reopening viewings',time:'03:04–03:28',steps:[
       step('Set a wait-list message','Open Viewing for the unit at 16 Juniper Way. Turn on Wait List if needed, change the practice message, and save.',waitList,'#vwWaitlist','settings','0314-wait-list',data=>data.rentalId==='r2' && data.waitlist && data.changed?.includes('waitlistMessage')),
@@ -27,8 +27,8 @@
     {id:'methods',title:'Self-access, devices and in-person showings',time:'03:28–06:28',steps:[
       step('Set self-access controls','Under Viewing, change Viewing Approval or the practice ID requirement, then save the settings.',setting('viewing'),'#vwApproval','settings','0337-self-access',includes('self-access')),
       step('Assign a practice device','Use the device selector to pick a different practice box, then save. Keep any real access details out of the practice record.',setting('viewing'),'#vwAssignedDevice','settings','0548-device-assignment',includes('device')),
-      step('Configure in-person showings','Change an in-person setting such as duration, travel buffer, grouping or scheduling notice. Save Rental Settings.',setting('viewing'),'#vwInPerson','settings','0605-in-person',includes('in-person')),
-      step('Set a showing limit','Adjust one of the showing limits under Viewing. Save to make it apply to the practice calendar.',setting('viewing'),'#limMaxPerDay','settings','0620-showing-limit',includes('limits')),
+      step('Configure in-person showings','Change a setting such as capacity, duration, travel buffer or scheduling notice. Save Rental Settings.',setting('viewing'),'#vwInPerson','settings','0605-in-person',includes('in-person')),
+      step('Set a showing limit','Choose an option under Limit Showings and save. The daily trip option keeps the same showing agent at the rental for overlapping or back-to-back tours.',setting('viewing'),'#ipVisitLimit','settings','0620-showing-limit',includes('limits')),
     ]},
     {id:'self-access-practice',title:'Self-viewings, scams and automatic replies',time:'03:28–06:00 · guided practice',steps:[
       {title:'Choose the viewing method',text:'The manager enables self-access on a suitable vacancy, assigns its lockbox and sets available hours and ID requirements. A listing inquiry triggers a scheduling invitation. When does the prospect get to choose a time?',route:setting('viewing'),target:'#vwSelfAccess',reference:'0337-self-access',
@@ -42,8 +42,8 @@
       step('Reply to the prospect','In Messages, read the automated showing confirmation and the prospect’s follow-up. The recorded workflow sends invitations, reminders and post-tour feedback/application links. A question left for staff needs a reply. Type a practice answer and choose Send.',route('practice-conversation'),'#msgReplyInput','reply',null,data=>data.threadId==='msg1'),
     ]},
     {id:'availability',title:'Availability and application fees',time:'06:28–06:58',steps:[
-      step('Set General Availability','In Rental Settings → Viewing, expand General Availability. Change the showing agent’s weekly hours and choose Save Rental Settings.',setting('viewing'),'#inline-general-edit','settings','0633-general-availability',includes('general-availability')),
-      step('Set rental-specific availability','In the same Viewing section, turn on Rental-Specific Availability. Add or edit a recurring block with hours, a property manager, approval and capacity. Choose Save Rental Settings.',setting('viewing'),'#inline-custom-enabled','settings','0648-rental-availability',includes('rental-availability')),
+      step('Set General Availability','In Rental Settings → Viewing, turn on General Availability and open Edit Availability on a showing agent’s card. Change their weekly hours and choose Save Rental Settings.',setting('viewing'),'#inline-general-enabled','settings','0633-general-availability',includes('general-availability')),
+      step('Set rental-specific availability','Turn on Rental-Specific Availability. Set hours, manager, approval and capacity. Choose whether the block repeats weekly and save. The rental block takes priority when it overlaps general hours.',setting('viewing'),'#inline-custom-enabled','settings','0648-rental-availability',includes('rental-availability')),
       step('Set application fees','Return to Settings → Application & Fees. Update a sample application or admin fee, then click Save Rental Settings.',setting('fees'),'#appFee','settings','0655-application',includes('fees')),
     ]},
     {id:'lead-journey',title:'Lead review, booking and follow-up',time:'06:58–07:42',steps:[
@@ -67,11 +67,12 @@
     ]},
     {id:'access',title:'CodeBox and authorized contacts',time:'09:33–10:21',steps:[
       step('Find a device','Open Access → CodeBox. Use Show unassigned to compare the assigned and unassigned cards.',route('access'),'#access-unassigned','access-filter','0938-access'),
-      step('Send a practice code','Select Send on a CodeBox. Review Date, Code type, Mobile phone, Name, Company, and Message. Choose Send Code to save the simulated code.',route('access'),'[data-code-send]','code','0950-send-code',data=>data.method==='Send'),
-      step('Manage a contact','Switch to Authorized Contacts. Add or edit a fictional vendor and save the contact.',route('contacts'),'#add-contact','contact','1005-authorized-contacts'),
+      step('Send a practice code','Select Send on a CodeBox. Enter a fictional recipient or choose Use sample recipient. Review the date and code type, then select Send Code.',route('access'),'[data-code-send]','code','0950-send-code',data=>data.method==='Send'),
+      step('Manage a contact','Switch to Authorized Contacts. Add or edit a fictional vendor, set their access hours and code type, and save.',route('contacts'),'#add-contact','contact','1005-authorized-contacts'),
+      step('Simulate a vendor’s arrival','Choose Practice check-in for a recurring contact. Enter the sample Box serial and pick an arrival within the contact’s access hours. Review the staff alert in Messages.',route('contacts'),'[data-vendor-contact]','vendor-arrival','1018-edit-contact'),
     ]},
     {id:'support',title:'Open support and return to Rentals',time:'10:21–11:25',steps:[
-      step('Open the support widget','From Rentals, open the blue support button in the bottom-right corner. You can try sending a fictional support question.',route('rentals'),'#chatFab','open-support','1112-support'),
+      step('Open the support widget','From Rentals, select Help in the bottom-right corner. Search the help topics or send a fictional support question.',route('rentals'),'#chatFab','open-support','1112-support'),
       step('Return to the rental grid','Close the support widget. You should be back on the same Rentals screen.',route('rentals'),'#closeChatBtn','close-support','1125-closing'),
     ]},
     {id:'workspace',title:'Extra practice with the supplied workspace screens',time:'Extra practice',steps:[

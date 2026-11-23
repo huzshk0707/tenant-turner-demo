@@ -3,23 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Leasing Lab — Tenant Turner practice workspace</title>
+  <title>Leasing Lab | Rental operations practice</title>
   <meta name="robots" content="noindex, nofollow" />
-  <link rel="stylesheet" href="replica.css?v=prospect-review" />
+  <link rel="icon" href="assets/lab.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="replica.css?v=workflow-accuracy" />
 </head>
 <body>
   <div class="app-shell">
     <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 
-    <!-- Fixed Dark Navy Sidebar (#1A252F) -->
-    <aside id="sidebar" class="sidebar" aria-label="Tenant Turner Navigation">
+    <aside id="sidebar" class="sidebar" aria-label="Leasing Lab navigation">
       <div class="tt-logo-wrap">
-        <button id="logoHomeBtn" class="tt-logo" type="button" title="Tenant Turner — Rentals">
-          <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
-            <path d="M4 15L16 5L28 15" stroke="#EF6C00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M8 14V26H24V14" fill="#43A047"/>
-            <text x="16" y="23.5" text-anchor="middle" fill="#FFFFFF" font-family="Roboto, sans-serif" font-weight="700" font-size="10">TT</text>
-          </svg>
+        <button id="logoHomeBtn" class="tt-logo" type="button" aria-label="Leasing Lab home" title="Leasing Lab">
+          <img src="assets/lab.svg" width="34" height="34" alt="">
         </button>
       </div>
       <nav id="navStack" class="nav-stack"></nav>
@@ -33,23 +29,32 @@
     </div>
   </div>
 
-  <!-- Bottom-Right Intercom-Style Chat Widget -->
-  <button id="chatFab" class="chat-fab" type="button" aria-label="Practice helper chat">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+  <button id="chatFab" class="chat-fab" type="button" aria-label="Practice helper chat" aria-controls="chatPopover" aria-expanded="false">
+    <svg class="chat-open-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+      <path d="M5 5h14v12H9l-4 4z M8 9h8m-8 4h5"/>
     </svg>
+    <svg class="chat-close-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+    <span>Help</span>
   </button>
 
-  <div id="chatPopover" class="chat-popover" role="dialog" aria-label="Practice Support">
+  <aside id="chatPopover" class="chat-popover" aria-labelledby="practice-help-heading">
     <div class="chat-pop-head">
-      <span>Leasing Lab Practice</span>
-      <button id="closeChatBtn" type="button" style="border:0;background:transparent;color:#fff;font-size:18px;cursor:pointer;">×</button>
+      <div><h2 id="practice-help-heading">Leasing Lab support</h2><span>Local practice session</span></div>
+      <button id="closeChatBtn" type="button" aria-label="Close practice support">×</button>
     </div>
     <div class="chat-pop-body">
-      <div id="practice-support-thread" class="practice-support-thread" aria-live="polite"></div>
-      <form id="practice-support"><label class="mat-field"><span class="mat-label">Practice support message</span><input id="practice-support-message" class="mat-input" required></label><button class="btn-blue" type="submit">Send practice message</button></form>
+      <section aria-labelledby="support-answers-title">
+        <h3 id="support-answers-title">Find an answer</h3>
+        <label class="mat-field"><span class="mat-label">Search help topics</span><input id="practice-support-search" class="mat-input" type="search"></label>
+        <div id="practice-support-results"></div>
+      </section>
+      <section aria-labelledby="support-history-title">
+        <h3 id="support-history-title">Conversation history</h3>
+        <div id="practice-support-thread" class="practice-support-thread" aria-live="polite"></div>
+        <form id="practice-support"><label class="mat-field"><span class="mat-label">Practice support message</span><input id="practice-support-message" class="mat-input" maxlength="500" required></label><button class="btn-blue" type="submit">Send practice message</button></form>
+      </section>
     </div>
-  </div>
+  </aside>
 
 
   <!-- Reusable Modal for Device Codes / Add Device / Schedule Showing -->
@@ -69,11 +74,7 @@
   <div id="signoutOverlay" class="signout-overlay" role="dialog" aria-label="Practice session paused" aria-modal="true" aria-hidden="true">
     <div class="signout-card">
       <div class="signout-logo-circle">
-        <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
-          <path d="M4 15L16 5L28 15" stroke="#EF6C00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M8 14V25H24V14" stroke="#0277BD" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-          <rect x="13.5" y="17.5" width="5" height="7.5" fill="#EF6C00" rx="0.8"/>
-        </svg>
+        <img src="assets/lab.svg" width="34" height="34" alt="">
       </div>
       <h2 style="margin:0 0 4px; font-size:20px; color:#263238;">Return to Leasing Lab</h2>
       <p style="margin:0 0 20px; font-size:13px; color:#607D8B;">Your fictional records and tutorial progress are saved on this browser.</p>
@@ -81,13 +82,13 @@
     </div>
   </div>
 
-  <script src="data.js?v=prospect-review"></script>
-  <script src="scheduling.js?v=prospect-review"></script>
-  <script src="exports.js?v=prospect-review"></script>
-  <script src="replica-booking.js?v=prospect-review"></script>
-  <script src="replica-workflows.js?v=prospect-review"></script>
-  <script src="full-workspace.js?v=prospect-review"></script>
-  <script src="replica-tutorial.js?v=prospect-review"></script>
-  <script src="replica.js?v=prospect-review"></script>
+  <script src="data.js?v=workflow-accuracy"></script>
+  <script src="scheduling.js?v=workflow-accuracy"></script>
+  <script src="exports.js?v=workflow-accuracy"></script>
+  <script src="replica-booking.js?v=workflow-accuracy"></script>
+  <script src="replica-workflows.js?v=workflow-accuracy"></script>
+  <script src="full-workspace.js?v=workflow-accuracy"></script>
+  <script src="replica-tutorial.js?v=workflow-accuracy"></script>
+  <script src="replica.js?v=workflow-accuracy"></script>
 </body>
 </html>

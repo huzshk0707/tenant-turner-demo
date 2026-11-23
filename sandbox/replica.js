@@ -4,14 +4,17 @@
       const dateOffset = window.ReplicaBooking.dateOffset;
       const uid = (kind) => `${kind}-${crypto.randomUUID()}`;
       const byId = (id) => document.getElementById(id);
-      const practiceLink = (...segments) => `${location.origin}${location.pathname}#${segments.map(encodeURIComponent).join('/')}`;
+      const practiceLink = (...segments) => `${location.href.split(/[?#]/,1)[0]}#${segments.map(encodeURIComponent).join('/')}`;
       const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-      const TIME_OPTIONS = [
-        "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM",
-        "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM",
-        "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
-        "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM",
-        "7:00 PM", "7:30 PM", "8:00 PM"
+      const reportFilterDefaults = () => ({property:'all',agent:'all',from:'',through:'',active:false,search:''});
+      const TIME_OPTIONS = Array.from({length:53},(_,index)=>{
+        const hour=7+Math.floor(index/4);
+        return `${hour%12 || 12}:${['00','15','30','45'][index%4]} ${hour<12?'AM':'PM'}`;
+      });
+      const IN_PERSON_LIMITS = [
+        ['none','Do not limit'],
+        ['showing','Limit showings to once per day'],
+        ['trip','Limit trips to rental to once per day'],
       ];
 
       const PHOTOS = {
@@ -53,8 +56,9 @@
         return {
           limitUpcoming: true,
           maxUpcoming: 5,
-          limitPerDay: true,
+          limitPerDay: false,
           maxPerDay: 3,
+          inPersonVisitLimit: "none",
           minDaysBetweenEnabled: false,
           minDaysBetween: 1,
           preventDuplicates: true,
@@ -69,10 +73,8 @@
           enabled: false,
           showingAgent: assignee || "Jamie Taylor",
           durationMinutes: 30,
-          clusterShowings: true,
           bufferMinutes: 30,
-          allowGroupShowings: false,
-          maxLeadsPerSlot: 3,
+          maxLeadsPerSlot: 1,
           requireConfirmation: true,
           advanceNoticeHours: 2,
           instructions: "Meet the leasing agent at the front entrance 5 minutes prior to your appointment."
@@ -81,8 +83,10 @@
 
       function defaultRentalAvailability() {
         return {
-          mode: "general", // "general" or "custom"
+          mode: "general", // Custom hours can be used alongside general availability.
+          generalEnabled: true,
           customHours: defaultWeeklyHours("8:00 AM", "7:00 PM", true),
+          oneTimeHours: [],
           overrides: [
             { id: "ov1", date: "2026-11-26", type: "block", label: "Thanksgiving Day — No Showings", start: "8:00 AM", end: "8:00 PM" }
           ]
@@ -112,11 +116,7 @@
           property: "all",
           type: "all"
         },
-        leadsFilter: {
-          search: "",
-          status: "all",
-          score: "all"
-        },
+        leadsFilter: { search: "" },
         messagesFilter: {
           search: "",
           tab: "all"
@@ -452,7 +452,7 @@
               viewingApproval: "Set Appointments",
               instructions: "Use visitor parking along Cedar Ridge Ln. CodeBox is on the left porch column.",
               requireId: true,
-              inPerson: Object.assign(defaultInPerson("Casey Nguyen"), { enabled: true, allowGroupShowings: true, maxLeadsPerSlot: 4 }),
+              inPerson: Object.assign(defaultInPerson("Casey Nguyen"), { enabled: true, maxLeadsPerSlot: 4 }),
               limits: defaultShowingLimits()
             },
             availability: Object.assign(defaultRentalAvailability(), { mode: "custom" }),
@@ -514,19 +514,15 @@
         const slug = (r.address || "property").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
         return {
           autoSend: true,
-          dayOfWeek: "Friday",
-          sendTime: "10:00 AM",
           emails: `owner.${slug.slice(0, 18)}@example.com, ${(r.assignee || "jamie.taylor").toLowerCase().replace(/\s+/g, ".")}@example.com`,
           includeFeedback: true,
           onMarketDate: "2026-11-05",
-          lastSent: "Nov 14, 2026 at 10:00 AM",
-          base7d: { leads: 4, prequalified: 3, scheduled: 2, viewings: 1 },
-          baseTotal: { leads: 11, prequalified: 8, scheduled: 5, viewings: 3 },
           feedback: [
             {
               id: "fb_" + r.id + "_1",
               date: "Nov 19, 2026",
               lead: "J.E.",
+              rating: 5,
               interest: "Very Interested",
               comment: "Clean interior, bright natural light, and great neighborhood feel. Planning to apply this weekend.",
               visible: true
@@ -535,6 +531,7 @@
               id: "fb_" + r.id + "_2",
               date: "Nov 17, 2026",
               lead: "R.K.",
+              rating: 3,
               interest: "Somewhat Interested",
               comment: "Liked the layout overall, though yard maintenance was still wrapping up during the tour.",
               visible: true
@@ -550,6 +547,7 @@
           "Pre-Qualified": 8,
           "Toured": 10,
           "Viewed": 10,
+          "Viewing Completed": 10,
           "Applied": 9,
           "Wait List": 7,
           "Disqualified": 2,
@@ -561,7 +559,7 @@
         if (!l.leadType) l.leadType = "Tenant lead";
         if (l.score === undefined) l.score = (l.status in scoreMap) ? scoreMap[l.status] : 8;
         if (l.status === "Prequalified") l.status = "Pre-Qualified";
-        if (l.status === "Toured") l.status = "Viewed";
+        if (l.status === "Toured" || l.status === "Viewed") l.status = "Viewing Completed";
         if (!l.moveInDate) l.moveInDate = r.dateAvailable || "2026-12-01";
         if (l.monthlyIncome == null) l.monthlyIncome = Math.round((r.rent || 2200) * 3.2);
         if (!l.pets) l.pets = r.qualifying && r.qualifying.allowPets ? "1 small dog (20 lbs)" : "None";
@@ -577,6 +575,14 @@
       }
 
       function ensureStep4RentalFields(r) {
+        const rules=r.qualifying;
+        rules.questions=(rules.questions || []).map(question=>({
+          label:question.label,
+          options:window.ReplicaBooking.questionChoices(question),
+        }));
+        if (location.origin==='null' && r.applicationLink===`null${location.pathname}#apply/${encodeURIComponent(r.id)}`) {
+          r.applicationLink=practiceLink('apply',r.id);
+        }
         if (!r.ownerReport) r.ownerReport = defaultOwnerReport(r);
         if (!Array.isArray(r.leads)) r.leads = [];
         // Add an extra realistic unscored/disqualified lead on r1 if only the initial 2 exist
@@ -592,8 +598,8 @@
 
       function workspaceDefaults() {
         return {...window.FullPracticeWorkspace.defaults(),accessTab:'CodeBox',accessFilters:{search:'',user:'',unassigned:true},reportTab:'standard',
-          reportFilters:{property:'all',agent:'all',from:'',through:'',active:false,search:''},
-          ownerDelivery:{day:'Tuesday',time:'9:00 AM'}, standardDelivery:{}, accessEvents:[], signedOut:false,
+          reportFilters:reportFilterDefaults(),
+          ownerDelivery:{day:'Tuesday',time:'9:00 AM'}, standardDelivery:{}, accessEvents:[], notices:[], signedOut:false,
           guide:window.ReplicaTutorial.initialize(),
           support:[],
           contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}]};
@@ -609,6 +615,7 @@
         const sample=r?.leads.find(l=>l.id==='lead_r1_2');
         if(sample && !sample.archived && !sample.answers && !s.viewingsList.some(v=>v.id==='sample-prior-self-tour')) {
           sample.idMetadataWarning=true;
+          sample.idReviewed=false;
           sample.incomeSource='Income from employment';
           sample.financialHistory='No issues to report.';
           sample.notes.unshift({time:sample.createdAt,text:'Prospect asked about the fenced yard for a small dog.',internal:true});
@@ -635,13 +642,22 @@
           ensureStep4RentalFields(r);
           r.imported=true;r.dateAvailable=dateOffset(5+i);r.listed=dateOffset(-18-i*4);
           r.applicationFee=s.account.defaultApplicationFee;r.adminFee=0;r.applicationLink=practiceLink('apply',r.id);
-          r.availability.overrides=[];r.qualifying.questions=[];r.ownerReport.onMarketDate=r.listed;
+          r.availability.overrides=[];r.ownerReport.onMarketDate=r.listed;
+          delete r.qualifying.qNoSmoking;
+          if (r.id==='r1') r.qualifying.historyPolicies={bankruptcy:'older',judgment:'reject',eviction:'reject',felony:'reject'};
           for(const l of r.leads){l.createdDate=dateOffset(-2);l.archived=l.status==='Disqualified';l.idReviewed=l.score>=6;}
         });
         for(const a of Object.values(s.generalAvailability)) a.blockedDates=[];
-        s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewed';}});
+        s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewing Completed';}});
         s.rentals[0].ownerReport.feedback[0].leadId=s.rentals[0].leads[0].id;
         s.rentals[0].ownerReport.feedback[0].date=dateOffset(-1);
+        const example=s.rentals[0];
+        example.turnStartDate=dateOffset(-25);
+        example.turnEndDate=example.listed;
+        s.notices.push(
+          {id:'sample-owner-notice',rentalId:example.id,type:'Owner',recipient:example.ownerReport.emails,date:dateOffset(-7),channel:'Email',message:'Sample weekly owner report delivery.'},
+          {id:'sample-occupant-notice',rentalId:example.id,type:'Occupant',recipient:'Current occupants',date:dateOffset(-2),channel:'Email',message:'Sample notice of an upcoming visit.'},
+        );
         return seedProfileExamples(s);
       }
       function newRental(address,rent,available,imported) {
@@ -686,9 +702,10 @@
         document.body.removeChild(ta);
       }
 
+      let savedWorkspace;
       function loadState() {
         try {
-          const raw = localStorage.getItem(STORAGE_KEY);
+          const raw = savedWorkspace = localStorage.getItem(STORAGE_KEY);
           if (!raw) return cloneSeed();
           const parsed = JSON.parse(raw);
           const seed=cloneSeed();
@@ -697,6 +714,8 @@
           const legacyAccount=parsed.profile ? {companyName:parsed.profile.name,email:parsed.profile.email,defaultApplicationFee:parsed.profile.fee}:{};
           merged.account={...seed.account,...legacyAccount,...parsed.account};
           merged.usersFilter={...seed.usersFilter,...parsed.usersFilter};
+          merged.reportFilters={...seed.reportFilters,...parsed.reportFilters};
+          merged.ownerDelivery={...seed.ownerDelivery,...parsed.ownerDelivery};
           merged.helpFilter={...seed.helpFilter,...parsed.helpFilter};
           merged.rewards={...seed.rewards,...parsed.rewards};
           if (!parsed.rewards && parsed.referrals?.length) merged.rewards.referrals=parsed.referrals.map((ref,i)=>({id:`legacy-ref-${i}`,name:ref.name,email:ref.email,company:'Practice referral',sentDate:'Previous practice',status:'Invited',credit:0}));
@@ -715,6 +734,18 @@
               if (!r.viewing.inPerson) r.viewing.inPerson = defaultInPerson(r.assignee);
               if (!r.viewing.limits) r.viewing.limits = defaultShowingLimits();
               if (!r.availability) r.availability = defaultRentalAvailability();
+              const {inPerson,limits}=r.viewing;
+              if (!limits.inPersonVisitLimit) {
+                const dailyCap=limits.limitPerDay ? Number(limits.maxPerDay) : 0;
+                limits.inPersonVisitLimit=dailyCap===1 ? 'showing' : inPerson.clusterShowings ? 'trip' : 'none';
+                limits.legacyInPersonCap=dailyCap>0;
+              }
+              if (inPerson.allowGroupShowings===false) inPerson.maxLeadsPerSlot=1;
+              delete inPerson.clusterShowings;
+              delete inPerson.allowGroupShowings;
+              r.availability.generalEnabled ??= r.availability.mode!=='custom';
+              r.availability.oneTimeHours ??= [];
+              r.availability.overrides ??= [];
               ensureStep4RentalFields(r);
               return r;
             });
@@ -727,7 +758,9 @@
 
       function saveState() {
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          const serialized = JSON.stringify(state);
+          localStorage.setItem(STORAGE_KEY, serialized);
+          savedWorkspace=serialized;
         } catch (e) {
           // ignore storage errors
         }
@@ -802,7 +835,7 @@
         return `<button id="${id}" class="sync-fab" type="button" title="${label}" aria-label="${label}"><span aria-hidden="true">+</span></button>`;
       }
 
-      function assignDeviceToRental(deviceId, newRentalId) {
+      function assignDeviceToRental(deviceId, newRentalId, persist = true) {
         const dev = state.devices.find(d => d.id === deviceId);
         if (!dev) return;
 
@@ -832,7 +865,7 @@
             targetRental.serialNumber = dev.serial;
           }
         }
-        saveState();
+        if(persist) saveState();
       }
 
       function closeMobileSidebar() {
@@ -1056,7 +1089,9 @@
             </div>
           ` : `
             <div class="rentals-grid">
-              ${visible.map(r => `
+              ${visible.map(r => {
+                const alerts=(r.alerts || 0)+r.leads.filter(l=>!l.archived && (l.idMetadataWarning || l.idRequested)).length;
+                return `
                 <article class="prop-card ${r.active ? "" : "inactive-card"}">
                   <div class="prop-photo-wrap" data-open-settings="${r.id}">
                     <img src="${esc(r.photo)}" alt="${esc(r.address)}" />
@@ -1078,14 +1113,14 @@
                         </svg>
                         ${esc(r.device)}
                       </span>` : ''}
-                      ${r.alerts > 0 ? `
+                      ${alerts > 0 ? `
                         <span class="tt-badge badge-alert">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                             <circle cx="12" cy="12" r="10"></circle>
                             <line x1="12" y1="8" x2="12" y2="12"></line>
                             <line x1="12" y1="16" x2="12.01" y2="16"></line>
                           </svg>
-                          ${r.alerts} ${r.alerts === 1 ? "Alert" : "Alerts"}
+                          ${alerts} ${alerts === 1 ? "Alert" : "Alerts"}
                         </span>
                       ` : ""}
                     </div>
@@ -1097,7 +1132,7 @@
                     <button class="card-link-btn" data-open-settings="${r.id}" type="button">SETTINGS</button>
                   </div>
                 </article>
-              `).join("")}
+              `;}).join("")}
             </div>
           `}
         `;
@@ -1164,6 +1199,36 @@
       function agentOptions(selected) {
         return state.users.filter(u=>u.active || u.name===selected).map(u=>`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`).join('');
       }
+      function listingPhotos(r) {
+        return [
+          [r.photo, 'Listing exterior'], ['assets/living-sample.jpg','Sample living room'],
+          ['assets/kitchen-sample.jpg','Sample kitchen'], ['assets/dining-sample.jpg','Sample dining area'],
+          ['assets/bedroom-sample.jpg','Sample bedroom'], ['assets/bath-sample.jpg','Sample bathroom'],
+        ];
+      }
+      function viewListingPhoto(photos,index) {
+        const [src,label]=photos[index];
+        openModal('Listing photos',`<figure class="listing-photo-preview">
+          <img src="${esc(src)}" alt="${esc(label)}"><figcaption>${esc(label)} · ${index+1} of ${photos.length}</figcaption></figure>`,
+          '<button id="listing-photo-prev" class="btn-outline" type="button">Previous photo</button><button id="listing-photo-next" class="btn-blue" type="button">Next photo</button>');
+        byId('listing-photo-prev').onclick=()=>viewListingPhoto(photos,(index+photos.length-1)%photos.length);
+        byId('listing-photo-next').onclick=()=>viewListingPhoto(photos,(index+1)%photos.length);
+      }
+      function qualifyingQuestionEditor(question,index) {
+        return `<fieldset class="qualifying-question">
+          <legend>Question ${index+1}</legend>
+          <label class="mat-field"><span class="mat-label">Question</span><input class="mat-input" data-question-label="${index}" value="${esc(question.label)}"></label>
+          <div class="qualifying-choices">${question.options.map((option,i)=>`<div class="qualifying-choice">
+            <label class="mat-field"><span class="mat-label">Answer ${i+1}</span><input class="mat-input" data-option-label="${index}:${i}" value="${esc(option.label)}"></label>
+            <label><input type="checkbox" data-option-knockout="${index}:${i}" ${option.knockout?'checked':''}> Knockout</label>
+            <button class="btn-flat" type="button" data-option-remove="${index}:${i}" aria-label="Remove answer ${i+1}" ${question.options.length<=2?'disabled':''}>Remove</button>
+          </div>`).join('')}</div>
+          <div class="practice-actions">
+            <button class="btn-outline" type="button" data-option-add="${index}">Add answer</button>
+            <button class="btn-flat" type="button" data-question-remove="${index}">Remove question</button>
+          </div>
+        </fieldset>`;
+      }
       function renderRentalSettings(original) {
         if (!settingsDraft || settingsDraft.id!==original.id) {
           settingsDraft=structuredClone(original);
@@ -1175,10 +1240,18 @@
         const remaining = Math.max(0, maxInstr - (r.viewing.instructions || "").length);
         const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
         const lim = r.viewing.limits || defaultShowingLimits();
+        const selfAccessHours=state.generalAvailability[r.assignee];
         const ipRemaining = Math.max(0, maxInstr - (ip.instructions || "").length);
+        const photos=listingPhotos(r);
+        const assignedDev = state.devices.find(d => d.serial === r.serialNumber && d.type === r.viewing.viewingType);
+        const selectableDevices=state.devices.filter(d=>d.type===r.viewing.viewingType &&
+          (!d.rentalId || d.rentalId===r.id || state.rentals.some(item=>item.id===d.rentalId && !item.active)));
+        const deviceGroups=[
+          ['Current assignment',selectableDevices.filter(d=>d.rentalId===r.id)],
+          ['Available inventory',selectableDevices.filter(d=>!d.rentalId)],
+          ['Assigned to inactive rentals',selectableDevices.filter(d=>d.rentalId && d.rentalId!==r.id)],
+        ];
 
-        const assignedDev = state.devices.find(d => d.serial === r.serialNumber);
-        const selectableDevices = state.devices.filter(d => d.type===r.viewing.viewingType && (!d.rentalId || d.rentalId===r.id));
         const viewingTypes=[['CodeBox','CodeBox'],['Instructions only','Instructions only'],['Lockbox','Combo lock box'],['Prempoint','Prempoint'],['SentriLock','SentriLock']];
         if(!viewingTypes.some(([type])=>type===r.viewing.viewingType)) viewingTypes.push([r.viewing.viewingType,r.viewing.viewingType]);
 
@@ -1190,6 +1263,7 @@
               <button class="subnav-link ${state.activeSubnav === "marketing" ? "active" : ""}" data-jump="marketing" type="button">Marketing</button>
               <button class="subnav-link ${state.activeSubnav === "qualifying" ? "active" : ""}" data-jump="qualifying" type="button">Qualifying</button>
               <button class="subnav-link ${state.activeSubnav === "viewing" ? "active" : ""}" data-jump="viewing" type="button">Viewing</button>
+              <button id="jumpToRentalAvailBtn" class="subnav-link" type="button">Availability hours</button>
               <button class="subnav-link ${state.activeSubnav === "fees" ? "active" : ""}" data-jump="fees" type="button">Application &amp; Fees</button>
             </nav>
 
@@ -1200,10 +1274,9 @@
                 <h2 class="mat-card-title">Status</h2>
                 <div class="grid-2" style="align-items:center;">
                   <div class="row-inline">
-                    <span class="status-dot ${r.active ? "" : "off"}"></span>
-                    <label class="mat-switch">
+                    <label class="status-control">
                       <input id="stActive" type="checkbox" ${r.active ? "checked" : ""} />
-                      <span class="switch-track"></span>
+                      <span class="status-dot ${r.active ? "" : "off"}" aria-hidden="true"></span>
                       <span>${r.active ? "Rental is active" : "Rental is inactive"}</span>
                     </label>
                   </div>
@@ -1222,27 +1295,28 @@
               <!-- 2. MARKETING CARD (0125, 0142, 0200, 0215) -->
               <section id="sec-marketing" class="mat-card">
                 <h2 class="mat-card-title">Marketing</h2>
+                ${r.imported ? '<p class="muted">Lease and property details come from the source listing.</p>' : ''}
 
                 <div class="sub-heading first">Lease Details</div>
                 <div class="rental-lease-fields">
                   <div class="mat-field">
                     <label class="mat-label" for="mkTerm">Lease Term</label>
-                    <select id="mkTerm" class="mat-select">
+                    <select id="mkTerm" class="mat-select" ${r.imported ? 'disabled' : ''}>
                       <option value="One Year" ${r.leaseTerm === "One Year" ? "selected" : ""}>One Year</option>
                       <option value="6 Months" ${r.leaseTerm === "6 Months" ? "selected" : ""}>6 Months</option>
                       <option value="Month-to-Month" ${r.leaseTerm === "Month-to-Month" ? "selected" : ""}>Month-to-Month</option>
                     </select>
                   </div>
                   <div class="imported-box">
-                    <div class="imported-head"><span>Rent</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-head"><span>Rent</span></div>
                     <div class="imported-val">${r.imported ? `$ ${r.rent}` : `<input class="mat-input" aria-label="Rent" id="field-rent" type="number" value="${esc(r.rent)}" min="0" step="any">`}</div>
                   </div>
                   <div class="imported-box">
-                    <div class="imported-head"><span>Deposit</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-head"><span>Deposit</span></div>
                     <div class="imported-val">${r.imported ? `$ ${r.deposit}` : `<input class="mat-input" aria-label="Deposit" id="field-deposit" type="number" value="${esc(r.deposit)}" min="0" step="any">`}</div>
                   </div>
                   <div class="imported-box">
-                    <div class="imported-head"><span>Date Available for Move-in</span>${r.imported ? '<span class="imported-tag">Imported</span>' : ""}</div>
+                    <div class="imported-head"><span>Date Available for Move-in</span></div>
                     <div class="imported-val">${r.imported ? `${esc(r.dateAvailable)}` : `<input class="mat-input" aria-label="Date Available for Move-in" id="field-dateAvailable" type="date" value="${esc(r.dateAvailable)}">`}</div>
                   </div>
                 </div>
@@ -1251,7 +1325,7 @@
                 <div class="grid-2" style="margin-bottom:14px;">
                   <div class="mat-field">
                     <label class="mat-label" for="mkType">Property Type</label>
-                    <select id="mkType" class="mat-select">
+                    <select id="mkType" class="mat-select" ${r.imported ? 'disabled' : ''}>
                       <option value="Single Family House" ${r.propertyType === "Single Family House" ? "selected" : ""}>Single Family House</option>
                       <option value="Townhouse" ${r.propertyType === "Townhouse" ? "selected" : ""}>Townhouse</option>
                       <option value="Apartment / Condo" ${r.propertyType === "Apartment / Condo" ? "selected" : ""}>Apartment / Condo</option>
@@ -1259,48 +1333,45 @@
                   </div>
                   <div class="grid-3" style="gap:8px;">
                     <div class="imported-box">
-                      <div class="imported-head"><span>Beds</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
-                      <div class="imported-val">${r.imported ? `${r.bedrooms}` : `<input class="mat-input" aria-label="Beds" id="field-bedrooms" type="number" value="${esc(r.bedrooms)}" min="0" step="any">`}</div>
+                      <div class="imported-head"><span>Bedrooms</span></div>
+                      <div class="imported-val">${r.imported ? `${r.bedrooms}` : `<input class="mat-input" aria-label="Bedrooms" id="field-bedrooms" type="number" value="${esc(r.bedrooms)}" min="0" step="any">`}</div>
                     </div>
                     <div class="imported-box">
-                      <div class="imported-head"><span>Baths</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
-                      <div class="imported-val">${r.imported ? `${esc(r.bathrooms)}` : `<input class="mat-input" aria-label="Baths" id="field-bathrooms" type="number" value="${esc(r.bathrooms)}" min="0" step="any">`}</div>
+                      <div class="imported-head"><span>Bathrooms</span></div>
+                      <div class="imported-val">${r.imported ? `${esc(r.bathrooms)}` : `<input class="mat-input" aria-label="Bathrooms" id="field-bathrooms" type="number" value="${esc(r.bathrooms)}" min="0" step="any">`}</div>
                     </div>
                     <div class="imported-box">
-                      <div class="imported-head"><span>Sq Ft</span>${r.imported ? '<span class="imported-tag">Imp.</span>' : ""}</div>
-                      <div class="imported-val">${r.imported ? `${r.sqft}` : `<input class="mat-input" aria-label="Sq Ft" id="field-sqft" type="number" value="${esc(r.sqft)}" min="0" step="any">`}</div>
+                      <div class="imported-head"><span>Square Feet</span></div>
+                      <div class="imported-val">${r.imported ? `${r.sqft}` : `<input class="mat-input" aria-label="Square Feet" id="field-sqft" type="number" value="${esc(r.sqft)}" min="0" step="any">`}</div>
                     </div>
                   </div>
                 </div>
 
-                <div class="mat-field" style="margin-bottom:14px;">
-                  <label class="mat-label" for="mkTitle">Descriptive Title</label>
-                  <input id="mkTitle" class="mat-input" type="text" value="${esc(r.customTitle)}" />
+                <div class="grid-2" style="margin-bottom:14px;">
+                  <label class="mat-field"><span class="mat-label">Descriptive Title</span><input class="mat-input" type="text" value="${esc(r.descriptiveTitle || `${r.bedrooms}-bedroom ${r.propertyType} at ${r.address}`)}" readonly></label>
+                  <label class="mat-field"><span class="mat-label">Custom Title</span><input id="mkTitle" class="mat-input" type="text" value="${esc(r.customTitle)}" /></label>
                 </div>
                 <div class="mat-field" style="margin-bottom:16px;">
                   <label class="mat-label" for="mkDesc">Description</label>
-                  <textarea id="mkDesc" class="mat-textarea">${esc(r.description)}</textarea>
+                  <textarea id="mkDesc" class="mat-textarea" ${r.imported ? 'readonly' : ''}>${esc(r.description)}</textarea>
                 </div>
 
                 <div class="sub-heading">Photos</div>
-                <div class="grid-4" style="margin-bottom:16px;">
-                  <div class="photo-thumb-item"><img src="${esc(r.photo)}" alt="Exterior photo 1"/></div>
-                  <div class="photo-thumb-item"><img src="assets/kitchen-sample.jpg" alt="Practice kitchen"/></div>
-                  <div class="photo-thumb-item"><img src="assets/living-sample.jpg" alt="Practice interior"/></div>
-                  <div class="photo-thumb-item"><img src="${PHOTOS.cedar}" alt="Exterior photo 4"/></div>
+                <div class="listing-gallery">
+                  ${photos.map(([src,label], index)=>`<button class="photo-thumb-item" type="button" data-listing-photo="${index}" aria-label="View ${esc(label)}"><img src="${esc(src)}" alt="" loading="lazy"></button>`).join('')}
                 </div>
 
                 <div class="accordion-row">
-                  <button class="accordion-btn" type="button"><span>Amenities</span><span>▾</span></button>
+                  <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Amenities</span></button>
                   <div class="accordion-body">Central A/C, Dishwasher, Washer/Dryer Hookups, Attached Garage, Fenced Yard</div>
                 </div>
                 <div class="accordion-row">
-                  <button class="accordion-btn" type="button"><span>Utilities Included</span><span>▾</span></button>
+                  <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Utilities Included</span></button>
                   <div class="accordion-body">Trash &amp; HOA exterior maintenance included; tenant pays water, gas, and electric.</div>
                 </div>
                 <div class="accordion-row">
-                  <button class="accordion-btn" type="button"><span>Address</span><span>▾</span></button>
-                  <div class="accordion-body">${esc(r.address)} (Imported from PMS)</div>
+                  <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Address</span></button>
+                  <div class="accordion-body">${esc(r.address)}</div>
                 </div>
 
                 <div class="sub-heading">Syndication</div>
@@ -1387,66 +1458,40 @@
                     ` : ""}
                   </div>
 
-                  <label class="mat-switch">
-                    <input id="qBankruptcy" type="checkbox" ${r.qualifying.rejectBankruptcy ? "checked" : ""} />
-                    <span class="switch-track"></span>
-                    <span>Reject leads with a bankruptcy</span>
-                  </label>
-
-                  <label class="mat-switch">
-                    <input id="qEviction" type="checkbox" ${r.qualifying.rejectEviction ? "checked" : ""} />
-                    <span class="switch-track"></span>
-                    <span>Reject leads with an eviction</span>
-                  </label>
-
-                  <label class="mat-switch">
-                    <input id="qFelony" type="checkbox" ${r.qualifying.rejectFelony ? "checked" : ""} />
-                    <span class="switch-track"></span>
-                    <span>Reject leads with a felony</span>
-                  </label>
+                  <div class="grid-2 practice-grid-gap">
+                    ${window.ReplicaBooking.historyRestrictions.map(({key,id,label,years})=>{
+                      const policy=window.ReplicaBooking.historyPolicy(r.qualifying,key);
+                      return `<label class="mat-field"><span class="mat-label">${label}</span><select id="${id}" class="mat-select" data-history-policy="${key}">
+                        <option value="reject" ${policy==='reject'?'selected':''}>Reject any record</option>
+                        <option value="older" ${policy==='older'?'selected':''}>Allow only if more than ${years} years old</option>
+                        <option value="allow" ${policy==='allow'?'selected':''}>Allow records of any age</option>
+                      </select></label>`;
+                    }).join('')}
+                  </div>
                 </div>
 
                 <div class="sub-heading">Custom Questions</div>
                 <div class="toggle-list">
-                  <div>
+                  ${window.ReplicaBooking.builtInQuestions.filter(question=>!question.legacy || r.qualifying[question.key]).map(question=>`<div>
                     <label class="mat-switch">
-                      <input id="cqCredit" type="checkbox" ${r.qualifying.qCredit700 ? "checked" : ""} />
+                      <input id="${question.settingId}" type="checkbox" ${r.qualifying[question.key] ? 'checked' : ''}>
                       <span class="switch-track"></span>
-                      <span>Is your credit score over 700?</span>
+                      <span>${esc(question.label)}</span>
                     </label>
-                    ${r.qualifying.qCredit700 ? `
-                      <div class="blue-subpanel" style="gap:6px; font-size:13.5px; color:var(--muted);">
-                        <div>1. Yes</div>
-                        <div>2. no <span style="color:var(--alert-red); font-weight:500;">(knockout)</span></div>
-                      </div>
+                    ${r.qualifying[question.key] ? `<div class="practice-note">${question.numeric
+                      ? 'Records the number of occupants for review.'
+                      : `Knockout answer: ${question.options.find(option=>option.knockout).label}`}</div>
                     ` : ""}
-                  </div>
-
-                  <div>
-                    <label class="mat-switch">
-                      <input id="cqSmoke" type="checkbox" ${r.qualifying.qNoSmoking ? "checked" : ""} />
-                      <span class="switch-track"></span>
-                      <span>Do you understand this is a strictly non-smoking property?</span>
-                    </label>
-                    ${r.qualifying.qNoSmoking ? `
-                      <div class="blue-subpanel" style="gap:6px; font-size:13.5px; color:var(--muted);">
-                        <div>1. Yes</div>
-                        <div>2. No <span style="color:var(--alert-red); font-weight:500;">(knockout)</span></div>
-                      </div>
-                    ` : ""}
-                  </div>
+                  </div>`).join('')}
                 </div>
-                <label class="mat-switch"><input id="qJudgment" type="checkbox" ${r.qualifying.rejectJudgment?'checked':''}><span class="switch-track"></span><span>Civil judgment restriction</span></label>
-                <div class="sub-heading">Custom Questions</div>
+                ${r.qualifying.questions.map(qualifyingQuestionEditor).join('')}
                 <div class="practice-actions"><button type="button" class="btn-outline" id="add-custom-question">+ Add question</button></div>
-                ${r.qualifying.questions.map((q,i)=>`<div class="grid-3 practice-grid-gap"><input class="mat-input" aria-label="Question" data-question-label="${i}" value="${esc(q.label)}"><select class="mat-select" aria-label="Required answer" data-question-answer="${i}"><option>Yes</option><option ${q.answer==='No'?'selected':''}>No</option></select><button class="btn-flat" type="button" data-question-remove="${i}">Remove</button></div>`).join('')}
               </section>
 
               <!-- 4. VIEWING CARD (0314-wait-list.jpg, 0548-device-assignment.jpg, 0605-in-person.jpg, 0620-showing-limit.jpg) -->
               <section id="sec-viewing" class="mat-card">
                 <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
                   <h2 class="mat-card-title" style="margin:0;">Viewing</h2>
-                  <button id="jumpToRentalAvailBtn" class="btn-flat btn-sm" type="button">Edit Availability ↓</button>
                 </div>
 
                 <div class="sub-heading first">Viewing Methods</div>
@@ -1480,7 +1525,7 @@
                     </label>
                     ${r.viewing.selfAccess ? `
                       <div class="blue-subpanel">
-                        <p class="availability-note">Help fight online rental scams by posting a notice at properties that allow self-access viewings. Give visitors the management office’s official contact details so they can verify the listing before paying anyone.</p>
+                        <p class="availability-note"><strong>Self-showing safety.</strong> Display the management office’s contact details at the property so visitors can verify a listing or payment request.</p>
                         <div class="grid-2">
                           <div class="mat-field">
                             <label class="mat-label" for="vwType">Viewing Type</label>
@@ -1497,33 +1542,26 @@
                           </div>
                         </div>
 
-                        ${r.viewing.viewingType!=='Instructions only' ? `<div class="grid-2" style="align-items:end;">
+                        ${r.viewing.viewingType!=='Instructions only' ? `
                           <div class="mat-field">
                             <div class="row-inline" style="justify-content:space-between;">
-                              <label class="mat-label" for="vwAssignedDevice">Assigned Access Device (from Inventory)</label>
-                              <span class="help-q" title="Assign an available lockbox or electronic access device from your Access inventory.">?</span>
+                              <label class="mat-label" for="vwAssignedDevice">Self-Access ${esc(r.viewing.viewingType)} Serial Number</label>
+                              <span class="help-q" title="Select a device from Access inventory. Saving can transfer a device from an inactive rental.">?</span>
                             </div>
                             <select id="vwAssignedDevice" class="mat-select">
-                              <option value="">-- Unassigned --</option>
-                              ${selectableDevices.map(d => `
-                                <option value="${d.id}" ${assignedDev && assignedDev.id === d.id ? "selected" : ""}>
-                                  ${esc(d.type)} — ${esc(d.serial)} (${esc(d.battery)})
-                                </option>
-                              `).join("")}
+                              <option value="">Unassigned</option>
+                              ${r.serialNumber && !selectableDevices.includes(assignedDev) ? `<option value="legacy" selected>${esc(r.serialNumber)} · Current record</option>` : ''}
+                              ${deviceGroups.filter(([,devices])=>devices.length).map(([label,devices])=>`<optgroup label="${label}">
+                                ${devices.map(d=>`<option value="${esc(d.id)}" ${assignedDev?.id===d.id?'selected':''}>
+                                  ${esc(d.serial)}${d.rentalId && d.rentalId!==r.id ? ` · ${esc(state.rentals.find(item=>item.id===d.rentalId)?.address)}` : ''}
+                                </option>`).join('')}</optgroup>`).join('')}
                             </select>
                           </div>
-                          <div class="row-inline" style="justify-content:flex-start;">
-                            <div class="mat-field" style="flex:1;">
-                              <label class="mat-label" for="vwSerial">Self-Access ${esc(r.viewing.viewingType)} Serial Number</label>
-                              <input id="vwSerial" class="mat-input" type="text" value="${esc(r.serialNumber)}" />
-                            </div>
-                            <button id="manageDevicesLink" class="btn-flat btn-sm" type="button">Manage Devices</button>
-                          </div>
-                        </div> ` : ''}
+                        ` : ''}
 
                         <div class="mat-field">
                           <label class="mat-label" for="vwInstr">Self-Access Viewing Instructions (optional)</label>
-                          <textarea id="vwInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(r.viewing.instructions)}</textarea>
+                          <textarea id="vwInstr" class="mat-textarea" rows="4" maxlength="${maxInstr}" aria-describedby="vwCounter">${esc(r.viewing.instructions)}</textarea>
                           <div id="vwCounter" class="char-counter">${remaining} remaining</div>
                         </div>
 
@@ -1545,17 +1583,11 @@
                     </label>
                     ${ip.enabled ? `
                       <div class="blue-subpanel">
-                        <div class="grid-2">
-                          <div class="mat-field">
-                            <div class="row-inline" style="justify-content:space-between;">
-                              <label class="mat-label" for="ipAgent">Showing Agent</label>
-                              <span class="help-q" title="In-person showings will use this user's General Availability unless overridden on the Availability tab.">?</span>
-                            </div>
-                            <select id="ipAgent" class="mat-select">
-                              ${agentOptions(ip.showingAgent)}
-                              <option value="Any Available Agent" ${ip.showingAgent === "Any Available Agent" ? "selected" : ""}>Any Available Agent</option>
-                            </select>
-                          </div>
+                        <div class="grid-3">
+                          <label class="mat-field">
+                            <span class="mat-label">Max Showings per Time</span>
+                            <input id="ipMaxLeads" class="mat-input" type="number" min="1" max="15" value="${esc(ip.maxLeadsPerSlot)}" required>
+                          </label>
                           <div class="mat-field">
                             <label class="mat-label" for="ipDuration">Showing Duration</label>
                             <select id="ipDuration" class="mat-select">
@@ -1565,21 +1597,8 @@
                               <option value="60" ${ip.durationMinutes === 60 ? "selected" : ""}>60 minutes</option>
                             </select>
                           </div>
-                        </div>
-
-                        <div class="grid-2">
                           <div class="mat-field">
-                            <label class="mat-label" for="ipBuffer">Travel Buffer Between Showings</label>
-                            <select id="ipBuffer" class="mat-select">
-                              <option value="0" ${ip.bufferMinutes === 0 ? "selected" : ""}>None</option>
-                              <option value="15" ${ip.bufferMinutes === 15 ? "selected" : ""}>15 minutes</option>
-                              <option value="30" ${ip.bufferMinutes === 30 ? "selected" : ""}>30 minutes</option>
-                              <option value="45" ${ip.bufferMinutes === 45 ? "selected" : ""}>45 minutes</option>
-                              <option value="60" ${ip.bufferMinutes === 60 ? "selected" : ""}>60 minutes</option>
-                            </select>
-                          </div>
-                          <div class="mat-field">
-                            <label class="mat-label" for="ipNotice">Minimum Advance Notice</label>
+                            <label class="mat-label" for="ipNotice">Scheduling Notice</label>
                             <select id="ipNotice" class="mat-select">
                               <option value="1" ${ip.advanceNoticeHours === 1 ? "selected" : ""}>1 hour</option>
                               <option value="2" ${ip.advanceNoticeHours === 2 ? "selected" : ""}>2 hours</option>
@@ -1590,44 +1609,50 @@
                           </div>
                         </div>
 
-                        <div class="row-inline">
-                          <label class="mat-switch">
-                            <input id="ipCluster" type="checkbox" ${ip.clusterShowings ? "checked" : ""} />
-                            <span class="switch-track"></span>
-                            <span>Cluster showings near existing appointments</span>
+                        <div class="grid-2">
+                          <label class="mat-field">
+                            <span class="mat-label">Buffer Before Trip to Rental</span>
+                            <select id="ipBuffer" class="mat-select">
+                              ${[0,15,30,45,60].map(value=>`<option value="${value}" ${ip.bufferMinutes===value?'selected':''}>${value ? `${value} minutes` : 'None'}</option>`).join('')}
+                            </select>
                           </label>
-                          <span class="help-q" title="Prioritizes time slots adjacent to already booked showings to minimize driving.">?</span>
-                        </div>
-
-                        <div class="row-inline">
-                          <label class="mat-switch">
-                            <input id="ipGroup" type="checkbox" ${ip.allowGroupShowings ? "checked" : ""} />
-                            <span class="switch-track"></span>
-                            <span>Allow group showings (up to</span>
+                          <label class="mat-field">
+                            <span class="mat-label">Limit Showings</span>
+                            <select id="ipVisitLimit" class="mat-select">
+                              ${IN_PERSON_LIMITS.map(([value,label])=>`<option value="${value}" ${lim.inPersonVisitLimit===value?'selected':''}>${label}</option>`).join('')}
+                            </select>
                           </label>
-                          <input id="ipMaxLeads" class="inline-num" type="number" min="2" max="15" value="${ip.maxLeadsPerSlot || 3}" ${ip.allowGroupShowings ? "" : "disabled"} />
-                          <span>leads per time slot)</span>
                         </div>
-
-                        <label class="mat-switch">
-                          <input id="ipConfirm" type="checkbox" ${ip.requireConfirmation ? "checked" : ""} />
-                          <span class="switch-track"></span>
-                          <span>Require leads to confirm 2 hours before appointment (auto-cancel no-responses)</span>
-                        </label>
-
-                        <label class="mat-switch"><input id="ipNotify" type="checkbox" ${ip.notifyOccupants?'checked':''}><span class="switch-track"></span><span>Record practice notice for current occupants</span></label>
-                        <div class="mat-field">
-                          <label class="mat-label" for="ipInstr">In-Person Viewing Instructions (optional)</label>
-                          <textarea id="ipInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(ip.instructions)}</textarea>
-                          <div id="ipCounter" class="char-counter">${ipRemaining} remaining</div>
-                        </div>
+                        ${lim.legacyInPersonCap ? `<p class="availability-note">This rental also has a saved cap of ${esc(lim.maxPerDay)} showings per day. Choose a different Limit Showings option to replace the saved cap.</p>` : ''}
+                        <details class="showing-details">
+                          <summary>Optional showing details</summary>
+                          <label class="mat-field">
+                            <span class="mat-label">Default showing agent</span>
+                            <select id="ipAgent" class="mat-select">
+                              ${agentOptions(ip.showingAgent)}
+                              <option value="Any Available Agent" ${ip.showingAgent === "Any Available Agent" ? "selected" : ""}>Any Available Agent</option>
+                            </select>
+                          </label>
+                          <label class="mat-switch">
+                            <input id="ipConfirm" type="checkbox" ${ip.requireConfirmation ? "checked" : ""} />
+                            <span class="switch-track"></span>
+                            <span>Require leads to confirm 2 hours before appointment</span>
+                          </label>
+                          <label class="mat-switch"><input id="ipNotify" type="checkbox" ${ip.notifyOccupants?'checked':''}><span class="switch-track"></span><span>Record practice notice for current occupants</span></label>
+                          <div class="mat-field">
+                            <label class="mat-label" for="ipInstr">In-Person Viewing Instructions</label>
+                            <textarea id="ipInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(ip.instructions)}</textarea>
+                            <div id="ipCounter" class="char-counter">${ipRemaining} remaining</div>
+                          </div>
+                        </details>
                       </div>
                     ` : ""}
                   </div>
                 </div>
 
                 <!-- Showing Limits (0620-showing-limit.jpg) -->
-                <div class="sub-heading">Showing Limits &amp; Scheduling Rules</div>
+                <details class="showing-details">
+                <summary>Advanced scheduling options</summary>
                 <div class="toggle-list">
                   <div class="row-inline">
                     <label class="mat-switch">
@@ -1638,16 +1663,6 @@
                     <input id="limMaxUpcoming" class="inline-num" type="number" min="1" max="50" value="${lim.maxUpcoming}" />
                     <span>active appointments</span>
                     <span class="help-q" title="Automatically pauses new bookings once this number of upcoming showings is reached.">?</span>
-                  </div>
-
-                  <div class="row-inline">
-                    <label class="mat-switch">
-                      <input id="limPerDay" type="checkbox" ${lim.limitPerDay ? "checked" : ""} />
-                      <span class="switch-track"></span>
-                      <span>Limit showings per day to</span>
-                    </label>
-                    <input id="limMaxPerDay" class="inline-num" type="number" min="1" max="20" value="${lim.maxPerDay}" />
-                    <span>showings per day</span>
                   </div>
 
                   <div class="row-inline">
@@ -1681,13 +1696,17 @@
                     </div>
                   </div>
                 </div>
+                </details>
                 <div id="viewing-availability">
                   <h3 class="sub-heading">Availability</h3>
-                  <details id="inline-general">
-                    <summary id="inline-general-edit">General Availability · ${esc(ip.showingAgent || r.assignee)}</summary>
-                    <div id="inline-general-hours"></div>
-                  </details>
-                  <label class="mat-switch"><input id="inline-custom-enabled" type="checkbox" ${r.availability.mode==='custom' ? 'checked' : ''}><span class="switch-track"></span><span>Rental-Specific Availability</span></label>
+                  ${r.viewing.selfAccess && selfAccessHours ? `<p class="availability-agents-caption">Self-access hours are ${esc(selfAccessHours.selfAccessStart)} to ${esc(selfAccessHours.selfAccessEnd)} daily.</p>` : ''}
+                  <p class="availability-agents-caption">Choose availability sources for in-person showings.</p>
+                  <label class="mat-switch"><input id="inline-general-enabled" type="checkbox" ${r.availability.generalEnabled?'checked':''}><span class="switch-track"></span><span>General Availability</span></label>
+                  <div id="inline-general-hours" ${r.availability.generalEnabled?'':'hidden'}></div>
+                  <div class="row-inline">
+                    <label class="mat-switch"><input id="inline-custom-enabled" type="checkbox" ${r.availability.mode==='custom' ? 'checked' : ''}><span class="switch-track"></span><span>Rental-Specific Availability</span></label>
+                    <button id="viewAvailabilityReport" class="btn-flat btn-sm" type="button">View Availability Report</button>
+                  </div>
                   <div id="inline-custom-hours" ${r.availability.mode!=='custom' ? 'hidden' : ''}></div>
                 </div>
               </section>
@@ -1697,8 +1716,8 @@
                 <h2 class="mat-card-title">Application &amp; Fees</h2>
                 <div class="grid-3">
                   <label class="mat-field"><span class="mat-label">Application Link</span><input id="appLink" class="mat-input" type="url" value="${esc(r.applicationLink)}"></label>
-                  <label class="mat-field"><span class="mat-label">Application Fee</span><input id="appFee" class="mat-input" type="number" min="0" value="${r.applicationFee ?? state.account.defaultApplicationFee}"></label>
-                  <label class="mat-field"><span class="mat-label">Lease Admin Fee</span><input id="adminFee" class="mat-input" type="number" min="0" value="${r.adminFee || 0}"></label>
+                  <label class="mat-field"><span class="mat-label">Application Fee</span><span class="currency-input"><span aria-hidden="true">$</span><input id="appFee" class="mat-input" type="number" min="0" step="0.01" value="${r.applicationFee ?? state.account.defaultApplicationFee}"></span></label>
+                  <label class="mat-field"><span class="mat-label">Lease Admin Fee</span><span class="currency-input"><span aria-hidden="true">$</span><input id="adminFee" class="mat-input" type="number" min="0" step="0.01" value="${r.adminFee || 0}"></span></label>
                 </div>
               </section>
               <div class="practice-actions"><button id="saveSettingsBtn" class="btn-orange" type="button">Save Rental Settings</button><button id="cancelSettingsBtn" class="btn-ghost" type="button">Cancel</button><span id="setting-error" class="practice-error" role="alert"></span></div>
@@ -1719,9 +1738,11 @@
 
         // Accordions
         canvas.querySelectorAll(".accordion-btn").forEach(btn => {
+          btn.setAttribute('aria-expanded','false');
           btn.addEventListener("click", () => {
-            btn.parentElement.classList.toggle("open");
-            if(btn.textContent.includes('Amenities') && btn.parentElement.classList.contains('open')) tutorial.record('amenities',{rentalId:r.id});
+            const open=btn.parentElement.classList.toggle("open");
+            btn.setAttribute('aria-expanded',String(open));
+            if(btn.textContent.includes('Amenities') && open) tutorial.record('amenities',{rentalId:r.id});
           });
         });
 
@@ -1749,7 +1770,10 @@
         bindVal("mkTerm", v => { r.leaseTerm = v; });
         bindVal("mkType", v => { r.propertyType = v; });
         bindVal("mkTitle", v => { r.customTitle = v; });
-        bindVal("mkDesc", v => { r.description = v; });
+        if(!r.imported) bindVal("mkDesc", v => { r.description = v; });
+        canvas.querySelectorAll('[data-listing-photo]').forEach(button=>{
+          button.onclick=()=>viewListingPhoto(photos,Number(button.dataset.listingPhoto));
+        });
 
         canvas.querySelectorAll(".syn-toggle").forEach(cb => {
           cb.addEventListener("change", () => {
@@ -1768,11 +1792,11 @@
         bindCheck("qCats", v => { r.qualifying.allowCats = v; });
         bindCheck("qSmallDogs", v => { r.qualifying.allowSmallDogs = v; });
         bindCheck("qLargeDogs", v => { r.qualifying.allowLargeDogs = v; });
-        bindCheck("qBankruptcy", v => { r.qualifying.rejectBankruptcy = v; });
-        bindCheck("qEviction", v => { r.qualifying.rejectEviction = v; });
-        bindCheck("qFelony", v => { r.qualifying.rejectFelony = v; });
-        bindCheck("cqCredit", v => { r.qualifying.qCredit700 = v; }, true);
-        bindCheck("cqSmoke", v => { r.qualifying.qNoSmoking = v; }, true);
+        for (const {id,key} of window.ReplicaBooking.historyRestrictions) bindVal(id,v=>{
+          r.qualifying.historyPolicies ??= {};
+          r.qualifying.historyPolicies[key]=v;
+        });
+        for (const {settingId,key} of window.ReplicaBooking.builtInQuestions) bindCheck(settingId,v=>{r.qualifying[key]=v;},true);
 
         // Viewing: Wait List & Self-Access & Device Assignment
         bindCheck("vwWaitlist", v => { r.waitlist = v; }, true);
@@ -1780,34 +1804,28 @@
         bindCheck("vwSelfAccess", v => { r.viewing.selfAccess = v; }, true);
         bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v==='Instructions only'?'':v; r.serialNumber=''; }, true);
         bindVal("vwApproval", v => { r.viewing.viewingApproval = v; });
-        bindVal("vwSerial", v => { r.serialNumber = v; });
         bindCheck("vwReqId", v => { r.viewing.requireId = v; });
 
         const devSel=byId('vwAssignedDevice');
         devSel?.addEventListener('change',()=>{
+          if(devSel.value==='legacy') return;
           const device=state.devices.find(d=>d.id===devSel.value);
           r.serialNumber=device?.serial || '';
           if(device){r.device=device.type;r.viewing.viewingType=device.type;}
-          renderRentalSettings(r);
         });
 
-        const manageDevBtn = document.getElementById("manageDevicesLink");
-        if (manageDevBtn) {
-          manageDevBtn.addEventListener("click", () => {
-            state.section = "access";
-            state.accessTab = ["SentriLock","PointCentral"].includes(r.device) ? r.device : "CodeBox";
-            state.selectedRentalId = null;
-            render();
-          });
-        }
-
         byId('jumpToRentalAvailBtn').onclick=()=>byId('viewing-availability').scrollIntoView({block:'start'});
-        byId('inline-general').ontoggle=e=>{if(e.currentTarget.isConnected && e.currentTarget.open) renderInlineGeneral(r);};
+        byId('inline-general-enabled').onchange=e=>{
+          r.availability.generalEnabled=e.target.checked;
+          renderInlineGeneral(r);
+        };
         byId('inline-custom-enabled').onchange=e=>{
           r.availability.mode=e.target.checked ? 'custom' : 'general';
           renderInlineRentalHours(r);
           tutorial.draw();
         };
+        byId('viewAvailabilityReport').onclick=()=>goto({section:'report',id:'viewing_availability',filterRentalId:r.id});
+        renderInlineGeneral(r);
         renderInlineRentalHours(r);
 
         const instrEl = document.getElementById("vwInstr");
@@ -1824,15 +1842,13 @@
         bindCheck("vwInPerson", v => { ip.enabled = v; r.viewing.inPerson = ip; }, true);
         bindVal("ipAgent", v => {
           ip.showingAgent=v;
-          byId('inline-general-edit').textContent=`General Availability · ${v}`;
-          if(byId('inline-general').open) renderInlineGeneral(r);
+          renderInlineGeneral(r);
         });
         bindVal("ipDuration", v => { ip.durationMinutes = Number(v) || 30; });
         bindVal("ipBuffer", v => { ip.bufferMinutes = Number(v) || 0; });
         bindVal("ipNotice", v => { ip.advanceNoticeHours = Number(v) || 2; });
-        bindCheck("ipCluster", v => { ip.clusterShowings = v; });
-        bindCheck("ipGroup", v => { ip.allowGroupShowings = v; }, true);
-        bindVal("ipMaxLeads", v => { ip.maxLeadsPerSlot = Number(v) || 3; });
+        bindVal("ipMaxLeads", v => { ip.maxLeadsPerSlot = Number(v) || 1; });
+        bindVal('ipVisitLimit',v=>{lim.inPersonVisitLimit=v;lim.legacyInPersonCap=false;});
         bindCheck("ipConfirm", v => { ip.requireConfirmation = v; });
         bindCheck('ipNotify',v=>{ip.notifyOccupants=v;});
 
@@ -1849,8 +1865,6 @@
         // Viewing: Showing Limits (0620-showing-limit.jpg)
         bindCheck("limUpcoming", v => { lim.limitUpcoming = v; });
         bindVal("limMaxUpcoming", v => { lim.maxUpcoming = Number(v) || 5; });
-        bindCheck("limPerDay", v => { lim.limitPerDay = v; });
-        bindVal("limMaxPerDay", v => { lim.maxPerDay = Number(v) || 3; });
         bindCheck("limMinDays", v => { lim.minDaysBetweenEnabled = v; });
         bindVal("limMinDaysVal", v => { lim.minDaysBetween = Number(v) || 1; });
         bindCheck("limNoDupes", v => { lim.preventDuplicates = v; });
@@ -1858,26 +1872,54 @@
         bindVal("limMaxAdv", v => { lim.maxDaysAdvance = Number(v) || 7; });
 
         for (const key of ['rent','deposit','dateAvailable','bedrooms','bathrooms','sqft']) bindVal('field-'+key,v=>{r[key]=key==='dateAvailable'?v:Number(v);});
-        bindVal('appLink',v=>{r.applicationLink=v;});
+        bindVal('appLink',v=>{r.applicationLink=v.trim();});
         bindVal('appFee',v=>{r.applicationFee=Number(v);});
         bindVal('adminFee',v=>{r.adminFee=Number(v);});
-        bindCheck('qJudgment',v=>{r.qualifying.rejectJudgment=v;});
         byId('add-custom-question')?.addEventListener('click',()=>{
-          r.qualifying.questions.push({label:'',answer:'Yes'});renderRentalSettings(r);
+          r.qualifying.questions.push({label:'',options:window.ReplicaBooking.questionChoices({answer:'Yes'})});renderRentalSettings(r);
+          canvas.querySelector(`[data-question-label="${r.qualifying.questions.length-1}"]`)?.focus();
         });
         canvas.querySelectorAll('[data-question-label]').forEach(n=>n.oninput=()=>{r.qualifying.questions[Number(n.dataset.questionLabel)].label=n.value;});
-        canvas.querySelectorAll('[data-question-answer]').forEach(n=>n.onchange=()=>{r.qualifying.questions[Number(n.dataset.questionAnswer)].answer=n.value;});
         canvas.querySelectorAll('[data-question-remove]').forEach(n=>n.onclick=()=>{r.qualifying.questions.splice(Number(n.dataset.questionRemove),1);renderRentalSettings(r);});
+        for (const [action,listener] of Object.entries({
+          label:(answers,i,input)=>{answers[i].label=input.value;},
+          knockout:(answers,i,input)=>{answers[i].knockout=input.checked;},
+          remove:(answers,i)=>{answers.splice(i,1);renderRentalSettings(r);},
+          add:answers=>{answers.push({label:'',knockout:false});renderRentalSettings(r);},
+        })) canvas.querySelectorAll(`[data-option-${action}]`).forEach(control=>{
+          const event=action==='label'?'input':action==='knockout'?'change':'click';
+          control.addEventListener(event,()=>{
+            const [index,option]=control.getAttribute(`data-option-${action}`).split(':').map(Number);
+            listener(r.qualifying.questions[index].options,option,control);
+          });
+        });
         byId('saveSettingsBtn').onclick=()=>{
           const current=state.rentals.find(item=>item.id===r.id);
           const different=(keys,a,b)=>keys.some(key=>JSON.stringify(a[key])!==JSON.stringify(b[key]));
-          const availabilityChanged=different(['mode','customHours'],r.availability,current.availability);
-          if ([...canvas.querySelectorAll('input[type=number],input[type=date],input[type=url]')].some(input=>!input.checkValidity()) || !r.dateAvailable) {
+          const availabilityChanged=different(['mode','customHours','oneTimeHours'],r.availability,current.availability);
+          const generalChanged=different(['generalEnabled','generalAgents'],r.availability,current.availability);
+          const applicationUrl=byId('appLink').value.trim();
+          if (applicationUrl && applicationUrl!==practiceLink('apply',r.id) && !window.ReplicaBooking.webUrl(applicationUrl)) {
+            byId('setting-error').textContent='Enter an HTTP or HTTPS application link.';return;
+          }
+          if ([...canvas.querySelectorAll('input[type=number],input[type=date]')].some(input=>!input.checkValidity()) || !r.dateAvailable) {
             byId('setting-error').textContent='Check the dates, amounts and application URL.';return;
+          }
+          const questions=r.qualifying.questions.filter(q=>q.label.trim()).map(q=>({
+            label:q.label.trim(),
+            options:q.options.map(option=>({...option,label:option.label.trim()})),
+          }));
+          if (questions.some(({options})=>options.some(option=>!option.label) || new Set(options.map(option=>option.label.toLowerCase())).size!==options.length)) {
+            byId('setting-error').textContent='Enter a different label for each answer choice.';return;
+          }
+          r.applicationLink=applicationUrl;
+          if (ip.enabled && !r.availability.generalEnabled && r.availability.mode!=='custom') {
+            byId('setting-error').textContent='Enable at least one availability source for in-person showings.';return;
           }
           const orderedHours=weekly=>Object.values(weekly).every(day=>!day.enabled || day.blocks.every(block=>
             window.ReplicaBooking.toTime(block.start)<window.ReplicaBooking.toTime(block.end)));
-          if((availabilityChanged && r.availability.mode==='custom' && !orderedHours(r.availability.customHours)) || [...generalAvailabilityDrafts.values()].some(weekly=>!orderedHours(weekly))) {
+          const invalidOneTime=r.availability.oneTimeHours.some(block=>window.ReplicaBooking.toTime(block.start)>=window.ReplicaBooking.toTime(block.end));
+          if((availabilityChanged && r.availability.mode==='custom' && (!orderedHours(r.availability.customHours) || invalidOneTime)) || [...generalAvailabilityDrafts.values()].some(weekly=>!orderedHours(weekly))) {
             byId('setting-error').textContent='End times must be later than start times.';return;
           }
           const oldWaitlist=current.waitlist;
@@ -1888,11 +1930,15 @@
           if (different(['inPerson'],r.viewing,current.viewing)) changed.push('in-person');
           if (different(['limits'],r.viewing,current.viewing)) changed.push('limits');
           if (different(Object.keys(r.qualifying).filter(key=>key!=='questions'),r.qualifying,current.qualifying)) changed.push('qualifying');
-          const selected=state.devices.find(d=>d.serial===r.serialNumber);
-          for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'');
-          r.qualifying.questions=r.qualifying.questions.filter(q=>q.label.trim());
+          const selected=state.devices.find(d=>d.serial===r.serialNumber && d.type===r.viewing.viewingType);
+          if(selected?.rentalId && selected.rentalId!==r.id && state.rentals.find(item=>item.id===selected.rentalId)?.active) {
+            byId('setting-error').textContent='That device is assigned to an active rental.';return;
+          }
+          for (const d of state.devices.filter(d=>d.rentalId===r.id && d.id!==selected?.id)) assignDeviceToRental(d.id,'',false);
+          r.qualifying.questions=questions;
           if (different(['questions'],r.qualifying,current.qualifying)) changed.push('questions');
           if (availabilityChanged) changed.push('rental-availability');
+          if (generalChanged) changed.push('general-availability');
           for(const [name,weekly] of generalAvailabilityDrafts) {
             const availability=state.generalAvailability[name];
             if(availability && JSON.stringify(weekly)!==JSON.stringify(availability.weekly)) {
@@ -1904,9 +1950,10 @@
           const {overrides}=current.availability;
           const {leads,ownerReport}=current;
           Object.assign(current,r,{availability:{...r.availability,overrides},leads,ownerReport});
-          if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id);
+          if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id,false);
           if(oldWaitlist && !r.waitlist) current.leads.filter(l=>l.status==='Wait List').forEach(l=>{
-            l.status='Pre-Qualified';wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
+            wf.startFollowUps(current,l);
+            wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
           });
           settingsDraft=null;saveState();render();tutorial.record('settings',{rentalId:r.id,waitlist:r.waitlist,changed});
           showToast(`Saved rental settings for ${r.address}`);
@@ -1914,70 +1961,137 @@
         byId('cancelSettingsBtn').onclick=()=>{settingsDraft=null;render();showToast('Unsaved rental changes discarded.');};
       }
 
+      const availabilityIcons={
+        add:'<path d="M12 5v14M5 12h14"/>',
+        remove:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v6m4-6v6"/>',
+      };
+      function availabilityButton(action,attrs,label) {
+        return `<button class="availability-icon" type="button" ${attrs} aria-label="${esc(label)}" title="${esc(label)}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${availabilityIcons[action]}</svg></button>`;
+      }
+
       function renderInlineGeneral(r) {
         const target=byId('inline-general-hours');
-        const agent=r.viewing.inPerson.showingAgent || r.assignee;
-        const availability=state.generalAvailability[agent];
-        if(!availability){target.textContent='Choose a showing agent to edit their weekly hours.';return;}
-        const weekly=generalAvailabilityDrafts.get(agent) || structuredClone(availability.weekly);
-        target.innerHTML=renderWeeklyScheduleEditor(weekly,'inline-ga');
-        bindWeeklyScheduleEditor(target,weekly,'inline-ga',()=>renderInlineGeneral(r),()=>generalAvailabilityDrafts.set(agent,weekly));
+        const openNames=new Set([...target.querySelectorAll('details[open]')].map(card=>card.dataset.generalName));
+        target.hidden=!r.availability.generalEnabled;
+        if(target.hidden){target.replaceChildren();return;}
+        const names=r.availability.generalAgents || window.ReplicaBooking.generalAgents(state,r);
+        const unassigned=state.users.filter(user=>user.active && user.canShow!==false && state.generalAvailability[user.name] && !names.includes(user.name));
+        target.innerHTML=`<div class="availability-agent-list">${names.map((name,index)=>`
+          <article class="availability-agent">
+            <header><strong>${esc(name)}</strong>${names.length>1 ? availabilityButton('remove',`data-general-remove="${index}"`,`Remove ${name} from general availability`) : ''}</header>
+            <details data-general-name="${esc(name)}" ${openNames.has(name)?'open':''}>
+              <summary ${index===0 ? 'id="inline-general-edit"' : ''}>Edit Availability</summary>
+              <div data-general-editor></div>
+            </details>
+          </article>`).join('')}</div>
+          ${unassigned.length ? `<div class="row-inline availability-add-agent">
+            <label class="mat-field"><span class="mat-label">Add a showing agent</span><select id="inline-general-agent" class="mat-select">${unassigned.map(user=>`<option>${esc(user.name)}</option>`).join('')}</select></label>
+            ${availabilityButton('add','id="inline-general-add"','Add agent to general availability')}
+          </div>` : ''}`;
+        target.querySelectorAll('details').forEach((card,index)=>{
+          const name=card.dataset.generalName;
+          const availability=state.generalAvailability[name];
+          const editor=card.querySelector('[data-general-editor]');
+          if (!availability) {editor.textContent='This team member has no saved schedule.';return;}
+          const weekly=generalAvailabilityDrafts.get(name) || structuredClone(availability.weekly);
+          const draw=()=>{
+            const prefix=index===0 ? 'inline-ga' : `inline-ga-${index}`;
+            editor.innerHTML=renderWeeklyScheduleEditor(weekly,prefix);
+            bindWeeklyScheduleEditor(editor,weekly,prefix,draw,()=>generalAvailabilityDrafts.set(name,weekly));
+          };
+          if(card.open) draw();
+          card.ontoggle=()=>{if(card.open && !editor.childElementCount) draw();};
+        });
+        byId('inline-general-add')?.addEventListener('click',()=>{
+          const name=byId('inline-general-agent').value;
+          r.availability.generalAgents=[...names,name];
+          renderInlineGeneral(r);
+          const card=[...target.querySelectorAll('details')].find(row=>row.dataset.generalName===name);
+          card.open=true;
+          card.querySelector('summary').focus();
+        });
+        target.querySelectorAll('[data-general-remove]').forEach(button=>button.onclick=()=>{
+          r.availability.generalAgents=names.filter((_,i)=>i!==Number(button.dataset.generalRemove));
+          renderInlineGeneral(r);
+          byId('inline-general-edit')?.focus();
+        });
       }
 
       function renderInlineRentalHours(r) {
         const target=byId('inline-custom-hours');
         target.hidden=r.availability.mode!=='custom';
         if(target.hidden){target.replaceChildren();return;}
-        const weekly=r.availability.customHours;
+        const {customHours:weekly,oneTimeHours:oneTime}=r.availability;
         const timeOptions=time=>TIME_OPTIONS.map(value=>`<option ${value===time ? 'selected' : ''}>${value}</option>`).join('');
-        target.innerHTML=`<p class="availability-note">Blackout dates and the showing agent’s calendar still apply.</p>
-          ${DAYS.flatMap(day=>(weekly[day]?.enabled ? weekly[day].blocks : []).map((block,i)=>`<fieldset class="inline-hours-card" data-inline-day="${day}" data-index="${i}">
-            <legend>Repeats weekly</legend>
-            <label class="mat-field"><span class="mat-label">Day of week</span><select class="mat-select" data-hour-field="day">${DAYS.map(value=>`<option ${value===day ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
+        const rows=[
+          ...DAYS.flatMap(day=>weekly[day].enabled ? weekly[day].blocks.map((block,index)=>({block,day,index})) : []),
+          ...oneTime.map((block,index)=>({block,day:'',index})),
+        ];
+        target.innerHTML=`<p class="availability-note">Rental hours take priority during an overlap. Blackout dates and the showing agent’s calendar still apply.</p>
+          ${rows.map(({block,day,index},i)=>`<fieldset class="inline-hours-card" data-inline-day="${day}" data-index="${index}" data-hour-row="${i}">
+            <legend>${day ? `${day} hours` : 'One-time hours'}</legend>
+            <label class="mat-switch"><input type="checkbox" data-hour-field="repeat" ${day ? 'checked' : ''}><span class="switch-track"></span><span>Repeats weekly</span></label>
+            ${day ? `<label class="mat-field"><span class="mat-label">Day of week</span><select class="mat-select" data-hour-field="day">${DAYS.map(value=>`<option ${value===day?'selected':''}>${value}</option>`).join('')}</select></label>`
+              : `<label class="mat-field"><span class="mat-label">Date</span><input class="mat-input" type="date" data-hour-field="date" value="${esc(block.date)}" required></label>`}
             <label class="mat-field"><span class="mat-label">Property manager</span><select class="mat-select" data-hour-field="agent"><option value="">Rental showing agent</option>${agentOptions(block.agent)}</select></label>
             <label class="mat-field"><span class="mat-label">From</span><select class="mat-select" data-hour-field="start">${timeOptions(block.start)}</select></label>
             <label class="mat-field"><span class="mat-label">To</span><select class="mat-select" data-hour-field="end">${timeOptions(block.end)}</select></label>
             <label class="mat-field"><span class="mat-label">Viewing approval</span><select class="mat-select" data-hour-field="approval"><option value="">Rental default</option>${['Take Requests','Set Appointments'].map(value=>`<option ${block.approval===value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
             <label class="mat-field"><span class="mat-label">Max showings per time</span><input class="mat-input" type="number" min="1" max="15" data-hour-field="capacity" value="${esc(block.capacity ?? '')}"></label>
-            <button class="btn-flat" type="button" data-inline-remove aria-label="Remove ${day} block ${i+1}">Remove</button>
-          </fieldset>`)).join('')}
-          <button id="inline-custom-add" class="btn-blue" type="button">+ Add recurring hours</button>`;
-        const removeBlock=(day,index)=>{
-          const [block]=weekly[day].blocks.splice(index,1);
-          if(!weekly[day].blocks.length) weekly[day].enabled=false;
-          return block;
+            ${availabilityButton('remove','data-inline-remove',`Remove ${day || 'one-time'} block ${index+1}`)}
+          </fieldset>`).join('')}
+          ${availabilityButton('add','id="inline-custom-add"','Add rental-specific hours')}`;
+        const addRecurring=(day,block)=>{
+          const hours=weekly[day];
+          if(!hours.enabled) hours.blocks=[];
+          hours.enabled=true;
+          return hours.blocks.push(block)-1;
         };
-        target.querySelectorAll('[data-inline-day]').forEach(row=>{
-          const {inlineDay:day,index}=row.dataset;
-          const block=weekly[day].blocks[index];
+        const focusChanged=(day,index,field)=>{
+          renderInlineRentalHours(r);
+          target.querySelector(`[data-inline-day="${day}"][data-index="${index}"] [data-hour-field="${field}"]`)?.focus({preventScroll:true});
+        };
+        const weekday=date=>DAYS[(new Date(`${date}T12:00:00Z`).getUTCDay()+6)%7];
+        target.querySelectorAll('[data-hour-row]').forEach(row=>{
+          const {block,day,index}=rows[Number(row.dataset.hourRow)];
+          const remove=()=>{
+            if(day){
+              weekly[day].blocks.splice(index,1);
+              if(!weekly[day].blocks.length) weekly[day].enabled=false;
+            } else oneTime.splice(index,1);
+          };
           row.onchange=e=>{
             const {value,dataset:{hourField}}=e.target;
             if(hourField==='day') {
-              const destination=weekly[value];
-              if(!destination.enabled) destination.blocks=[];
-              destination.enabled=true;
-              destination.blocks.push(removeBlock(day,index));
-              renderInlineRentalHours(r);
-              target.querySelector(`[data-inline-day="${value}"][data-index="${destination.blocks.length-1}"] [data-hour-field="day"]`)?.focus({preventScroll:true});
+              remove();
+              focusChanged(value,addRecurring(value,block),'day');
+            } else if(hourField==='repeat'){
+              remove();
+              if(day){
+                const {shiftDate}=window.LeasingSchedule;
+                const today=dateOffset();
+                const offset=(DAYS.indexOf(day)-DAYS.indexOf(weekday(today))+7)%7;
+                oneTime.push({...block,date:shiftDate(today,offset),id:uid('hours')});
+                focusChanged('',oneTime.length-1,'date');
+              } else {
+                const {date,id,...hours}=block;
+                const nextDay=weekday(date) || weekday(dateOffset());
+                focusChanged(nextDay,addRecurring(nextDay,hours),'day');
+              }
             } else if(hourField) block[hourField]=hourField==='capacity' ? (value ? Number(value) : null) : value;
           };
           row.querySelector('[data-inline-remove]').onclick=()=>{
-            removeBlock(day,index);renderInlineRentalHours(r);byId('inline-custom-add').focus({preventScroll:true});
+            remove();renderInlineRentalHours(r);byId('inline-custom-add').focus({preventScroll:true});
           };
         });
         byId('inline-custom-add').onclick=()=>{
           const day=DAYS.find(name=>!weekly[name].enabled) || DAYS[0];
-          const hours=weekly[day];
-          if(!hours.enabled) hours.blocks=[];
-          hours.enabled=true;
-          const index=hours.blocks.length;
-          hours.blocks.push({start:'9:00 AM',end:'5:00 PM',approval:'',capacity:null,agent:''});
-          renderInlineRentalHours(r);
-          target.querySelector(`[data-inline-day="${day}"][data-index="${index}"] select`)?.focus();
+          const index=addRecurring(day,{start:'9:00 AM',end:'5:00 PM',approval:'',capacity:null,agent:''});
+          focusChanged(day,index,'day');
         };
       }
 
-      function renderWeeklyScheduleEditor(weeklyObj, prefix, onChange) {
+      function renderWeeklyScheduleEditor(weeklyObj, prefix) {
         return DAYS.map(day => {
           const d = weeklyObj[day] || { enabled: false, blocks: [{ start: "9:00 AM", end: "5:00 PM" }] };
           return `
@@ -1999,7 +2113,6 @@
                         <select class="time-select ${prefix}-end" data-day="${day}" data-idx="${idx}">
                           ${TIME_OPTIONS.map(t => `<option value="${t}" ${blk.end === t ? "selected" : ""}>${t}</option>`).join("")}
                         </select>
-                        ${prefix==='rc'?`<label>Property manager <select class="time-select rc-agent" data-day="${day}" data-idx="${idx}"><option value="">Rental showing agent</option>${agentOptions(blk.agent)}</select></label><label>Approval <select class="time-select rc-approval" data-day="${day}" data-idx="${idx}"><option value="">Rental default</option><option ${blk.approval==='Take Requests'?'selected':''}>Take Requests</option><option ${blk.approval==='Set Appointments'?'selected':''}>Set Appointments</option></select></label><label>Max per slot <input class="inline-num rc-capacity" type="number" min="1" max="15" data-day="${day}" data-idx="${idx}" value="${esc(blk.capacity ?? '')}"></label>`:''}
                         ${d.blocks.length > 1 ? `<button type="button" class="icon-x-btn ${prefix}-rm" data-day="${day}" data-idx="${idx}" title="Remove time block">×</button>` : ""}
                         ${idx === d.blocks.length - 1 ? `<button type="button" class="btn-flat btn-sm ${prefix}-add" data-day="${day}">+ Add hours</button>` : ""}
                       </div>
@@ -2041,15 +2154,6 @@
           });
         });
 
-        if(prefix==='rc') {
-          container.querySelectorAll('.rc-agent,.rc-approval,.rc-capacity').forEach(control=>control.onchange=()=>{
-            if(!control.checkValidity()) {control.reportValidity();return;}
-            const block=weeklyObj[control.dataset.day].blocks[Number(control.dataset.idx)];
-            if(control.matches('.rc-capacity')) block.capacity=control.value ? Number(control.value) : null;
-            else block[control.matches('.rc-agent')?'agent':'approval']=control.value;
-            commit();
-          });
-        }
         container.querySelectorAll(`.${prefix}-add`).forEach(btn => {
           btn.addEventListener("click", () => {
             weeklyObj[btn.dataset.day].blocks.push({ start: "1:00 PM", end: "5:00 PM" });
@@ -2083,9 +2187,13 @@
         const avail = r.availability || defaultRentalAvailability();
         r.availability = avail;
         const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
-        const agentName = (ip.showingAgent && state.generalAvailability[ip.showingAgent]) ? ip.showingAgent : r.assignee;
-        const genAvail = state.generalAvailability[agentName] || Object.values(state.generalAvailability)[0];
-        const activeWeekly = avail.mode === "custom" ? avail.customHours : genAvail.weekly;
+        const planner=window.ReplicaBooking;
+        const generalNames=planner.generalAgents(state,r);
+        const timeLabel=time=>{
+          const [hour,minute]=time.split(':').map(Number);
+          return `${hour%12 || 12}:${String(minute).padStart(2,'0')} ${hour<12?'AM':'PM'}`;
+        };
+        const slotLabel=(rows,type,label)=>rows.map(row=>`<div class="cal-slot cal-slot-${type}"><strong>${label}</strong><br>${esc(timeLabel(row.start))} – ${esc(timeLabel(row.end))}<br>${esc(type==='self' ? row.source : row.agent)}</div>`).join('');
         const weekDates = getWeekDates(state.calendarWeekOffset);
         const weekRangeLabel = `${weekDates[0].label} – ${weekDates[6].label}, ${weekDates[6].iso.slice(0,4)}`;
 
@@ -2104,26 +2212,13 @@
                 ${ip.enabled ? `<span class="pill pill-blue">In-Person (${esc(ip.showingAgent)})</span>` : `<span class="pill pill-gray">In-Person Off</span>`}
               </div>
 
-              <div class="mode-radio-row">
-                <label class="mode-radio-card ${avail.mode === "general" ? "selected" : ""}">
-                  <input type="radio" name="availMode" value="general" ${avail.mode === "general" ? "checked" : ""} style="margin-top:3px;" />
-                  <div>
-                    <div style="font-weight:500;">Use General Availability (${esc(agentName)})</div>
-                    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
-                      Inherits recurring hours from ${esc(agentName)}'s General Availability and default self-access window (${esc(genAvail.selfAccessStart)} – ${esc(genAvail.selfAccessEnd)}).
-                    </div>
-                  </div>
-                </label>
-                <label class="mode-radio-card ${avail.mode === "custom" ? "selected" : ""}">
-                  <input type="radio" name="availMode" value="custom" ${avail.mode === "custom" ? "checked" : ""} style="margin-top:3px;" />
-                  <div>
-                    <div style="font-weight:500;">Custom Availability for This Rental</div>
-                    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
-                      Override General Availability with custom showing hours specific to ${esc(r.address)}.
-                    </div>
-                  </div>
-                </label>
+              <div class="row-inline">
+                <span class="pill ${avail.generalEnabled ? 'pill-blue' : 'pill-gray'}">General Availability ${avail.generalEnabled ? 'On' : 'Off'}</span>
+                <span class="pill ${avail.mode==='custom' ? 'pill-blue' : 'pill-gray'}">Rental-Specific Availability ${avail.mode==='custom' ? 'On' : 'Off'}</span>
+                <button id="availEditHoursBtn" class="btn-flat btn-sm" type="button">Edit Showing Hours</button>
+                <button id="availOpenReportBtn" class="btn-flat btn-sm" type="button">View Availability Report</button>
               </div>
+              ${avail.generalEnabled && generalNames.length ? `<p class="availability-agents-caption">General availability team · ${esc(generalNames.join(', '))}</p>` : ''}
             </section>
 
             <!-- Weekly Calendar Preview (0648-rental-availability.jpg) -->
@@ -2150,37 +2245,16 @@
 
               <div class="week-grid">
                 ${weekDates.map(wd => {
-                  const rentalOverride = (avail.overrides || []).find(o => o.date === wd.iso);
-                  const userBlocked = (genAvail.blockedDates || []).find(b => b.date === wd.iso && b.allDay);
-                  const dayCfg = activeWeekly[wd.dayName];
+                  const blackout = avail.overrides.find(o => o.date === wd.iso && o.type === 'block');
                   const dayBookings = state.viewingsList.filter(v => v.rentalId === r.id && v.date === wd.iso && !['Canceled','No-show'].includes(v.status));
 
                   let slotsHtml = "";
                   if (r.waitlist) {
                     slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Wait List</strong><br/>Showings paused</div>`;
-                  } else if (rentalOverride && rentalOverride.type === "block") {
-                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked</strong><br/>${esc(rentalOverride.label)}</div>`;
-                  } else if (avail.mode === "general" && userBlocked) {
-                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked</strong><br/>${esc(userBlocked.reason)}</div>`;
                   } else {
-                    if (rentalOverride && rentalOverride.type === "open") {
-                      slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>Special Open</strong><br/>${esc(rentalOverride.start)} – ${esc(rentalOverride.end)}</div>`;
-                    } else {
-                      if (r.viewing.selfAccess) {
-                        const saWindow = avail.mode === "custom"
-                          ? (dayCfg && dayCfg.enabled ? dayCfg.blocks.map(b => `${b.start} – ${b.end}`).join(", ") : null)
-                          : `${genAvail.selfAccessStart} – ${genAvail.selfAccessEnd}`;
-                        if (saWindow) {
-                          slotsHtml += `<div class="cal-slot cal-slot-self"><strong>Self-Access</strong><br/>${esc(saWindow)}</div>`;
-                        }
-                      }
-                      if (ip.enabled && dayCfg && dayCfg.enabled) {
-                        dayCfg.blocks.forEach(b => {
-                          const blockAgent=avail.mode==='custom' && b.agent;
-                          slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>In-Person</strong><br/>${esc(b.start)} – ${esc(b.end)}${blockAgent ? `<br/>${esc(blockAgent)}` : ''}</div>`;
-                        });
-                      }
-                    }
+                    if (blackout) slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked hours</strong><br>${esc(blackout.label)}</div>`;
+                    if (r.viewing.selfAccess) slotsHtml += slotLabel(planner.windows(state,r,wd.iso,'self'),'self','Self-Access');
+                    if (ip.enabled) slotsHtml += slotLabel(planner.windows(state,r,wd.iso,'person'),'inperson','In-Person');
                   }
 
                   dayBookings.forEach(bk => {
@@ -2203,35 +2277,6 @@
                 }).join("")}
               </div>
             </section>
-
-            <!-- Custom Weekly Hours Editor (shown when mode === "custom") -->
-            ${avail.mode === "custom" ? `
-              <section class="mat-card" id="customHoursCard">
-                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
-                  <h2 class="mat-card-title" style="margin:0;">Custom Weekly Hours for ${esc(r.address)}</h2>
-                  <button id="copyGenToCustomBtn" class="btn-outline btn-sm" type="button">Copy from General Availability</button>
-                </div>
-                ${renderWeeklyScheduleEditor(avail.customHours, "rc")}
-              </section>
-            ` : `
-              <section class="mat-card">
-                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
-                  <h2 class="mat-card-title" style="margin:0;">Inherited General Availability (${esc(agentName)})</h2>
-                  <button id="openGenAvailFromRental" class="btn-flat btn-sm" type="button">Edit General Availability →</button>
-                </div>
-                <div class="grid-3">
-                  ${DAYS.map(d => {
-                    const cfg = genAvail.weekly[d];
-                    return `
-                      <div class="imported-box">
-                        <div class="imported-head"><span>${d}</span><span class="imported-tag">${cfg.enabled ? "Open" : "Off"}</span></div>
-                        <div class="imported-val" style="font-size:13px;">${cfg.enabled ? cfg.blocks.map(b => `${b.start} – ${b.end}`).join(", ") : "Unavailable"}</div>
-                      </div>
-                    `;
-                  }).join("")}
-                </div>
-              </section>
-            `}
 
             <!-- Date-Specific Overrides & Blackouts -->
             <section class="mat-card">
@@ -2260,24 +2305,13 @@
           </div>
         `;
 
-        canvas.querySelectorAll('input[name="availMode"]').forEach(radio => {
-          radio.addEventListener("change", () => {
-            avail.mode = radio.value;
-            saveState();
-            renderRentalAvailability(r);
-          });
-        });
-
-        document.getElementById("availEditMethodsBtn").addEventListener("click", () => {
-          state.detailTab = "settings";
-          state.activeSubnav = "viewing";
-          saveState();
-          render();
-          setTimeout(() => {
-            const el = document.getElementById("sec-viewing");
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 60);
-        });
+        const editSettings=id=>{
+          goto({section:'settings',rentalId:r.id,jump:'viewing'});
+          byId(id)?.scrollIntoView({block:'start'});
+        };
+        byId('availEditMethodsBtn').onclick=()=>editSettings('sec-viewing');
+        byId('availEditHoursBtn').onclick=()=>editSettings('viewing-availability');
+        byId('availOpenReportBtn').onclick=()=>goto({section:'report',id:'viewing_availability',filterRentalId:r.id});
 
         document.getElementById("calPrevWeek").addEventListener("click", () => {
           state.calendarWeekOffset -= 1;
@@ -2356,29 +2390,6 @@
           });
         });
 
-        if (avail.mode === "custom") {
-          const customCard = document.getElementById("customHoursCard");
-          bindWeeklyScheduleEditor(customCard, avail.customHours, "rc", () => renderRentalAvailability(r));
-          document.getElementById("copyGenToCustomBtn").addEventListener("click", () => {
-            avail.customHours = JSON.parse(JSON.stringify(genAvail.weekly));
-            saveState();
-            renderRentalAvailability(r);
-            showToast("Copied hours from " + agentName + "'s General Availability");
-          });
-        } else {
-          const openGen = document.getElementById("openGenAvailFromRental");
-          if (openGen) {
-            openGen.addEventListener("click", () => {
-              state.section = "viewings";
-              state.viewingsTab = "general";
-              state.selectedAvailUser = agentName;
-              state.selectedRentalId = null;
-              saveState();
-              render();
-            });
-          }
-        }
-
         canvas.querySelectorAll(".rm-override-btn").forEach(btn => {
           btn.addEventListener("click", () => {
             avail.overrides = avail.overrides.filter(o => o.id !== btn.dataset.oid);
@@ -2426,10 +2437,10 @@
         const k = String(status || "").toLowerCase().replace(/[^a-z]/g, "");
         if (k === "scheduled") return "st-scheduled";
         if (k === "prequalified") return "st-prequalified";
-        if (k === "viewed" || k === "toured") return "st-viewed";
+        if (k === "viewed" || k === "toured" || k === "viewingcompleted") return "st-viewed";
         if (k === "applied") return "st-applied";
-        if (k === "waitlist") return "st-waitlist";
-        if (k === "disqualified") return "st-disqualified";
+        if (k === "waitlist" || k === "waitingonlead") return "st-waitlist";
+        if (k === "disqualified" || k === "archived") return "st-disqualified";
         return "st-unscored";
       }
 
@@ -2472,6 +2483,7 @@
                 <label class="field-label" for="alSource">Lead Source</label>
                 <select id="alSource" class="mat-select">
                   <option value="Phone / Walk-in">Phone / Walk-in</option>
+                  <option value="Call Center">Call Center</option>
                   <option value="Craigslist">Craigslist</option>
                   <option value="Zillow">Zillow</option>
                   <option value="Apartments.com">Apartments.com</option>
@@ -2479,6 +2491,17 @@
                   <option value="Referral">Referral</option>
                 </select>
               </div>
+            </div>
+            <div class="grid-2" style="margin-bottom:10px;">
+              <label class="mat-field">Acquisition channel
+                <select id="alChannel" class="mat-select">
+                  <option value="">From source</option>
+                  <option>Phone</option><option>Web</option><option>Walk-in</option><option>Email</option><option>SMS</option><option>Other</option>
+                </select>
+              </label>
+              <label class="mat-field">Source partner
+                <input id="alPartner" class="mat-input" type="text" maxlength="80" />
+              </label>
             </div>
             <div style="margin-bottom:12px;">
               <label class="field-label" for="alAction">Action *</label>
@@ -2522,14 +2545,14 @@
           const action = actionSel.value;
 
           if (byId('alEmail').value && !byId('alEmail').checkValidity()) {showToast('Enter a valid practice email.');return;}
-          const lead=wf.blankLead(r,{name:fullName,email,phone,source,leadType,manualOverride:action==='skip_schedule'});
+          const lead=wf.blankLead(r,{name:fullName,email,phone,source,leadType,channel:byId('alChannel').value,partner:byId('alPartner').value.trim(),manualOverride:action==='skip_schedule'});
           if(action==='invite') wf.invite(r,lead);
           else if(action==='self_qualify') wf.qualify(r,lead,{thenBook:true});
           else wf.book(r,lead);
         });
       }
 
-      const LEAD_STAGES = ["Unscored","Pre-Qualified","Scheduled","Showing requested","Viewed","Applied","Wait List","Disqualified"];
+      const LEAD_STAGES = ["Unscored","Pre-Qualified","Waiting on Lead","Scheduled","Showing requested","Viewing Completed","Applied","Wait List","Disqualified","Archived"];
 
       function openLeadMessages(r, lead) {
         const thread=wf.threadFor(r,lead);
@@ -2574,7 +2597,7 @@
             } else row.leadPhone=phone;
           }
           for(const f of r.ownerReport.feedback.filter(row=>belongsToLead(row,lead))) {f.leadId=lead.id;f.lead=name;}
-          if(lead.status!==fields.get('status')) lead.archived=fields.get('status')==='Disqualified';
+          if(lead.status!==fields.get('status')) lead.archived=['Disqualified','Archived'].includes(fields.get('status'));
           Object.assign(lead,{name,phone,email,status:fields.get('status'),manualOverride:fields.has('override')});
           if(lead.archived) cancelLeadViewings(r,lead);
           wf.note(lead,'Lead details updated.');detailPage.title=leadTitle(r,lead);
@@ -2594,16 +2617,29 @@
         const tours=state.viewingsList.filter(v=>v.rentalId===r.id && belongsToLead(v,lead)).sort((a,b)=>b.date.localeCompare(a.date));
         const feedback=r.ownerReport.feedback.filter(f=>belongsToLead(f,lead));
         if(feedbackId) feedback.sort((a,b)=>Number(b.id===feedbackId)-Number(a.id===feedbackId));
-        const canSchedule=!lead.archived && (lead.score>=6 || lead.manualOverride);
+        const hold=window.ReplicaBooking.identityHold(lead);
+        const qualified=!lead.archived && (lead.score>=6 || lead.manualOverride);
+        const canSchedule=qualified && !hold;
         const answers=lead.answers;
         const risks=answers && ['bankruptcy','judgment','eviction','felony'].filter(key=>answers[key]);
         const action=(id,label,disabled=false)=>`<button id="${id}" class="btn-flat" type="button" ${disabled?'disabled':''}>${esc(label)}</button>`;
         const fact=(label,value)=>`<dt>${esc(label)}</dt><dd>${esc(value ?? 'Not provided')}</dd>`;
-        const sampleId=lead.idReviewed || lead.idMetadataWarning;
+        const displayDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeZone:'UTC'}).format(new Date(`${value}T12:00:00Z`))
+          : value;
+        const displayTime=value=>/^\d{2}:\d{2}$/.test(value)
+          ? new Intl.DateTimeFormat('en-US',{timeStyle:'short',timeZone:'UTC'}).format(new Date(`2000-01-01T${value}:00Z`))
+          : value;
+        const reviewLabel=lead.idRequested?'Review replacement ID':lead.idMetadataWarning?'Review identity flag':'Mark ID reviewed';
+        const followUpDue=lead.status==='Waiting on Lead' && !lead.archived && Number.isFinite(lead.followUp?.dueAt)
+          ? new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short'}).format(lead.followUp.dueAt)
+          : '';
         byId('canvas').innerHTML=`<div class="lead-profile">
           <section class="mat-card prospect-summary">
-            <h2><span aria-label="${canSchedule?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${canSchedule?'qualified':''}"></span> ${esc(lead.name)}</h2>
+            <h2><span aria-label="${qualified?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${qualified?'qualified':''}"></span> ${esc(lead.name)}</h2>
             <div class="prospect-contact">${esc(lead.email)}<br>${esc(lead.phone)}</div>
+            ${hold ? '<p class="practice-error" role="status">Staff review required. Scheduling is on hold.</p>' : ''}
+            ${followUpDue ? `<p>Waiting on Lead · Follow-up due ${esc(followUpDue)} (local time)</p>` : ''}
             ${action('ldApplyBtn','Send Application Link')}
             <div class="prospect-actions">${action('ldArchive',lead.archived?'Unarchive':'Archive')}${action('ldDecline','Decline',lead.archived)}${action('ldEdit','Edit')}${action('ldMsgBtn','Send Message')}</div>
           </section>
@@ -2615,40 +2651,56 @@
               <label class="mat-field">Comments<textarea class="mat-textarea" name="comment" rows="2"></textarea></label>
               <button class="btn-flat">Submit Feedback</button></form>`}
             </div>
-            ${sampleId?`<div class="prospect-id" role="img" aria-label="Fictional identification sample"><strong>Practice ID</strong><span>${esc(lead.name)}</span><small>Fictional sample</small></div>`:''}
-            <p>${lead.idRequested?'New ID requested. Self-access is on hold pending review.':lead.idMetadataWarning?'The sample ID has missing or suspicious metadata. Review the viewing request, request a new ID, or archive this lead.':lead.idReviewed?'The fictional identification has been reviewed.':'No identification on file.'}</p>
-            ${tours.map(v=>`<div class="prospect-visit"><strong>${esc(v.date)} at ${esc(v.time)}</strong> <span class="status-chip">${esc(v.status)}</span>
-              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The code assigned for this viewing is ${esc(v.practiceCode)}.</p>`:''}${v.acceptedOn?`<p>Automatically accepted on ${esc(v.acceptedOn)}.</p>`:''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
-            <div class="prospect-actions">${action('ldRequestId','Request New ID',Boolean(lead.archived || lead.idRequested))}${action('ldScheduleBtn',tours.length?'Reschedule':'Schedule',!canSchedule)}</div>
+            <h3>Identity review</h3>
+            <p>${lead.idRequested?'New ID requested. All scheduling is on hold pending review.':lead.idMetadataWarning?'The sample ID has missing or suspicious metadata. Review the flag, request a new ID, or archive this lead.':lead.idReviewed?'The fictional identification has been reviewed.':'No practice identification has been reviewed.'}</p>
+            <p><small>Identity review in Leasing Lab records a practice decision in this browser. Use fictional information for the exercise.</small></p>
+            <div class="prospect-actions">${action('ldReviewId',reviewLabel,lead.archived || (lead.idReviewed && !hold))}${action('ldRequestId','Request New ID',Boolean(lead.archived || lead.idRequested))}</div>
+            ${tours.map(v=>`<div class="prospect-visit"><strong>${esc(displayDate(v.date))} at ${esc(displayTime(v.time))}</strong> <span class="status-chip">${esc(v.status==='Viewed'?'Viewing Completed':v.status)}</span>
+              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The practice code recorded for this viewing is ${esc(v.practiceCode)}.</p>`:''}${v.acceptedOn?`<p>Automatically accepted on ${esc(displayDate(v.acceptedOn))}.</p>`:''}
+              ${!hold && v.status==='Confirmed' && v.type==='Self-Access (CodeBox)' ? `<a class="btn-flat" data-visit-link href="${esc(wf.appointmentUrl(r,v))}">Open prospect appointment</a>` : ''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
+            <div class="prospect-actions">${action('ldScheduleBtn',wf.scheduledFor(r,lead)?'Reschedule':'Schedule',!canSchedule)}</div>
           </section>
           <section class="mat-card prospect-notes"><h2>Notes</h2>
             <form id="lead-note-form"><textarea id="ldNoteInput" aria-label="Internal note" class="mat-textarea" placeholder="Compose internal note here..." required></textarea><button id="ldAddNoteBtn" class="btn-flat">Add</button></form>
             ${lead.notes.filter(n=>n.internal || !('internal' in n)).map(n=>`<div class="prospect-note">${esc(n.text)}<small>${esc(n.time)}</small></div>`).join('')}
           </section>
           <section class="mat-card prospect-qual"><h2>Pre-Qualification</h2><div class="prospect-facts">
-            <article><h3>Lease Preference</h3><dl>${fact('Move In',lead.moveInDate)}${fact('Pets',lead.pets)}</dl></article>
+            <article><h3>Lease Preference</h3><dl>${fact('Move In',displayDate(lead.moveInDate))}</dl></article>
             <article><h3>Financial &amp; Legal History</h3><p>${!risks?esc(lead.financialHistory || 'No answers on file.'):risks.length?esc(risks.join(', ')):'No issues to report.'}</p></article>
             <article><h3>Source of Rent</h3><dl>${fact('Source of Rent',answers?.voucher?'Voucher':lead.incomeSource)}${fact('Annual Income',lead.monthlyIncome ? '$'+Number(lead.monthlyIncome*12).toLocaleString('en-US')+(r.rent>0?` (~${(lead.monthlyIncome/r.rent).toFixed(1)}× rent)`:''):null)}</dl></article>
             <article><h3>Lead Source</h3><dl>${fact('Qualified on',lead.qualifiedOn)}${fact('Lead Source Channel',lead.source)}</dl></article>
-            ${answers?`<article><h3>Additional Answers</h3><dl>${fact('Co-signer',answers.cosigner?'Yes':'No')}${fact('Credit score',answers.creditScore)}${fact('Smoking',answers.smoking?'Yes':'No')}${(lead.customResponses || []).map(q=>fact(q.label,q.answer)).join('')}</dl></article>`:''}
+            ${answers?`<article><h3>Additional Answers</h3><dl>${fact('Co-signer',answers.cosigner?'Yes':'No')}${fact('Pets',lead.pets)}${answers.creditScore ? fact('Sample credit score',answers.creditScore) : ''}${typeof answers.smoking==='boolean' ? fact('Smoking',answers.smoking?'Yes':'No') : ''}${(lead.customResponses || []).map(q=>fact(q.label,q.answer)).join('')}</dl></article>`:''}
           </div></section></div>`;
         const refresh=(focus)=>{saveState();render();byId(focus)?.focus({preventScroll:true});};
         byId('ldEdit').onclick=()=>editLead(r,lead);
         byId('ldMsgBtn').onclick=()=>openLeadMessages(r,lead);
         byId('ldApplyBtn').onclick=()=>{
-          wf.message(r,lead,`Practice application: ${practiceLink('apply',r.id,lead.id)}`);
+          wf.message(r,lead,`Practice application: ${wf.applicationUrl(r,lead)}`);
           wf.note(lead,'Practice application link sent.');refresh('ldApplyBtn');showToast('Application link saved in Messages.');
         };
         byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
+        byId('ldReviewId').onclick=()=>{
+          openModal(reviewLabel,`<p>Review the fictional identity for ${esc(lead.name)} and record your judgment before permitting access.</p>
+            <label><input type="checkbox" id="ld-id-ack"> I reviewed the fictional identification and resolved any identity issue.</label>`,
+            '<button class="btn-flat" id="ld-id-cancel">Cancel</button><button class="btn-blue" id="ld-id-resolve" disabled>Save ID review</button>');
+          byId('ld-id-cancel').onclick=closeModal;
+          byId('ld-id-ack').onchange=e=>{byId('ld-id-resolve').disabled=!e.target.checked;};
+          byId('ld-id-resolve').onclick=()=>{
+            if(!byId('ld-id-ack').checked) return;
+            lead.idReviewed=true;lead.idRequested=false;lead.idMetadataWarning=false;
+            wf.note(lead,'Staff reviewed the practice identity and cleared it for scheduling.');
+            closeModal();refresh('ldScheduleBtn');showToast('Practice ID review saved.');
+          };
+        };
         byId('ldRequestId').onclick=()=>{
-          lead.idReviewed=false;lead.idRequested=true;lead.idMetadataWarning=false;
-          for(const v of tours.filter(v=>v.type.startsWith('Self-Access') && ['Pending Confirmation','Confirmed'].includes(v.status))) {v.status='Requested';v.confirmBy=null;}
+          lead.idReviewed=false;lead.idRequested=true;
           wf.message(r,lead,'Please provide a new practice ID for review.');wf.note(lead,'Requested a new practice ID.');
-          refresh('ldScheduleBtn');showToast('New ID request saved in Messages.');
+          refresh('ldReviewId');showToast('New ID request saved in Messages.');
         };
         byId('ldArchive').onclick=()=>{
           lead.archived=!lead.archived;
           if(lead.archived) cancelLeadViewings(r,lead);
+          if(!lead.archived && lead.status==='Archived') lead.status=lead.score>=6?'Pre-Qualified':'Unscored';
           wf.note(lead,lead.archived?'Lead archived.':'Lead restored to the queue.');refresh('ldArchive');
         };
         byId('ldDecline').onclick=()=>{
@@ -2681,31 +2733,28 @@
         const f=state.leadsFilter;
         const query=f.search.trim().toLowerCase();
         const filtered=r.leads.filter(lead=>{
-          if((lead.archived && !f.archived) || (f.status!=='all' && lead.status!==f.status)) return false;
-          const score=lead.score===null ? 'unscored' : lead.score>=6 ? 'qualified' : 'low';
-          if(f.score!=='all' && f.score!==score) return false;
+          if(lead.archived && !f.archived) return false;
           return `${lead.name} ${lead.email} ${lead.phone} ${lead.source} ${lead.status}`.toLowerCase().includes(query);
         });
+        const sort=f.sort || 'new';
         if(f.sort==='name') filtered.sort((a,b)=>a.name.localeCompare(b.name));
-        if(f.sort==='new') filtered.sort((a,b)=>(b.createdDate || '').localeCompare(a.createdDate || ''));
-        if(!f.sort || f.sort==='recent') filtered.sort((a,b)=>(b.notes[0]?.at || Date.parse(b.createdDate) || 0)-(a.notes[0]?.at || Date.parse(a.createdDate) || 0));
+        if(sort==='new') filtered.sort((a,b)=>(b.createdDate || '').localeCompare(a.createdDate || ''));
+        if(sort==='recent') filtered.sort((a,b)=>(b.notes[0]?.at || Date.parse(b.createdDate) || 0)-(a.notes[0]?.at || Date.parse(a.createdDate) || 0));
+        const listed=Date.parse(r.listed);
+        const marketDays=Math.max(0,Math.floor((Date.parse(dateOffset())-listed)/86_400_000));
+        const marketSummary=Number.isFinite(marketDays)
+          ? `Listed ${new Date(listed).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})} · ${marketDays} days on market` : 'Leads';
         const options=(rows,selected)=>rows.map(([value,label])=>`<option value="${esc(value)}" ${value===selected ? 'selected' : ''}>${esc(label)}</option>`).join('');
 
         canvas.innerHTML=`
           <div class="leads-toolbar">
-            <label class="mat-field"><span class="mat-label">Sort by</span><select id="leadSort" class="mat-select">${options([['recent','Recent activity'],['new','Newest lead'],['name','Lead name']],f.sort || 'recent')}</select></label>
-            <label class="mat-field"><span class="mat-label">Status</span><select id="leadStatusFilter" class="mat-select">${options([['all','All statuses'],...LEAD_STAGES.map(stage=>[stage,stage])],f.status)}</select></label>
-            <label class="mat-field"><span class="mat-label">Qualification</span><select id="leadScoreFilter" class="mat-select">${options([['all','Any'],['qualified','Qualified'],['low','Disqualified'],['unscored','Unscored']],f.score)}</select></label>
+            <label class="mat-field"><span class="mat-label">Sort by</span><select id="leadSort" class="mat-select">${options([['new','Newest'],['recent','Recent activity'],['name','Lead name']],sort)}</select></label>
             <label class="mat-switch"><input id="show-archived-leads" type="checkbox" ${f.archived ? 'checked' : ''}><span class="switch-track"></span><span>Show archived</span></label>
-            <label class="mat-field lead-search"><span class="mat-label">Search Leads</span><input id="leadSearchInput" class="mat-input" type="search" placeholder="Name, phone, or email" value="${esc(f.search)}"></label>
+            <label class="search-box lead-search"><span class="sr-only">Search leads</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="leadSearchInput" type="search" placeholder="Search" value="${esc(f.search)}"></label>
           </div>
           <section class="mat-card lead-queue">
             <div class="row-inline practice-between lead-queue-heading">
-              <h2 class="mat-card-title">Leads (${filtered.length})</h2>
-              <div class="row-inline">
-                <button id="copyTenantLinkBtn" class="btn-flat" type="button">Copy Tenant Link</button>
-                <button id="copyAgentLinkBtn" class="btn-flat" type="button">Copy Agent Link</button>
-              </div>
+              <h2 class="mat-card-title">${esc(marketSummary)}</h2>
             </div>
             ${filtered.length ? `<div class="table-scroll"><table class="tt-table">
               <thead><tr><th scope="col">Qualified</th><th scope="col">Lead</th><th scope="col">Stage</th><th scope="col">Activity</th><th scope="col">Action</th></tr></thead>
@@ -2716,7 +2765,8 @@
                 return `<tr class="lead-row-clickable" data-lead-row="${esc(lead.id)}">
                   <td><span class="lead-qual-dot ${qualified ? 'qualified' : ''}" role="img" aria-label="${qualification}" title="${qualification}"></span></td>
                   <td><button class="lead-name-link" type="button" data-lead-view="${esc(lead.id)}">${esc(lead.name)}</button>
-                    <small>${esc(lead.leadType)} · ${esc(lead.source)}</small></td>
+                    <small>${esc(lead.leadType)} · ${esc(lead.source)}</small>
+                    ${lead.idMetadataWarning || lead.idRequested ? '<span class="lead-identity-alert">Identity review needed</span>' : ''}</td>
                   <td><span class="status-chip ${leadStatusClass(lead.status)}">${esc(lead.status)}</span></td>
                   <td>${esc(latest?.text || 'Lead added.')}<small>${esc(latest?.time || lead.createdAt)}</small></td>
                   <td><button class="lead-menu-btn" type="button" data-lead-menu="${esc(lead.id)}" aria-label="Actions for ${esc(lead.name)}" aria-expanded="false">⋮</button></td>
@@ -2738,21 +2788,17 @@
           byId('leadSearchInput').focus({preventScroll:true});
           byId('leadSearchInput').setSelectionRange(position,position);
         };
-        for(const [id,key] of [['leadSort','sort'],['leadStatusFilter','status'],['leadScoreFilter','score']]){
-          byId(id).onchange=e=>{
-            f[key]=e.target.value;
-            update();
-            byId(id).focus({preventScroll:true});
-          };
-        }
+        byId('leadSort').onchange=e=>{
+          f.sort=e.target.value;
+          update();
+          byId('leadSort').focus({preventScroll:true});
+        };
         byId('show-archived-leads').onchange=e=>{
           f.archived=e.target.checked;
           update();
           byId('show-archived-leads').focus({preventScroll:true});
           tutorial.record('show-archived',{enabled:f.archived});
         };
-        byId('copyTenantLinkBtn').onclick=()=>copyToClipboardSafe(practiceLink('qualify',r.id),'Copied Tenant Lead Link');
-        byId('copyAgentLinkBtn').onclick=()=>copyToClipboardSafe(practiceLink('qualify',r.id)+'/agent','Copied Agent Lead Link');
         byId('addLeadBtn').onclick=()=>openAddLeadModal(r);
         const menu=byId('lead-actions');
         const hideMenu=()=>{
@@ -2790,239 +2836,160 @@
         };
       }
 
+      const reportingZone=()=>state.account.timezone?.split(' ')[0] || 'Mountain';
+      const reportDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T12:00:00Z`).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'})
+        : value;
+      const reportTime=value=>{
+        const clock=window.ReplicaBooking.toTime(value);
+        if (!clock) return value;
+        const [hour,minute]=clock.split(':');
+        return `${Number(hour)%12 || 12}:${minute} ${Number(hour)<12?'AM':'PM'}`;
+      };
+      const reportTimestamp=(instant,zone)=>{
+        if (!Number.isFinite(instant)) return '—';
+        const {date,time}=window.LeasingSchedule.localParts(instant,zone);
+        return `${reportDate(date)} ${reportTime(time)} ${zone}`;
+      };
+      const recipientList=value=>String(value || '').split(',').map(email=>email.trim()).filter(Boolean);
+      function recordNotice(r,{type,recipient,message,date=dateOffset(0,reportingZone()),channel='Email'}) {
+        state.notices.unshift({id:uid('notice'),rentalId:r.id,type,recipient,message,date,channel});
+      }
+      function recordDueOwnerReports() {
+        const delivery=state.ownerDelivery;
+        const now=Date.now();
+        if (!Number.isFinite(delivery.startedAt)) {delivery.startedAt=now;saveState();return;}
+        const zone=reportingZone();
+        const schedule=window.LeasingSchedule;
+        const today=schedule.localParts(now,zone).date;
+        const weekday=(new Date(`${today}T12:00:00Z`).getUTCDay()+6)%7;
+        let week=schedule.shiftDate(today,-weekday);
+        let date=schedule.shiftDate(week,DAYS.indexOf(delivery.day));
+        let when=schedule.epoch(date,window.ReplicaBooking.toTime(delivery.time),zone);
+        if (!Number.isFinite(when) || when>now) {
+          week=schedule.shiftDate(week,-7);
+          date=schedule.shiftDate(date,-7);
+          when=schedule.epoch(date,window.ReplicaBooking.toTime(delivery.time),zone);
+        }
+        if (!Number.isFinite(when) || when<delivery.startedAt) return;
+        let changed=false;
+        for (const r of state.rentals) {
+          const or=r.ownerReport;
+          if (!or?.autoSend || or.lastDeliveryWeek===week || when<(or.deliveryStartedAt || 0)) continue;
+          const recipients=recipientList(or.emails);
+          if (!recipients.length || recipients.some(email=>!/^\S+@\S+\.\S+$/.test(email))) continue;
+          or.lastDeliveryWeek=week;
+          or.lastSent=reportTimestamp(when,zone);
+          recordNotice(r,{type:'Owner',recipient:recipients.join(', '),message:'Weekly owner report delivery recorded in practice.',date});
+          changed=true;
+        }
+        if (changed) saveState();
+      }
+
       function renderRentalOwnerReport(r) {
-        const canvas = document.getElementById("canvas");
-        ensureStep4RentalFields(r);
-        const or = r.ownerReport;
-        or.dayOfWeek=state.ownerDelivery.day;
-        or.sendTime=state.ownerDelivery.time;
+        const canvas=byId('canvas');
+        const or=r.ownerReport;
+        const delivery=state.ownerDelivery;
+        const today=dateOffset(0,reportingZone());
+        const since=window.LeasingSchedule.shiftDate(today,-6);
+        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && v.status!=='Requested');
+        const scheduledLeads=visits=>new Set(visits.map(v=>v.leadId || r.leads.find(l=>l.name===v.leadName)?.id || v.leadName)).size;
+        const viewed=visits=>visits.filter(v=>v.date<=today && !['Canceled','No-show'].includes(v.status)).length;
+        const recentTours=tours.filter(v=>v.date>=since && v.date<=today);
+        const qualifiedDate=lead=>lead.qualifiedOn || (Number(lead.score)>=6 ? lead.createdDate : '');
+        const metrics=[
+          ['Leads','People who shared their name and contact information.',r.leads.filter(l=>l.createdDate>=since && l.createdDate<=today).length,r.leads.length],
+          ['Leads Pre-Qualified','Leads who met the rental’s practice criteria.',r.leads.filter(l=>qualifiedDate(l)>=since && qualifiedDate(l)<=today).length,r.leads.filter(qualifiedDate).length],
+          ['Leads Scheduled','Leads with a booked viewing, including those awaiting confirmation.',scheduledLeads(recentTours),scheduledLeads(tours)],
+          ['Viewings','Scheduled visits through the report date, omitting cancellations and no-shows.',viewed(recentTours),viewed(tours)],
+        ];
+        const feedback=or.feedback.slice().sort((a,b)=>Date.parse(b.date)-Date.parse(a.date));
 
-        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && !['Canceled','No-show'].includes(v.status));
-        const since=dateOffset(-6);
-        const totals=(leads,visits)=>({leads:leads.length,prequalified:leads.filter(l=>Number(l.score)>=6&&!l.archived).length,scheduled:visits.length,viewings:visits.filter(v=>v.status==='Viewed').length});
-        const m7=totals(r.leads.filter(l=>l.createdDate>=since),tours.filter(v=>v.date>=since&&v.date<=dateOffset()));
-        const mTot=totals(r.leads,tours);
-
-        const visibleFeedback = or.feedback.filter(f => f.visible);
-
-        canvas.innerHTML = `
+        canvas.innerHTML=`
           <div class="owner-report-grid">
-            <div class="mat-card owner-report-settings">
-              <h2 class="mat-card-title" style="margin-bottom:14px;">Owner Report Settings</h2>
-              <div class="toggle-row" style="margin-bottom:14px;">
-                <div>
-                  <div style="font-weight:600;font-size:13.5px;">Send owner report automatically</div>
-                  <div style="font-size:12px;color:var(--muted);">Weekly practice delivery schedule</div>
-                </div>
-                <label class="mat-switch" aria-label="Send owner report automatically">
-                  <input id="orAutoSend" type="checkbox" ${or.autoSend ? "checked" : ""} />
-                  <span class="switch-track"></span>
-                </label>
-              </div>
-
-              <div class="grid-2" style="margin-bottom:14px;">
-                <div>
-                  <label class="field-label" for="orDay">Send Each</label>
-                  <select id="orDay" class="mat-select" ${or.autoSend ? "" : "disabled"}>
-                    ${DAYS.map(d => `<option value="${d}" ${or.dayOfWeek === d ? "selected" : ""}>${d}</option>`).join("")}
-                  </select>
-                </div>
-                <div>
-                  <label class="field-label" for="orTime">At Time</label>
-                  <select id="orTime" class="mat-select" ${or.autoSend ? "" : "disabled"}>
-                    ${["8:00 AM", "9:00 AM", "10:00 AM", "12:00 PM", "3:00 PM", "5:00 PM"].map(t =>
-                      `<option value="${t}" ${or.sendTime === t ? "selected" : ""}>${t}</option>`
-                    ).join("")}
-                  </select>
-                </div>
-              </div>
-
-              <div style="margin-bottom:14px;">
-                <label class="field-label" for="orEmails">Email Addresses (comma-separated)</label>
-                <textarea id="orEmails" class="mat-textarea" rows="2" placeholder="owner@example.com, agent@example.com">${esc(or.emails)}</textarea>
-                <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">Include owner, leasing agent, or PM emails separated by commas.</div>
-              </div>
-
-              <div class="toggle-row" style="margin-bottom:16px;">
-                <div>
-                  <div style="font-weight:600;font-size:13.5px;">Include showing feedback</div>
-                  <div style="font-size:12px;color:var(--muted);">Choose which comments appear in the report below.</div>
-                </div>
-                <label class="mat-switch" aria-label="Include showing feedback">
-                  <input id="orIncludeFb" type="checkbox" ${or.includeFeedback ? "checked" : ""} />
-                  <span class="switch-track"></span>
-                </label>
-              </div>
-
-              <div style="font-size:12px;color:var(--muted);background:#F5F7F9;padding:9px 11px;border-radius:4px;margin-bottom:14px;">
-                <strong>Schedule:</strong> ${or.autoSend ? `Each ${esc(or.dayOfWeek)} at ${esc(or.sendTime)}` : "Manual delivery only"}<br/>
-                <strong>Last Sent:</strong> ${esc(or.lastSent)}
-              </div>
-
-              <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                <button id="orSendNowBtn" class="btn-blue" type="button">SEND REPORT NOW</button>
-                <button id="orCopyLinkBtn" class="btn-outline" type="button">COPY REPORT LINK</button>
-              </div>
-            </div>
-
-            <div class="or-preview-card">
-              <div class="owner-report-hero">
+            <section class="mat-card owner-report-settings">
+              <h2 class="mat-card-title">Owner Report Delivery</h2>
+              <label class="mat-switch">
+                <input id="orAutoSend" type="checkbox" ${or.autoSend?'checked':''} />
+                <span class="switch-track"></span><span>Send owner report automatically</span>
+              </label>
+              <p class="owner-schedule-summary">${or.autoSend
+                ? `The report is scheduled every ${esc(delivery.day)} at ${esc(reportTime(delivery.time))} (${esc(reportingZone())} time).`
+                : 'Automatic delivery is paused for this rental.'}
+                <button id="owner-schedule-link" class="btn-flat" type="button">Manage shared schedule</button>
+              </p>
+              <label class="mat-field">
+                <span class="mat-label">Email addresses (comma-separated)</span>
+                <textarea id="orEmails" class="mat-textarea" rows="2" placeholder="owner@example.com">${esc(or.emails)}</textarea>
+              </label>
+              <label class="mat-switch">
+                <input id="orIncludeFb" type="checkbox" ${or.includeFeedback?'checked':''} />
+                <span class="switch-track"></span><span>Include showing feedback</span>
+              </label>
+              ${or.lastSent?`<p class="practice-note">Last recorded delivery · ${esc(or.lastSent)}</p>`:''}
+            </section>
+            <article class="or-preview-card">
+              <header class="owner-report-hero">
                 <img src="${esc(r.photo)}" alt="${esc(r.address)}" />
-                <div><h2>Owner Report for ${esc(r.address)}</h2><p>Report date ${dateOffset()} · On market since ${esc(or.onMarketDate)}</p></div>
+                <div><h2>Owner Report for ${esc(r.address)}</h2><p>${esc(reportDate(today))} · On market since ${esc(reportDate(or.onMarketDate))}</p></div>
                 <button id="orPrintBtn" class="btn-orange" type="button" aria-label="Print owner report" title="Print owner report">
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8V3h12v5M6 17H3V8h18v9h-3M6 14h12v7H6zM16 11h2"/></svg>
                 </button>
-              </div>
+              </header>
               <div class="or-preview-body">
-
-                <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0 0 8px;">Leasing Metrics</h3>
+                <h3>Leasing metrics</h3>
                 <table class="or-metrics-table">
-                  <thead>
-                    <tr>
-                      <th>Metric</th>
-                      <th class="num">Last 7 Days</th>
-                      <th class="num">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr><td><strong>Leads</strong></td><td class="num">${m7.leads}</td><td class="num">${mTot.leads}</td></tr>
-                    <tr><td><strong>Pre-Qualified</strong></td><td class="num">${m7.prequalified}</td><td class="num">${mTot.prequalified}</td></tr>
-                    <tr><td><strong>Scheduled</strong></td><td class="num">${m7.scheduled}</td><td class="num">${mTot.scheduled}</td></tr>
-                    <tr><td><strong>Viewings</strong></td><td class="num">${m7.viewings}</td><td class="num">${mTot.viewings}</td></tr>
-                  </tbody>
+                  <thead><tr><th scope="col">Metric</th><th scope="col" class="num">Last 7 Days</th><th scope="col" class="num">Total</th></tr></thead>
+                  <tbody>${metrics.map(([metric,definition,recent,total])=>`<tr><th scope="row">${metric}<small>${definition}</small></th><td class="num">${recent}</td><td class="num">${total}</td></tr>`).join('')}</tbody>
                 </table>
-
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                  <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0;">
-                    Showing Feedback (${or.includeFeedback ? `${visibleFeedback.length} included` : "Hidden from report"})
-                  </h3>
-                  <button id="orAddFbBtn" class="btn-ghost" type="button">+ Add Sample Feedback</button>
-                </div>
-
-                ${!or.includeFeedback ? `
-                  <p style="font-size:13px;color:var(--muted);font-style:italic;margin:0;">Feedback section is currently toggled OFF and will be omitted from the owner email.</p>
-                ` : or.feedback.length === 0 ? `
-                  <p style="font-size:13px;color:var(--muted);margin:0;">No prospect feedback collected yet.</p>
-                ` : or.feedback.map(fb => `
-                  <div class="fb-item ${fb.visible ? "" : "suppressed"}">
-                    <div class="fb-head">
-                      <span><strong>${esc(fb.lead)}</strong> • <button class="btn-flat" type="button" data-feedback-detail="${esc(fb.id)}">${esc(fb.date)}</button> • <span style="color:#0277BD;font-weight:600;">${esc(fb.interest)}</span></span>
-                      <button class="btn-ghost" type="button" data-toggle-fb="${esc(fb.id)}" style="padding:3px 8px;font-size:11px;">
-                        ${fb.visible ? "Suppress from Owner" : "Restore to Report"}
-                      </button>
-                    </div>
-                    <div style="font-size:13px;color:#263238;">${esc(fb.comment)}</div>
-                  </div>
-                `).join("")}
+                ${or.includeFeedback?`<h3>Feedback</h3>
+                  ${feedback.length?`<div class="table-scroll"><table class="or-metrics-table or-feedback-table">
+                    <thead><tr><th scope="col">Date</th><th scope="col">Rating (1–5)</th><th scope="col">Comments</th></tr></thead>
+                    <tbody>${feedback.map(fb=>`<tr class="${fb.visible?'':'suppressed'}">
+                      <td><button class="report-record-link" type="button" data-feedback-detail="${esc(fb.id)}">${esc(reportDate(fb.date))}</button></td>
+                      <td>${fb.rating>=1 && fb.rating<=5 ? esc(fb.rating) : '—'}</td>
+                      <td>${esc(fb.comment)}${fb.visible?'':'<small>Hidden from owner report</small>'}</td>
+                    </tr>`).join('')}</tbody>
+                  </table></div>`:'<p>No showing feedback yet.</p>'}`:'<p class="report-private-note">Showing feedback is turned off for this rental.</p>'}
+                <footer class="owner-report-brand"><img src="assets/lab.svg" width="32" height="32" alt=""><span>${esc(state.account.companyName || COMPANY_NAME)}</span></footer>
               </div>
-            </div>
-          </div>
-        `;
+            </article>
+          </div>`;
 
         byId('orPrintBtn').onclick=()=>window.print();
-        document.getElementById("orAutoSend").addEventListener("change", e => {
-          or.autoSend = e.target.checked;
+        byId('owner-schedule-link').onclick=()=>goto('scheduled');
+        byId('orAutoSend').onchange=event=>{
+          or.autoSend=event.target.checked;
+          if (or.autoSend) or.deliveryStartedAt=Date.now();
           saveState();
           renderRentalOwnerReport(r);
-        });
-        document.getElementById("orDay").addEventListener("change", e => {
-          state.ownerDelivery.day = e.target.value;
+          byId('orAutoSend').focus({preventScroll:true});
+        };
+        byId('orEmails').oninput=event=>{or.emails=event.target.value;saveState();};
+        byId('orEmails').onchange=()=>{
+          const recipients=recipientList(or.emails);
+          if (or.autoSend && recipients.length && recipients.every(email=>/^\S+@example\.com$/i.test(email))) tutorial.record('owner-recipient');
+        };
+        byId('orIncludeFb').onchange=event=>{
+          or.includeFeedback=event.target.checked;
           saveState();
           renderRentalOwnerReport(r);
-        });
-        document.getElementById("orTime").addEventListener("change", e => {
-          state.ownerDelivery.time = e.target.value;
-          saveState();
-          renderRentalOwnerReport(r);
-        });
-        document.getElementById("orEmails").addEventListener("input", e => {
-          or.emails = e.target.value;
-          saveState();
-        });
-        byId('orEmails').addEventListener('change',()=>{
-          if (or.autoSend && or.emails.trim() && or.emails.split(',').every(email=>/^\S+@example\.com$/i.test(email.trim()))) tutorial.record('owner-recipient');
-        });
-        document.getElementById("orIncludeFb").addEventListener("change", e => {
-          or.includeFeedback = e.target.checked;
-          saveState();
-          renderRentalOwnerReport(r);
-        });
-        document.getElementById("orSendNowBtn").addEventListener("click", () => {
-          const recips = (or.emails || "").split(",").map(s => s.trim()).filter(Boolean);
-          if (recips.length === 0 || recips.some(email=>!/^\S+@\S+\.\S+$/.test(email))) {
-            showToast("Enter valid practice recipient email addresses first");
-            return;
-          }
-          or.lastSent = "Today, Just now (manual send)";
-          saveState();
-          renderRentalOwnerReport(r);
-          showToast(`Practice Owner Report delivery recorded for ${recips.length} recipient${recips.length > 1 ? "s" : ""}`);
-        });
-        document.getElementById("orCopyLinkBtn").addEventListener("click", () => {
-          const shareUrl = `${practiceLink("owner-report", r.id)}`;
-          copyToClipboardSafe(shareUrl, "Copied Owner Report share link");
-        });
-        document.getElementById("orAddFbBtn").addEventListener("click", () => {
-          openModal(
-            "Add Showing Feedback",
-            `
-              <div class="grid-2" style="margin-bottom:10px;">
-                <div>
-                  <label class="field-label" for="fbLeadIn">Prospect Initials</label>
-                  <input id="fbLeadIn" class="mat-input" type="text" value="M.T." />
-                </div>
-                <div>
-                  <label class="field-label" for="fbIntIn">Interest Level</label>
-                  <select id="fbIntIn" class="mat-select">
-                    <option value="Very Interested">Very Interested</option>
-                    <option value="Somewhat Interested">Somewhat Interested</option>
-                    <option value="Not Interested">Not Interested</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label class="field-label" for="fbCommentIn">Feedback Comment</label>
-                <textarea id="fbCommentIn" class="mat-textarea" rows="3" placeholder="Enter prospect feedback..."></textarea>
-              </div>
-            `,
-            `
-              <button id="fbCancelBtn" class="btn-ghost" type="button">Cancel</button>
-              <button id="fbSaveBtn" class="btn-blue" type="button">Save Feedback</button>
-            `
-          );
-          document.getElementById("fbCancelBtn").addEventListener("click", closeModal);
-          document.getElementById("fbSaveBtn").addEventListener("click", () => {
-            const comment = document.getElementById("fbCommentIn").value.trim();
-            if (!comment) { showToast("Please enter a feedback comment"); return; }
-            or.feedback.unshift({
-              id: "fb_" + Date.now(),
-              date: dateOffset(),
-              lead: document.getElementById("fbLeadIn").value.trim() || "P.L.",
-              interest: document.getElementById("fbIntIn").value,
-              comment,
-              visible: true
-            });
+          byId('orIncludeFb').focus({preventScroll:true});
+        };
+        canvas.querySelectorAll('[data-feedback-detail]').forEach(button=>button.onclick=()=>{
+          const item=or.feedback.find(f=>f.id===button.dataset.feedbackDetail);
+          const lead=r.leads.find(l=>belongsToLead(item,l));
+          if (lead) {openLeadProfile(r,lead,item.id);return;}
+          openModal('Viewing feedback',`<p>${esc(reportDate(item.date))}</p><p>${esc(item.comment)}</p>`,
+            `<button class="btn-ghost" id="feedback-done" type="button">Back to report</button><button class="btn-blue" id="feedback-visibility" type="button">${item.visible?'Hide from owner report':'Show on owner report'}</button>`);
+          byId('feedback-done').onclick=closeModal;
+          byId('feedback-visibility').onclick=()=>{
+            item.visible=!item.visible;
             saveState();
             closeModal();
             renderRentalOwnerReport(r);
-            showToast("Showing feedback added to Owner Report");
-          });
-        });
-
-        const openFeedback=id=>{
-          const item=or.feedback.find(f=>f.id===id);if(!item)return;
-          const lead=r.leads.find(l=>l.id===item.leadId);
-          openModal('Viewing feedback',`<p><strong>${esc(lead?.name || item.lead)}</strong> · ${esc(item.date)}</p><p>${esc(item.comment)}</p>`,
-            `<button class="btn-ghost" id="feedback-done">Back to report</button><button class="btn-blue" id="feedback-visibility">${item.visible?'Hide from owner report':'Show on owner report'}</button>`);
-          byId('feedback-done').onclick=closeModal;
-          byId('feedback-visibility').onclick=()=>{item.visible=!item.visible;saveState();closeModal();render();wf.done('owner');showToast(item.visible?'Feedback included in owner report.':'Feedback hidden from owner report.');};
-        };
-        canvas.querySelectorAll('[data-toggle-fb]').forEach(btn=>btn.onclick=()=>openFeedback(btn.dataset.toggleFb));
-        canvas.querySelectorAll('[data-feedback-detail]').forEach(btn=>btn.onclick=()=>{
-          const f=or.feedback.find(row=>row.id===btn.dataset.feedbackDetail);
-          const lead=f && r.leads.find(l=>belongsToLead(f,l));
-          if(lead) openLeadProfile(r,lead,f.id);
-          else openFeedback(btn.dataset.feedbackDetail);
+            wf.done('owner');
+          };
         });
       }
 
@@ -3313,9 +3280,10 @@
       }
 
       function messageBody(body) {
-        return String(body).split(/(https?:\/\/[^\s]+)/).map(piece=>{
-          if(!piece.startsWith(practiceLink('qualify')+'/')&&!piece.startsWith(practiceLink('apply')+'/'))return esc(piece);
-          return `<a href="${esc(piece)}">${esc(piece)}</a>`;
+        return String(body).split(/((?:https?|file):\/\/[^\s]+)/i).map(piece=>{
+          const practiceRoute=['qualify','apply','visit'].some(route=>piece.startsWith(`${practiceLink(route)}/`));
+          if (!practiceRoute && !window.ReplicaBooking.webUrl(piece)) return esc(piece);
+          return `<a href="${esc(piece)}"${practiceRoute ? '' : ' target="_blank" rel="noopener noreferrer"'}>${esc(piece)}</a>`;
         }).join('');
       }
 
@@ -3339,6 +3307,7 @@
         let activeThread = filtered.find(m => m.id === state.selectedThreadId) || filtered[0] || null;
         if (activeThread) state.selectedThreadId = activeThread.id;
         const activeRental = activeThread ? state.rentals.find(r => r.id === activeThread.rentalId) : null;
+        const activeLead=activeRental?.leads.find(lead=>activeThread.leadId ? lead.id===activeThread.leadId : lead.name===activeThread.leadName);
         const unreadCount = state.messages.filter(m => m.unread).length;
 
         canvas.innerHTML = `
@@ -3409,7 +3378,7 @@
                   <div class="msg-templates">
                     <button class="msg-tpl-chip" type="button" data-tpl="Driveway parking is available right in front of the house. Enjoy your tour!">Parking Info</button>
                     <button class="msg-tpl-chip" type="button" data-tpl="Your showing is confirmed! Please reply YES to confirm 2 hours prior.">Confirm Showing</button>
-                    <button class="msg-tpl-chip" type="button" data-tpl="Thanks for touring! Here is the link to submit your online rental application.">Send Application</button>
+                    ${activeRental ? `<button class="msg-tpl-chip" type="button" data-tpl="Thanks for touring! Here is your application link: ${esc(wf.applicationUrl(activeRental,activeLead))}">Send Application</button>` : ''}
                     <button class="msg-tpl-chip" type="button" data-tpl="Showings are now open for this property—use your link to pick a time!">Wait List Open</button>
                   </div>
                   <div class="msg-input-row">
@@ -3510,10 +3479,26 @@
       }
 
       const REPORT_CATALOG = [
-        {icon:'<path d="m2 11 10-9 10 9h-4v10h-5v-6h-2v6H6V11z" fill="currentColor"/>',items:[['rental_activity','RENTAL ACTIVITY','Inquiry and viewing totals by rental.'],['days','DAYS ON MARKET','Listing and activation dates.'],['lead_activity','LEAD ACTIVITY','Qualification and activity history.'],['lead_source','LEAD SOURCE','How prospects found each rental.'],['syndication','ZILLOW SYNDICATION','Listing distribution preferences.']]},
-        {icon:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v6m8-6v6m-6 6h5v4h-5z"/>',items:[['viewing_activity','VIEWING ACTIVITY','Viewing times, methods, and statuses.'],['viewing_availability','VIEWING AVAILABILITY','Rental and agent availability.'],['notifications','NOTIFICATIONS','Practice appointment and contact messages.']]},
-        {icon:'<rect x="5" y="10" width="14" height="11" rx="1"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v4"/>',items:[['codebox_access','LOCKBOX ACCESS','Generated practice access codes.'],['inventory','LOCKBOX INVENTORY','Assigned and unassigned devices.']]},
-        {icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M6 20v-2a6 4 0 0 1 12 0v2"/>',items:[['user_activity','USER ACTIVITY','Rental and showing counts by user.'],['company_overview','ACCOUNT OVERVIEW','Portfolio activity totals.']]},
+        {icon:'<path d="m2 11 10-9 10 9h-4v10h-5v-6h-2v6H6V11z" fill="currentColor"/>',items:[
+          ['rental_activity','RENTAL ACTIVITY','Active status and counts for inquiries, scheduled leads, qualifications, and viewings.'],
+          ['days','DAYS ON MARKET','Listing and turn dates, leads, viewings, and days on market.'],
+          ['lead_activity','LEAD ACTIVITY','Lead creation, qualification, status, notes, ratings, and feedback.'],
+          ['lead_source','LEAD SOURCE','Lead contact details and acquisition channel, source, and partner.'],
+          ['syndication','ZILLOW SYNDICATION','Zillow listing settings and other distribution destinations.'],
+        ]},
+        {icon:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v6m8-6v6m-6 6h5v4h-5z"/>',items:[
+          ['viewing_activity','VIEWING ACTIVITY','Scheduled viewing types and totals, with the instructions and feedback for each visit.'],
+          ['viewing_availability','VIEWING AVAILABILITY','Weekly hours and date-specific changes by rental, agent, and viewing type.'],
+          ['notifications','NOTIFICATIONS','Practice delivery notices for owners and current occupants.'],
+        ]},
+        {icon:'<rect x="5" y="10" width="14" height="11" rx="1"/><path d="M8 11V6a4 4 0 0 1 8 0v4"/>',items:[
+          ['codebox_access','LOCKBOX ACCESS','Check-ins by person and device, including actual arrival, scheduled arrival, and the practice code issued.'],
+          ['inventory','LOCKBOX INVENTORY','Devices, assigned locations, and reported status.'],
+        ]},
+        {icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>',items:[
+          ['user_activity','USER ACTIVITY','Active rental counts, sign-in details, and the latest rental opened by each user.'],
+          ['company_overview','ACCOUNT OVERVIEW','Rental, lead, upcoming viewing, and average days-on-market figures by user.'],
+        ]},
       ].map(cat=>({...cat,items:cat.items.map(([id,name,desc])=>({id,name,desc}))}));
 
       function reportName(id) {
@@ -3521,31 +3506,146 @@
         return name.toLowerCase().replace(/\b\w/g,letter=>letter.toUpperCase()).replace(' On ',' on ');
       }
 
+      const acquisitionChannel=lead=>{
+        if (lead.channel && lead.channel!=='Call Center') return lead.channel;
+        if (['Call Center','Phone / Walk-in','Phone','For Rent Sign'].includes(lead.source) || lead.channel==='Call Center') return 'Phone';
+        return ['Walk-in','Email','SMS'].includes(lead.source) ? lead.source : 'Web';
+      };
+      const daysOnMarket=(r,today)=>{
+        const elapsed=Date.parse(today)-Date.parse(r.listed);
+        return Number.isFinite(elapsed) ? Math.max(0,Math.floor(elapsed/86_400_000)) : '—';
+      };
+
+      function availabilityReportRows(rentals,inRange) {
+        const groups=[];
+        const slots=(r,method,agent,scope,day,blocks)=>{
+          for (const block of blocks || []) {
+            groups.push([r.address,agent,method,scope,day,reportTime(block.start),reportTime(block.end),block.approval || '—',block.capacity ?? '—']);
+          }
+        };
+        for (const r of rentals) {
+          const availability=r.availability;
+          const agent=r.viewing.inPerson.showingAgent || r.assignee;
+          const methods=[...(r.viewing.selfAccess?['Self-Access']:[]),...(r.viewing.inPerson.enabled?['In-Person']:[])];
+          if (r.viewing.selfAccess) {
+            const access=state.generalAvailability[r.assignee];
+            if (access?.selfAccessStart && access?.selfAccessEnd) {
+              slots(r,'Self-Access',r.assignee,'Self-access hours','Daily',[{start:access.selfAccessStart,end:access.selfAccessEnd}]);
+            }
+          }
+          if (r.viewing.inPerson.enabled && (availability.generalEnabled ?? availability.mode!=='custom')) {
+            for (const name of window.ReplicaBooking.generalAgents(state,r)) {
+              const general=state.generalAvailability[name];
+              for (const [day,entry] of Object.entries(general.weekly || {})) {
+                if (entry.enabled) slots(r,'In-Person',name,'General',day,entry.blocks);
+              }
+            }
+          }
+          if (r.viewing.inPerson.enabled && availability.mode==='custom') {
+            for (const [day,entry] of Object.entries(availability.customHours || {})) {
+              if (!entry.enabled) continue;
+              for (const block of entry.blocks) slots(r,'In-Person',block.agent || agent,'Rental-specific',day,[block]);
+            }
+            for (const block of availability.oneTimeHours || []) if (inRange(block.date)) {
+              slots(r,'In-Person',block.agent || agent,'Rental-specific',block.date,[block]);
+            }
+          }
+          for (const block of availability.overrides || []) if (inRange(block.date)) {
+            for (const method of methods) slots(r,method,method==='Self-Access' ? r.assignee : block.agent || agent,block.type==='block'?'Blocked':'One-time opening',block.date,[block]);
+          }
+        }
+        return groups;
+      }
+
       function buildReportData(id) {
         const f=state.reportFilters;
-        const rentals=state.rentals.filter(r=>(f.property==='all'||r.id===f.property) && (f.agent==='all'||r.assignee===f.agent) && (!f.active || r.active));
-        const IDs=new Set(rentals.map(r=>r.id));
+        const today=dateOffset(0,reportingZone());
+        const rentals=state.rentals.filter(r=>(f.property==='all'||r.id===f.property)
+          && (id==='viewing_availability'||f.agent==='all'||r.assignee===f.agent) && (!f.active || r.active));
+        const byRental=new Map(rentals.map(r=>[r.id,r]));
         const inRange=d=>(!f.from||d>=f.from)&&(!f.through||d<=f.through);
-        const find=id=>rentals.find(r=>r.id===id);
         const leads=rentals.flatMap(r=>r.leads.filter(l=>inRange(l.createdDate || dateOffset(-2))).map(l=>({...l,r})));
-        const viewings=state.viewingsList.filter(v=>IDs.has(v.rentalId)&&inRange(v.date));
-        const qualified=l=>Number(l.score)>=6 && !l.archived;
-        const owned=rentals.flatMap(r=>r.ownerReport.feedback || []);
-        const result=(headers,rows)=>({title:`${reportName(id)} Report`,headers,rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
-        const stats=(ls,vs)=>[ls.length,ls.filter(qualified).length,vs.filter(v=>!['Canceled','No-show'].includes(v.status)).length,vs.filter(v=>v.status==='Viewed').length];
+        const viewings=state.viewingsList.filter(v=>byRental.has(v.rentalId)&&inRange(v.date));
+        const byProperty=r=>viewings.filter(v=>v.rentalId===r.id);
+        const visits=rows=>rows.filter(v=>v.date<=today && !['Requested','Canceled','No-show'].includes(v.status));
+        const scheduled=rows=>rows.filter(v=>v.status!=='Requested');
+        const distinctLeads=rows=>new Set(rows.map(v=>v.leadId || `${v.rentalId}:${v.leadName}`)).size;
+        const feedbackFor=(r,lead)=>r.ownerReport.feedback.filter(item=>belongsToLead(item,lead));
+        const linkedProfile=(r,v)=>r.leads.find(lead=>belongsToLead(v,lead));
+        const joined=items=>items.filter(value=>value!==undefined && value!==null && value!=='').join(' · ') || '—';
+        const result=(headers,rows)=>({title:`${reportName(id)} Report`,headers,
+          rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
+        const users=state.users.filter(u=>f.agent==='all'||u.name===f.agent);
+        const includeDevice=row=>byRental.has(row.rentalId) || (!row.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active);
+
         switch(id) {
-          case 'rental_activity':return result(['User','Rental','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],rentals.map(r=>[r.assignee,r.address,r.active?'Yes':'No',...stats(leads.filter(l=>l.r.id===r.id),viewings.filter(v=>v.rentalId===r.id))]));
-          case 'days':return result(['Rental','Activation','Days on market','Available'],rentals.map(r=>[r.address,r.listed,Math.max(0,Math.round((Date.parse(dateOffset())-Date.parse(r.listed))/86400000)),r.dateAvailable]));
-          case 'lead_activity':return result(['Lead','Rental','Qualification','Stage','Latest activity'],leads.map(l=>[l.name,l.r.address,l.score??'Unscored',l.status,l.notes[0]?.text || 'Inquiry received']));
-          case 'lead_source':return result(['User','Rental','Lead','Phone','Email','Created','Status','Channel','Source','Partner'],leads.map(l=>[l.r.assignee,l.r.address,l.name,l.phone,l.email,l.createdDate,l.status,l.source==='Phone / Walk-in'?'Phone':'Web',l.source,l.source==='Website'?'Direct':'—']));
-          case 'syndication':return result(['Rental','Zillow, Trulia, & HotPads','Other sources'],rentals.map(r=>[r.address,r.syndication['Zillow, Trulia, & HotPads']?'On':'Off',Object.keys(r.syndication).filter(k=>k!=='Zillow, Trulia, & HotPads'&&r.syndication[k]).join(', ')]));
-          case 'viewing_activity':return result(['Date','Time','Rental','Lead','Viewing type','Status'],viewings.map(v=>[v.date,v.time,find(v.rentalId).address,v.leadName,v.type,v.status]));
-          case 'viewing_availability':return result(['Rental','Agent','Availability','Self-Access','In-Person','Date Overrides'],rentals.map(r=>[r.address,r.assignee,r.availability.mode==='custom'?'Rental-specific':'General',r.viewing.selfAccess?'On':'Off',r.viewing.inPerson.enabled?'On':'Off',r.availability.overrides.length]));
-          case 'notifications':return result(['Rental','Lead','Channel','Date','Message'],state.messages.filter(m=>IDs.has(m.rentalId)).flatMap(m=>m.thread.filter(e=>e.sender!=='inbound' && inRange(e.date || dateOffset(-2))).map(e=>[find(m.rentalId).address,m.leadName,m.channel,e.date || dateOffset(-2),e.text])));
-          case 'codebox_access':return result(['Date','Device','Rental','Recipient','Code type','Action','Practice code'],state.accessEvents.filter(e=>(IDs.has(e.rentalId)||(!e.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active))&&inRange(e.date)).map(e=>[e.date,e.device,find(e.rentalId)?.address || 'Unassigned',e.recipient,e.type,e.action,e.code]));
-          case 'inventory':return result(['Device','Type','Assigned rental','Status'],state.devices.filter(d=>IDs.has(d.rentalId)||(!d.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active)).map(d=>[d.serial,d.type,find(d.rentalId)?.address || 'Unassigned',d.battery]));
-          case 'user_activity':return result(['User','Active Rentals','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],state.users.filter(u=>f.agent==='all'||u.name===f.agent).map(u=>[u.name,rentals.filter(r=>r.assignee===u.name&&r.active).length,...stats(leads.filter(l=>l.r.assignee===u.name),viewings.filter(v=>find(v.rentalId)?.assignee===u.name))]));
-          default:return result(['Rentals','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings','Feedback'],[[rentals.length,rentals.filter(r=>r.active).length,...stats(leads,viewings),owned.length]]);
+          case 'rental_activity':
+            return result(['User','Rental','Active','Leads','Leads Scheduled','Leads Pre-Qualified','Viewings'],rentals.map(r=>{
+              const propertyLeads=leads.filter(l=>l.r.id===r.id);
+              const propertyViewings=byProperty(r);
+              return [r.assignee,r.address,r.active?'Yes':'No',propertyLeads.length,distinctLeads(scheduled(propertyViewings)),
+                propertyLeads.filter(l=>l.qualifiedOn || Number(l.score)>=6).length,visits(propertyViewings).length];
+            }));
+          case 'days':
+            return result(['Rental','Listed','Turn Start','Turn End','Leads','Viewings','Days on Market'],rentals.map(r=>[
+              r.address,r.listed,r.turnStartDate || '—',r.turnEndDate || '—',leads.filter(l=>l.r.id===r.id).length,visits(byProperty(r)).length,daysOnMarket(r,today),
+            ]));
+          case 'lead_activity':
+            return result(['Lead','Rental','Created','Qualified','Status','Rating (1–5)','Feedback','Notes'],leads.map(l=>{
+              const feedback=feedbackFor(l.r,l);
+              return [l.name,l.r.address,l.createdDate || l.createdAt,l.qualifiedOn || '—',l.status,joined(feedback.map(fb=>fb.rating)),
+                joined(feedback.map(fb=>fb.comment)),joined(l.notes.map(note=>note.text))];
+            }));
+          case 'lead_source':
+            return result(['User','Rental','Lead','Phone','Email','Created','Status','Channel','Source','Partner'],leads.map(l=>[
+              l.r.assignee,l.r.address,l.name,l.phone,l.email,l.createdDate || l.createdAt,
+              (l.archived ?? ['Archived','Disqualified'].includes(l.status))?'Archived':'Active',acquisitionChannel(l),l.source || '—',l.partner || l.sourcePartner || '—',
+            ]));
+          case 'syndication':
+            return result(['Rental','Zillow, Trulia, & HotPads','Other sources'],rentals.map(r=>[r.address,r.syndication['Zillow, Trulia, & HotPads']?'On':'Off',Object.keys(r.syndication).filter(k=>k!=='Zillow, Trulia, & HotPads'&&r.syndication[k]).join(', ')]));
+          case 'viewing_activity': {
+            const totals=new Map();
+            const key=v=>`${v.rentalId}|${v.type.split(' (')[0]}`;
+            for (const v of viewings) totals.set(key(v),(totals.get(key(v)) || 0)+1);
+            return result(['Date','Time','Rental','Lead','Viewing type','Count of type','Status','Instructions','Rating (1–5)','Feedback'],viewings.map(v=>{
+              const r=byRental.get(v.rentalId);
+              const lead=linkedProfile(r,v);
+              const feedback=r.ownerReport.feedback.find(fb=>fb.viewingId===v.id)
+                || (lead && feedbackFor(r,lead).find(fb=>fb.date===v.date));
+              const instructions=v.instructions || (v.type.startsWith('In-Person') ? r.viewing.inPerson.instructions : r.viewing.instructions);
+              return [v.date,v.time,r.address,v.leadName,v.type,totals.get(key(v)),v.status,instructions || '—',feedback?.rating ?? '—',feedback?.comment || '—'];
+            }));
+          }
+          case 'viewing_availability':
+            return result(['Rental','User','Viewing type','Availability','Day or date','From','To','Approval','Capacity'],
+              availabilityReportRows(rentals,inRange).filter(row=>f.agent==='all' || row[1]===f.agent));
+          case 'notifications':
+            return result(['Date','Rental','Recipient type','Recipient','Channel','Notice'],state.notices.filter(e=>byRental.has(e.rentalId)&&inRange(e.date)).map(e=>[
+              e.date,byRental.get(e.rentalId).address,e.type,e.recipient,e.channel,e.message,
+            ]));
+          case 'codebox_access':
+            return result(['Actual Arrival','Scheduled Arrival','Person','Rental','Device','Practice Code'],state.accessEvents.filter(e=>e.action==='Arrival' && includeDevice(e) && inRange(e.date)).map(e=>[
+              reportTimestamp(e.actualArrival,e.zone || reportingZone()),reportTimestamp(e.scheduledArrival,e.zone || reportingZone()),e.recipient,
+              byRental.get(e.rentalId)?.address || 'Unassigned',e.device,e.code,
+            ]));
+          case 'inventory':
+            return result(['Device','Type','Last known location','Status','Last sync'],state.devices.filter(includeDevice).map(d=>[
+              d.serial,d.type,byRental.get(d.rentalId)?.address || 'Unassigned',d.battery || '—',d.lastSync || '—',
+            ]));
+          case 'user_activity':
+            return result(['User','Active Rentals','Last sign-in','Last rental viewed','Last viewed at'],users.map(u=>[
+              u.name,rentals.filter(r=>r.assignee===u.name&&r.active).length,u.lastLogin || '—',
+              state.rentals.find(r=>r.id===u.lastViewedRentalId)?.address || '—',reportTimestamp(u.lastViewedAt,reportingZone()),
+            ]));
+          case 'company_overview':
+            return result(['User','Rentals','Leads','Upcoming Viewings','Average Days on Market'],users.map(u=>{
+              const owned=rentals.filter(r=>r.assignee===u.name);
+              const counts=owned.map(r=>daysOnMarket(r,today)).filter(Number.isFinite);
+              const upcoming=viewings.filter(v=>byRental.get(v.rentalId)?.assignee===u.name && v.date>=today && ['Pending Confirmation','Requested','Confirmed'].includes(v.status));
+              return [u.name,owned.length,leads.filter(l=>l.r.assignee===u.name).length,upcoming.length,
+                counts.length ? Math.round(counts.reduce((sum,count)=>sum+count,0)/counts.length) : '—'];
+            }));
+          default:return result(['Rental'],[]);
         }
       }
       function renderReportsSection() {
@@ -3569,13 +3669,35 @@
             <label class="mat-field"><span class="mat-label">End Date</span><input id="repThrough" type="date" class="mat-input" value="${esc(f.through)}"></label>
             <label class="mat-switch"><input type="checkbox" id="repActive" ${f.active?'checked':''}><span class="switch-track"></span><span>Show only active rentals</span></label>
           </div><button class="btn-blue" type="submit">Filter</button></form>
-          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span id="report-range" role="status"></span><label class="mat-field"><span class="mat-label">Search results</span><input id="repSearch" type="search" class="mat-input" value="${esc(f.search)}"></label></div>
+          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span id="report-range" role="status"></span>
+            <label class="report-search"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5"/></svg>
+              <input id="repSearch" type="search" class="mat-input" aria-label="Search results" placeholder="Search" value="${esc(f.search)}"></label>
+          </div>
             <div class="practice-actions" id="report-export-tools"></div><div id="report-results-table"></div>
           </div></div>`;
         const apply=()=>{reportView.page=0;saveState();drawReportResults();tutorial.draw();};
         byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});apply();tutorial.record('filter-report',{id:state.activeReport});};
         byId('repSearch').oninput=e=>{f.search=e.target.value.trim();apply();};
         drawReportResults();
+      }
+
+      function reportCell(data,row,index) {
+        const field=data.headers[index];
+        const value=row[index];
+        const rental=state.rentals.find(r=>r.address===row[data.headers.indexOf('Rental')]);
+        if (field==='Rental' && rental) {
+          return `<button class="report-record-link" type="button" data-report-rental="${esc(rental.id)}">${esc(value)}</button>`;
+        }
+        if (field==='User') {
+          const user=state.users.find(u=>u.name===value);
+          if (user) return `<button class="report-record-link" type="button" data-report-user="${esc(user.id)}">${esc(value)}</button>`;
+        }
+        if (field==='Lead' && rental) {
+          const email=data.headers.includes('Email') ? row[data.headers.indexOf('Email')] : '';
+          const lead=rental.leads.find(l=>l.name===value && (!email || l.email===email));
+          if (lead) return `<button class="report-record-link" type="button" data-report-rental="${esc(rental.id)}" data-report-lead="${esc(lead.id)}">${esc(value)}</button>`;
+        }
+        return esc(value);
       }
 
       function drawReportResults() {
@@ -3594,13 +3716,27 @@
         const target=byId('report-results-table');
         target.innerHTML=`<div class="table-scroll"><table class="tt-table">
           <thead><tr>${data.headers.map((name,i)=>`<th scope="col" ${view.column===i ? `aria-sort="${view.descending ? 'descending' : 'ascending'}"` : ''}><button class="report-sort" type="button" data-sort-report="${i}">${esc(name)}${view.column===i ? (view.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead>
-          <tbody>${count ? data.rows.map((row,i)=>`<tr ${i<start || i>=end ? 'class="report-offpage"' : ''}>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${data.headers.length}">No matching results.</td></tr>`}</tbody>
+          <tbody>${count ? data.rows.map((row,i)=>`<tr ${i<start || i>=end ? 'class="report-offpage"' : ''}>${row.map((_,index)=>`<td>${reportCell(data,row,index)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${data.headers.length}">${state.activeReport==='codebox_access' ? 'No practice Lockbox arrivals match these filters.' : 'No matching results.'}</td></tr>`}</tbody>
         </table></div>
         <div class="report-page-controls row-inline practice-between">
           <label>Show <select id="report-page-size" aria-label="Results per page">${[5,10,25,50].map(size=>`<option ${size===view.size ? 'selected' : ''}>${size}</option>`).join('')}</select> per page</label>
           <div class="row-inline"><button id="report-prev" class="btn-flat" type="button" ${view.page===0?'disabled':''}>Previous</button>
-          <span aria-label="Page ${view.page+1} of ${pages}">${view.page+1} / ${pages}</span><button id="report-next" class="btn-flat" type="button" ${view.page>=pages-1?'disabled':''}>Next</button></div>
+          <span class="report-page-number" aria-label="Page ${view.page+1} of ${pages}">${view.page+1}</span><button id="report-next" class="btn-flat" type="button" ${view.page>=pages-1?'disabled':''}>Next</button></div>
         </div>`;
+        target.querySelectorAll('[data-report-rental]').forEach(button=>button.onclick=()=>{
+          const rental=state.rentals.find(r=>r.id===button.dataset.reportRental);
+          if (!rental) return;
+          const lead=rental.leads.find(l=>l.id===button.dataset.reportLead);
+          goto({section:lead?'leads':'settings',rentalId:rental.id});
+          if (lead) openLeadProfile(rental,lead);
+        });
+        target.querySelectorAll('[data-report-user]').forEach(button=>button.onclick=()=>{
+          const user=state.users.find(u=>u.id===button.dataset.reportUser);
+          if (!user) return;
+          state.usersFilter={search:user.name,role:'all',showInactives:!user.active};
+          goto('users');
+          byId('canvas').querySelector('[data-edit-user]')?.focus();
+        });
         target.querySelectorAll('[data-sort-report]').forEach(btn=>btn.onclick=()=>{
           const column=Number(btn.dataset.sortReport);
           view.descending=view.column===column && !view.descending;
@@ -3614,12 +3750,13 @@
         wf.reportExports(data,state.activeReport);
       }
 
-      function addFeedback(r,lead,rating,comment) {
-        r.ownerReport.feedback.unshift({id:uid('feedback'),date:dateOffset(),leadId:lead.id,lead:lead.name,rating,interest:'Viewing feedback',comment,visible:true});
+      function addFeedback(r,lead,rating,comment,viewing) {
+        const date=viewing?.date || dateOffset();
+        r.ownerReport.feedback.unshift({id:uid('feedback'),date,leadId:lead.id,lead:lead.name,viewingId:viewing?.id,rating,comment,visible:true});
       }
       function goto(request) {
         if(state.signedOut) return;
-        const {section,rentalId,jump,id}=typeof request==='string'?{section:request}:request;
+        const {section,rentalId,jump,id,filterRentalId}=typeof request==='string'?{section:request}:request;
         if(section==='signout') {full.openSignOut();return;}
         if(section==='practice-prospect' || section==='practice-conversation') {
           const r=state.rentals.find(r=>r.id==='r1');
@@ -3640,7 +3777,10 @@
         if(['settings','leads','owner','availability'].includes(section)) {state.section='rentals';state.selectedRentalId=selected;state.detailTab=section;}
         else if(section==='upcoming'||section==='general'){state.section='viewings';state.viewingsTab=section;}
         else if(section==='contacts'||section==='access'){state.section='access';state.accessTab=section==='contacts'?'contacts':'CodeBox';}
-        else if(['scheduled','reports','report'].includes(section)){state.section='reports';state.reportTab=section==='scheduled'?'scheduled':'standard';state.activeReport=section==='report'?id:null;}
+        else if(['scheduled','reports','report'].includes(section)){
+          state.section='reports';state.reportTab=section==='scheduled'?'scheduled':'standard';state.activeReport=section==='report'?id:null;
+          if (section==='report' && filterRentalId) state.reportFilters={...reportFilterDefaults(),property:filterRentalId};
+        }
         else state.section=section;
         if(jump && section==='settings') state.activeSubnav=jump;
         if(jump && section==='account') state.accountSubnav=jump;
@@ -3653,6 +3793,7 @@
         byId('reset-cancel').onclick=closeModal;
         byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;detailPage=null;saveState();closeModal();render();showToast('Practice data reset.');};
       }
+      let lastViewedRentalId;
       function render() {
         const overlay=byId('signoutOverlay');
         overlay.classList.toggle('open',state.signedOut);
@@ -3660,8 +3801,18 @@
         document.querySelector('.app-shell').inert=state.signedOut || byId('ttModal').classList.contains('open');
         byId('chatFab').hidden=state.signedOut;
         if(state.signedOut){byId('chatPopover').classList.remove('open');byId('signBackInBtn').focus();tutorial.draw();return;}
+        recordDueOwnerReports();
         wf.reminders();renderSidebar();renderHeader();
         const rental=state.section==='rentals' && state.rentals.find(r=>r.id===state.selectedRentalId);
+        if (rental && rental.id!==lastViewedRentalId) {
+          const user=state.users.find(u=>u.active);
+          if (user) {
+            user.lastViewedRentalId=rental.id;
+            user.lastViewedAt=Date.now();
+            saveState();
+          }
+        }
+        lastViewedRentalId=rental?.id;
         if (!rental || state.detailTab!=='settings') settingsDraft=null;
         if(detailPage) detailPage.draw();
         else if(rental){if(state.detailTab==='settings') renderRentalSettings(rental);else renderRentalSubTab(rental);}
@@ -3675,7 +3826,7 @@
       }
       const wf=window.createReplicaWorkflows({get:()=>state,el:byId,esc,save:saveState,render,toast:showToast,
         modal:openModal,close:closeModal,uid,date:dateOffset,link:practiceLink,copy:copyToClipboardSafe,weekly:defaultWeeklyHours,
-        defaultRental:newRental,addFeedback,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,
+        defaultRental:newRental,addFeedback,recordNotice,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,
         openDetail:openDetailPage,backFromDetail,
         onAction:(key,detail)=>tutorial.record(key,detail)});
       function renameAssignee(oldName,newName) {
@@ -3685,6 +3836,8 @@
         for(const r of state.rentals) {
           if(r.assignee===oldName) r.assignee=newName;
           if(r.viewing.inPerson.showingAgent===oldName) r.viewing.inPerson.showingAgent=newName;
+          if(r.availability.generalAgents) r.availability.generalAgents=r.availability.generalAgents.map(name=>name===oldName ? newName : name);
+          for(const block of r.availability.oneTimeHours) if(block.agent===oldName) block.agent=newName;
           for(const day of Object.values(r.availability.customHours)) {
             for(const block of day.blocks) if(block.agent===oldName) block.agent=newName;
           }
@@ -3726,46 +3879,81 @@
       });
 
       const chatPop = document.getElementById("chatPopover");
-      document.getElementById("chatFab").addEventListener("click", () => {
-        const opened=chatPop.classList.toggle("open");
-        drawSupport();
-        tutorial.record(opened ? 'open-support' : 'close-support');
-      });
-      document.getElementById("closeChatBtn").addEventListener("click", () => {
-        chatPop.classList.remove("open");
-        tutorial.record('close-support');
-      });
-      function drawSupport() {
-        byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('');
+      const chatFab = byId('chatFab');
+      const supportTopics=[
+        ['Book a showing','Open a rental’s Leads tab, choose a qualified prospect and schedule an available appointment.'],
+        ['Review a practice ID','Open the alert on the prospect’s profile and work through the review options before booking.'],
+        ['Find a lockbox arrival','Open Reports and choose Lockbox Access to see completed practice check-ins.'],
+        ['Change weekly owner delivery','Open Reports, choose Scheduled and update the shared owner report time.'],
+      ];
+      function showSupport(open) {
+        chatPop.classList.toggle('open',open);
+        chatFab.setAttribute('aria-expanded',String(open));
+        if(open) {
+          drawSupport();
+          drawSupportTopics();
+          byId('closeChatBtn').focus();
+        } else chatFab.focus();
+        tutorial.record(open ? 'open-support' : 'close-support');
       }
+      chatFab.onclick=()=>showSupport(!chatPop.classList.contains('open'));
+      byId('closeChatBtn').onclick=()=>showSupport(false);
+      function drawSupport() {
+        byId('practice-support-thread').innerHTML=state.support.map(row=>`<p><strong>${esc(row.from)}</strong><br>${esc(row.text)}</p>`).join('') || '<p>Practice messages appear here and stay in this browser.</p>';
+      }
+      function drawSupportTopics() {
+        const query=byId('practice-support-search').value.trim().toLowerCase();
+        const topics=supportTopics.filter(([title,body])=>`${title} ${body}`.toLowerCase().includes(query));
+        byId('practice-support-results').innerHTML=topics.map(([title,body])=>
+          `<details><summary>${esc(title)}</summary><p>${esc(body)}</p></details>`).join('') || '<p>No help topics match your search.</p>';
+      }
+      byId('practice-support-search').oninput=drawSupportTopics;
       byId('practice-support').onsubmit=event=>{
         event.preventDefault();const field=byId('practice-support-message');const request=field.value.trim();if(!request)return;
         state.support.push({from:'You',text:request},{from:'Practice support',text:'Your practice message was recorded in this browser.'});
         field.value='';saveState();drawSupport();
       };
       byId('signBackInBtn').onclick=()=>{state.signedOut=false;saveState();render();};
-      document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeModal();chatPop.classList.remove('open');closeMobileSidebar();}});
+      document.addEventListener('keydown',event=>{
+        if(event.key!=='Escape') return;
+        if(byId('ttModal').classList.contains('open')) closeModal();
+        else if(chatPop.classList.contains('open')) showSupport(false);
+        else closeMobileSidebar();
+      });
       function openSharedRoute() {
         if(state.signedOut || !location.hash) return;
         let parts;
         try {parts=location.hash.slice(1).split('/').map(decodeURIComponent);} catch {return;}
-        const [page,rid,lid]=parts;
+        const [page,rid,lid,version]=parts;
         if(page==='listings'||page==='referral') {
           history.replaceState(null,'',location.pathname+location.search);
           if(page==='listings') state.filters.user=state.users.find(u=>u.id===rid)?.name || 'anyone';
           goto(page==='listings'?'rentals':'rewards');return;
         }
         const r=state.rentals.find(row=>row.id===rid);
-        if(!r || !['qualify','apply','owner-report'].includes(page)) return;
+        if(!r || !['qualify','apply','owner-report','visit'].includes(page)) return;
         const lead=r.leads.find(l=>l.id===lid);
         history.replaceState(null,'',location.pathname+location.search);
+        detailPage=null;
         state.section='rentals';state.selectedRentalId=r.id;state.detailTab=page==='owner-report'?'owner':'leads';saveState();render();
         if(page==='qualify') wf.qualify(r,lead || wf.blankLead(r,{leadType:lid==='agent'?'Agent lead':'Tenant lead'}),{prospect:true});
         if(page==='apply') wf.application(r,lead);
+        if(page==='visit') {
+          const visit=state.viewingsList.find(v=>v.rentalId===rid && v.id===lid);
+          if(visit) wf.openVisit(r,visit,version);
+          else showToast('This practice appointment link is unavailable.');
+        }
       }
       window.addEventListener('hashchange',openSharedRoute);
       new ResizeObserver(([{target:header}])=>{
         if(header.classList.contains('rental-header')) header.parentElement.style.setProperty('--rental-header-height',`${header.offsetHeight}px`);
       }).observe(byId('topHeader'));
       render();openSharedRoute();
+      window.setInterval(()=>{
+        if(document.hidden || state.signedOut) return;
+        try {
+          if(localStorage.getItem(STORAGE_KEY)!==savedWorkspace) return;
+        } catch { /* Keep the practice workflow available without storage. */ }
+        wf.reminders();
+      },60_000);
     })();
