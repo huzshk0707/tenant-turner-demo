@@ -97,7 +97,7 @@ window.createReplicaWorkflows = api => {
     const preferred=existing ? getMethod(existing) : methods.find(([m])=>m==='person')?.[0] || methods[0][0];
     const available=engine.firstSlot(get(),r,l,preferred,api.times,existing?.id);
     form(existing ? 'Reschedule showing':'Schedule showing', `<div class="grid-2">${select('book-method','Showing method',methods.map(([key,label])=>opt(key,label,preferred)).join(''))}${input('book-date','Date',existing?.date || available?.date || date(1),'date','required')}${input('book-time','Time',engine.toTime(existing?.time || available?.time || '11:00 AM'),'time','required')}</div>
-      ${r.viewing.requireId ? toggle('book-id',l.idRequested?'Replacement practice ID reviewed':'Practice ID reviewed',l.idReviewed) : ''}<p class="practice-note">Calendar, access and messages use fictional data.</p>`, 'Save showing', () => {
+      ${(r.viewing.requireId || l.idRequested) ? toggle('book-id',l.idRequested?'Replacement practice ID reviewed':'Practice ID reviewed',l.idReviewed) : ''}<p class="practice-note">Calendar, access and messages use fictional data.</p>`, 'Save showing', () => {
       const method=val('book-method');
       const reviewed=l.idReviewed || on('book-id');
       const outcome=engine.plan(get(),r,{...l,idReviewed:reviewed},val('book-date'),val('book-time'),method,{existing:existing?.id});
@@ -110,6 +110,7 @@ window.createReplicaWorkflows = api => {
       if (!existing) get().viewingsList.push(v);
       note(l,`${outcome.status} showing for ${outcome.date} at ${outcome.time}.`);
       message(r,l,`Practice showing ${outcome.status.toLowerCase()}: ${outcome.date} at ${outcome.time}.`);
+      delete v.practiceCode;
       if(outcome.status==='Confirmed' && method==='person' && r.viewing.inPerson.notifyOccupants) note(l,'Practice occupant notice recorded.');
       finish('Practice showing saved.','showing');
     });
@@ -136,10 +137,31 @@ window.createReplicaWorkflows = api => {
     }
     if (changed) save();
   }
+  function practiceArrival(r,l,v) {
+    const device=get().devices.find(d=>d.type==='CodeBox' && d.rentalId===r.id && d.serial===r.serialNumber);
+    const body=`<p>${esc(r.address)} · ${esc(v.date)} at ${esc(v.time)}</p>
+      <p>This exercise moves the practice clock to the appointment. The fictional box at the door is <strong>${esc(device?.serial || 'unassigned')}</strong>.</p>
+      ${select('arrival-time','Arrival',['At the confirmed appointment','Outside the permitted hours'].map(x=>fmt(x,'At the confirmed appointment')).join(''))}
+      ${input('arrival-device','Box shown at the door','','text','required')}`;
+    form('Practice CodeBox arrival',body,'Check in',()=>{
+      if(v.status!=='Confirmed' || !r.active || !r.viewing.selfAccess || r.viewing.viewingType!=='CodeBox' || l.archived || l.idRequested || (r.viewing.requireId && !l.idReviewed))
+        return alert('Access held. Review the appointment, rental and ID before checking in.');
+      if(val('arrival-time')!=='At the confirmed appointment') return alert('Outside the appointment window. Contact the leasing office.');
+      if(!device || val('arrival-device')!==device.serial) return alert('This box does not match the assigned rental.');
+      if(!v.practiceCode) {
+        v.practiceCode='SIM-'+uid('visit').slice(-8).toUpperCase();
+        message(r,l,`Practice arrival confirmed. Your code for this visit is ${v.practiceCode}. Return the key and secure the property when you leave.`);
+        note(l,'Practice self-access check-in recorded.');save();
+      }
+      modal('Practice check-in',`<p>Code for this visit: <strong>${esc(v.practiceCode)}</strong></p><p>The recording describes a code for the appointment date with 90 minutes of access after activation. This practice code opens no lock.</p>`,button('arrival-done','Done'));
+      click('arrival-done',()=>{close();render();});
+    });
+  }
   function showingAction(action,id) {
     const v=get().viewingsList.find(row=>row.id===id);
     const r=v && rental(v.rentalId);if(!r) return;
     const l=linkedLead(v,r) || blankLead(r,{name:v.leadName,phone:v.leadPhone,manualOverride:true,idReviewed:true});
+    if (action==='arrival') {practiceArrival(r,l,v);return;}
     if (action==='edit') {book(r,l,v);return;}
     if (action==='confirm') {
       const method=v.method || (v.type.startsWith('In-Person')?'person':'self');
@@ -164,7 +186,7 @@ window.createReplicaWorkflows = api => {
     const filters=get().viewingsFilter;
     const rows=get().viewingsList.filter(v=>(filters.property==='all'||filters.property===v.rentalId) && (filters.type==='all'||v.type.startsWith(filters.type==='self'?'Self-Access':'In-Person')) && (filters.status==='all'||(filters.status==='upcoming'?v.date>=date() && ['Confirmed','Requested','Pending Confirmation'].includes(v.status):v.date<date() || !['Confirmed','Requested','Pending Confirmation'].includes(v.status))));
     el('canvas').innerHTML=`<div class="practice-width"><div class="filter-bar"><div class="filter-left">${select('show-prop','Property',opt('all','All Rentals',filters.property)+get().rentals.map(r=>opt(r.id,r.address,filters.property)).join(''))}${select('show-type','Showing type',[['all','All types'],['self','Self-Access'],['person','In-Person']].map(([k,v])=>opt(k,v,filters.type)).join(''))}${select('show-status','Viewings',[['upcoming','Upcoming'],['past','Past and closed'],['all','All viewings']].map(([k,v])=>opt(k,v,filters.status)).join(''))}</div>${button('scheduleShowingBtn','+ Schedule Practice Showing')}</div>
-      <div class="mat-card practice-table">${table(['Date & Time','Property','Lead','Showing Method','Status','Actions'],rows.map(v=>[`${esc(v.date)}<br>${esc(v.time)}`,esc(rental(v.rentalId)?.address),esc(v.leadName),esc(v.type),esc(v.status),['Confirmed','Requested','Pending Confirmation'].includes(v.status) ? `<div class="practice-actions">${(v.status==='Confirmed'?[['complete','Complete'],['no-show','No-show']]:[['confirm','Confirm']]).concat([['edit','Reschedule'],['cancel','Cancel']]).map(([k,label])=>`<button class="btn-flat btn-sm" type="button" data-show-action="${k}" data-vid="${esc(v.id)}">${label}</button>`).join('')}</div>`:'—']),'No viewings match these filters.')}</div></div>`;
+      <div class="mat-card practice-table">${table(['Date & Time','Property','Lead','Showing Method','Status','Actions'],rows.map(v=>[`${esc(v.date)}<br>${esc(v.time)}`,esc(rental(v.rentalId)?.address),esc(v.leadName),esc(v.type),esc(v.status),['Confirmed','Requested','Pending Confirmation'].includes(v.status) ? `<div class="practice-actions">${(v.status==='Confirmed'?[...(v.type==='Self-Access (CodeBox)' ? [['arrival','Practice arrival']] : []),['complete','Complete'],['no-show','No-show']]:[['confirm','Confirm']]).concat([['edit','Reschedule'],['cancel','Cancel']]).map(([k,label])=>`<button class="btn-flat btn-sm" type="button" data-show-action="${k}" data-vid="${esc(v.id)}">${label}</button>`).join('')}</div>`:'—']),'No viewings match these filters.')}</div></div>`;
     for (const [id,key] of [['show-prop','property'],['show-type','type'],['show-status','status']]) el(id).addEventListener('change',()=>{filters[key]=val(id);save();renderShowings();});
     el('canvas').querySelectorAll('[data-show-action]').forEach(btn=>btn.onclick=()=>showingAction(btn.dataset.showAction,btn.dataset.vid));
     click('scheduleShowingBtn',()=>form('Select rental and lead',`${select('pick-rental','Rental',get().rentals.filter(r=>r.active).map(r=>opt(r.id,r.address)).join(''))}${select('pick-lead','Lead','')}`,'Continue to showing',()=>{

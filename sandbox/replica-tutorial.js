@@ -30,6 +30,17 @@
       step('Configure in-person showings','Change an in-person setting such as duration, travel buffer, grouping or scheduling notice. Save Rental Settings.',setting('viewing'),'#vwInPerson','settings','0605-in-person',includes('in-person')),
       step('Set a showing limit','Adjust one of the showing limits under Viewing. Save to make it apply to the practice calendar.',setting('viewing'),'#limMaxPerDay','settings','0620-showing-limit',includes('limits')),
     ]},
+    {id:'self-access-practice',title:'Self-viewings, scams and automatic replies',time:'03:28–06:00 · guided practice',steps:[
+      {title:'Choose the viewing method',text:'The manager enables self-access on a suitable vacancy, assigns its lockbox and sets available hours and ID requirements. A listing inquiry triggers a scheduling invitation. When does the prospect get to choose a time?',route:setting('viewing'),target:'#vwSelfAccess',reference:'0337-self-access',
+        choices:['Immediately after sending an inquiry','After meeting the criteria and clearing any required review'],answer:1,hint:'An invitation starts screening. It does not grant property access.'},
+      {title:'Recognize the scam',text:'Someone copies a rental listing, claims to be the owner and asks a visitor to send a deposit after a self-tour. The visitor sees a warning at the door. What should they do?',route:setting('viewing'),target:'.blue-subpanel .availability-note',reference:'0337-self-access',
+        choices:['Verify the listing through the management office before paying','Treat access to the home as proof of ownership'],answer:0,hint:'A successful tour does not establish who owns the listing or is entitled to payment.'},
+      {title:'Handle a flagged identity',text:'The presenter describes identity checks and an optional government ID. A possible fraud match holds scheduling and alerts staff. On the lead profile you can request a new ID when the supplied one needs review. What should staff do with a flag?',route:{section:'practice-prospect',id:'lead_r1_2'},target:'#ldRequestId',timestamp:'07m27s',
+        choices:['Send a code while the review is pending','Hold access and review the flag'],answer:1,hint:'A flag calls for staff review. Keep the access request on hold.'},
+      {title:'Check in for a self-viewing',text:'In the recorded CodeBox example, a cleared prospect confirms and arrives at the assigned home. The official showing instructions tell them how to identify the box. In this example the code is good for the visit date and for 90 minutes after activation. What should they receive at check-in?',route:route('practice-prospect'),target:'.prospect-visit',timestamp:'05m38s',
+        choices:['A unique, time-limited code for that visit','A reusable code to pass to the next visitor'],answer:0,hint:'The demo describes a code valid for that date and a 90-minute window after activation. Other devices can work differently.'},
+      step('Reply to the prospect','In Messages, read the automated showing confirmation and the prospect’s follow-up. The recorded workflow sends invitations, reminders and post-tour feedback/application links. A question left for staff needs a reply. Type a practice answer and choose Send.',route('practice-conversation'),'#msgReplyInput','reply',null,data=>data.threadId==='msg1'),
+    ]},
     {id:'availability',title:'Availability and application fees',time:'06:28–06:58',steps:[
       step('Set General Availability','In Rental Settings → Viewing, expand General Availability. Change the showing agent’s weekly hours and choose Save Rental Settings.',setting('viewing'),'#inline-general-edit','settings','0633-general-availability',includes('general-availability')),
       step('Set rental-specific availability','In the same Viewing section, turn on Rental-Specific Availability. Add or edit a recurring block with hours, a property manager, approval and capacity. Choose Save Rental Settings.',setting('viewing'),'#inline-custom-enabled','settings','0648-rental-availability',includes('rental-availability')),
@@ -37,7 +48,7 @@
     ]},
     {id:'lead-journey',title:'Lead review, booking and follow-up',time:'06:58–07:42',steps:[
       step('Open the lead queue','Use the rental’s LEADS tab. Turn on Show archived to reveal the practice lead that failed qualification.',route('leads'),'#show-archived-leads','show-archived','0712-lead-queue',data=>data.enabled),
-      step('Inspect a lead profile','Select a lead’s name or open the three-dot menu and choose Open profile. Review activity, showing history and pre-qualification, then use the back arrow to return.',route('leads'),'[data-lead-view]','open-lead','0712-lead-queue',data=>data.rentalId==='r1'),
+      step('Inspect a lead profile','Select a lead’s name or open the three-dot menu and choose Open profile. Compare Archive, Decline, Edit and Send Message. Scroll through Viewing, Notes, and the Pre-Qualification cards, then use the back arrow to return.',route('leads'),'[data-lead-view]','open-lead','0712-lead-queue',data=>data.rentalId==='r1'),
       step('Send a practice invitation','Choose Add Lead and invite a fictional prospect to pre-qualify. The invitation stays in the local Messages thread.',route('leads'),'#addLeadBtn','lead-invite','0712-lead-queue'),
       step('Practice a qualification decision','Choose Add Lead → Pre-qualify and schedule lead myself. To continue with this lead, enter fictional income that meets the rental’s rule and the required answers to any custom questions. A failed inquiry goes to Show archived.',route('leads'),'#addLeadBtn','lead-screen','0712-lead-queue'),
       step('Book a viewing','Use a qualified lead and an available appointment. Viewings → Upcoming Viewings can select a qualified lead from the practice rental.',route('upcoming'),'#scheduleShowingBtn','showing','0605-in-person'),
@@ -152,12 +163,17 @@
       const at=progress(c);const task=c.steps[at];
       const stamp=task?.reference?.slice(0,4);
       const videoStart=stamp ? `${stamp.slice(0,2)}m${stamp.slice(2)}s` : null;
-      const ref=stamp ? `<a target="_blank" rel="noopener noreferrer" href="https://github.com/huzshk0707/tenant-turner-demo/blob/main/screenshots/${task.reference}.jpg">Screenshot ${stamp.slice(0,2)}:${stamp.slice(2)}</a><a target="_blank" rel="noopener noreferrer" href="https://vimeo.com/688083346#t=${videoStart}">Watch this point</a>` : '';
+      const ref=task?.timestamp ? `<a target="_blank" rel="noopener noreferrer" href="https://vimeo.com/688083346#t=${task.timestamp}">Watch this point</a>` : stamp ? `<a target="_blank" rel="noopener noreferrer" href="https://github.com/huzshk0707/tenant-turner-demo/blob/main/screenshots/${task.reference}.jpg">Screenshot ${stamp.slice(0,2)}:${stamp.slice(2)}</a><a target="_blank" rel="noopener noreferrer" href="https://vimeo.com/688083346#t=${videoStart}">Watch this point</a>` : '';
       panel.innerHTML=`<div class="row-inline practice-between"><strong>${esc(c.title)}</strong>${button('tutorial-lessons','All chapters')}</div>
         <progress max="${c.steps.length}" value="${at}" aria-label="Chapter progress"></progress>
         <ol class="tutorial-checklist">${c.steps.map((task,i)=>`<li ${i===at?'aria-current="step"':''} class="${i<at?'complete':''}">${esc(task.title)}</li>`).join('')}</ol>
         <p>${task?esc(task.text):'Chapter complete. Your steps are saved.'}</p>
+        ${task?.choices?`<div class="practice-actions">${task.choices.map((choice,i)=>`<button class="btn-outline" data-tutorial-answer="${i}">${esc(choice)}</button>`).join('')}</div><p id="tutorial-hint" role="status"></p>`:''}
         <div class="practice-actions">${task?button('tutorial-follow','Show me where','btn-blue'):next(c)?button('tutorial-next','Next chapter','btn-blue'):''}${ref}${button('tutorial-restart','Restart chapter','btn-flat')}</div>`;
+      panel.querySelectorAll('[data-tutorial-answer]').forEach(b=>b.onclick=()=>{
+        if(Number(b.dataset.tutorialAnswer)!==task.answer) {by('tutorial-hint').textContent=task.hint;return;}
+        guide().progress[c.id]=at+1;save();draw();follow();
+      });
       by('tutorial-lessons').onclick=catalog;
       if(by('tutorial-follow')) by('tutorial-follow').onclick=follow;
       if(by('tutorial-next')) by('tutorial-next').onclick=()=>choose(next(c).id);

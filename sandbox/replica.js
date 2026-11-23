@@ -598,6 +598,25 @@
           support:[],
           contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}]};
       }
+      function seedProfileExamples(s) {
+        if(s.prospectExamplesAdded) return s;
+        const r=s.rentals.find(r=>r.id==='r1');
+        const visit=s.viewingsList.find(v=>v.id==='v1' && v.rentalId==='r1' && v.status==='Viewed' && v.type==='Self-Access (CodeBox)');
+        if(visit) {
+          visit.practiceCode ??= 'SIM-V1';
+          visit.acceptedOn ??= visit.date;
+        }
+        const sample=r?.leads.find(l=>l.id==='lead_r1_2');
+        if(sample && !sample.archived && !sample.answers) {
+          sample.idMetadataWarning=true;
+          sample.incomeSource='Income from employment';
+          sample.qualifiedOn=sample.createdDate;
+          s.viewingsList.push({id:'sample-prior-self-tour',rentalId:r.id,leadId:sample.id,leadName:sample.name,leadPhone:sample.phone,
+            date:dateOffset(-3),acceptedOn:dateOffset(-4),time:'5:00 PM',type:'Self-Access (CodeBox)',status:'No-show',practiceCode:'SIM-PAST'});
+        }
+        s.prospectExamplesAdded=true;
+        return s;
+      }
       function cloneSeed() {
         const s = Object.assign(JSON.parse(JSON.stringify(SEED)),workspaceDefaults());
         s.viewingsFilter.status='upcoming';
@@ -621,7 +640,7 @@
         s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewed';}});
         s.rentals[0].ownerReport.feedback[0].leadId=s.rentals[0].leads[0].id;
         s.rentals[0].ownerReport.feedback[0].date=dateOffset(-1);
-        return s;
+        return seedProfileExamples(s);
       }
       function newRental(address,rent,available,imported) {
         const r=structuredClone(cloneSeed().rentals[0]);
@@ -671,11 +690,9 @@
           if (!raw) return cloneSeed();
           const parsed = JSON.parse(raw);
           const seed=cloneSeed();
-          const merged={...seed,...parsed};
+          const merged={...seed,...parsed,prospectExamplesAdded:parsed.prospectExamplesAdded};
           if(merged.section==='signout') merged.section='rentals';
           const legacyAccount=parsed.profile ? {companyName:parsed.profile.name,email:parsed.profile.email,defaultApplicationFee:parsed.profile.fee}:{};
-          const sampleVisit=merged.viewingsList.find(v=>v.id==='v1' && v.status==='Viewed' && v.type==='Self-Access (CodeBox)');
-          if(sampleVisit) sampleVisit.practiceCode ??= 'SIM-V1';
           merged.account={...seed.account,...legacyAccount,...parsed.account};
           merged.usersFilter={...seed.usersFilter,...parsed.usersFilter};
           merged.helpFilter={...seed.helpFilter,...parsed.helpFilter};
@@ -700,7 +717,7 @@
               return r;
             });
           }
-          return merged;
+          return seedProfileExamples(merged);
         } catch (e) {
           return cloneSeed();
         }
@@ -1157,7 +1174,9 @@
         const ipRemaining = Math.max(0, maxInstr - (ip.instructions || "").length);
 
         const assignedDev = state.devices.find(d => d.serial === r.serialNumber);
-        const selectableDevices = state.devices.filter(d => !d.rentalId || d.rentalId === r.id);
+        const selectableDevices = state.devices.filter(d => d.type===r.viewing.viewingType && (!d.rentalId || d.rentalId===r.id));
+        const viewingTypes=[['CodeBox','CodeBox'],['Instructions only','Instructions only'],['Lockbox','Combo lock box'],['Prempoint','Prempoint'],['SentriLock','SentriLock']];
+        if(!viewingTypes.some(([type])=>type===r.viewing.viewingType)) viewingTypes.push([r.viewing.viewingType,r.viewing.viewingType]);
 
         canvas.innerHTML = `
           <div class="settings-layout">
@@ -1457,13 +1476,12 @@
                     </label>
                     ${r.viewing.selfAccess ? `
                       <div class="blue-subpanel">
+                        <p class="availability-note">Help fight online rental scams by posting a notice at properties that allow self-access viewings. Give visitors the management office’s official contact details so they can verify the listing before paying anyone.</p>
                         <div class="grid-2">
                           <div class="mat-field">
                             <label class="mat-label" for="vwType">Viewing Type</label>
                             <select id="vwType" class="mat-select">
-                              <option value="CodeBox" ${r.viewing.viewingType === "CodeBox" ? "selected" : ""}>CodeBox</option>
-                              <option value="SentriLock" ${r.viewing.viewingType === "SentriLock" ? "selected" : ""}>SentriLock</option>
-                              <option value="Lockbox" ${r.viewing.viewingType === "Lockbox" ? "selected" : ""}>Lockbox</option>
+                              ${viewingTypes.map(([type,label])=>`<option value="${esc(type)}" ${r.viewing.viewingType===type?'selected':''}>${esc(label)}</option>`).join('')}
                             </select>
                           </div>
                           <div class="mat-field">
@@ -1475,7 +1493,7 @@
                           </div>
                         </div>
 
-                        <div class="grid-2" style="align-items:end;">
+                        ${r.viewing.viewingType!=='Instructions only' ? `<div class="grid-2" style="align-items:end;">
                           <div class="mat-field">
                             <div class="row-inline" style="justify-content:space-between;">
                               <label class="mat-label" for="vwAssignedDevice">Assigned Access Device (from Inventory)</label>
@@ -1497,7 +1515,7 @@
                             </div>
                             <button id="manageDevicesLink" class="btn-flat btn-sm" type="button">Manage Devices</button>
                           </div>
-                        </div>
+                        </div> ` : ''}
 
                         <div class="mat-field">
                           <label class="mat-label" for="vwInstr">Self-Access Viewing Instructions (optional)</label>
@@ -1756,7 +1774,7 @@
         bindCheck("vwWaitlist", v => { r.waitlist = v; }, true);
         bindVal("vwWaitMsg", v => { r.waitlistMessage = v; });
         bindCheck("vwSelfAccess", v => { r.viewing.selfAccess = v; }, true);
-        bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v; }, true);
+        bindVal("vwType", v => { r.viewing.viewingType = v; r.device = v==='Instructions only'?'':v; r.serialNumber=''; }, true);
         bindVal("vwApproval", v => { r.viewing.viewingApproval = v; });
         bindVal("vwSerial", v => { r.serialNumber = v; });
         bindCheck("vwReqId", v => { r.viewing.requireId = v; });
@@ -2575,7 +2593,7 @@
         const risks=answers && ['bankruptcy','judgment','eviction','felony'].filter(key=>answers[key]);
         const action=(id,label,disabled=false)=>`<button id="${id}" class="btn-flat" type="button" ${disabled?'disabled':''}>${esc(label)}</button>`;
         const fact=(label,value)=>`<dt>${esc(label)}</dt><dd>${esc(value ?? 'Not provided')}</dd>`;
-        const sampleId=lead.idReviewed || lead.idRequested;
+        const sampleId=lead.idReviewed || lead.idRequested || lead.idMetadataWarning;
         byId('canvas').innerHTML=`<div class="lead-profile">
           <section class="mat-card prospect-summary">
             <h2><span aria-label="${canSchedule?'Qualified':'Unqualified or unscored'}" role="img" class="lead-qual-dot ${canSchedule?'qualified':''}"></span> ${esc(lead.name)}</h2>
@@ -2592,9 +2610,9 @@
               <button class="btn-flat">Submit Feedback</button></form>`}
             </div>
             ${sampleId?`<div class="prospect-id" role="img" aria-label="Fictional identification sample"><strong>Practice ID</strong><span>${esc(lead.name)}</span><small>Fictional sample</small></div>`:''}
-            <p>${lead.idRequested?'New ID requested. Self-access is on hold pending review.':lead.idReviewed?'The fictional identification has been reviewed.':'No identification on file.'}</p>
+            <p>${lead.idRequested?'New ID requested. Self-access is on hold pending review.':lead.idMetadataWarning?'The sample ID has missing or suspicious metadata. Review the viewing request, request a new ID, or archive this lead.':lead.idReviewed?'The fictional identification has been reviewed.':'No identification on file.'}</p>
             ${tours.map(v=>`<div class="prospect-visit"><strong>${esc(v.date)} at ${esc(v.time)}</strong> <span class="status-chip">${esc(v.status)}</span>
-              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The code assigned for this viewing is ${esc(v.practiceCode)}.</p>`:''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
+              <p>${esc(v.type)}</p>${v.practiceCode?`<p>The code assigned for this viewing is ${esc(v.practiceCode)}.</p>`:''}${v.acceptedOn?`<p>Automatically accepted on ${esc(v.acceptedOn)}.</p>`:''}</div>`).join('') || '<p>No viewings scheduled.</p>'}
             <div class="prospect-actions">${action('ldRequestId','Request New ID',Boolean(lead.archived || lead.idRequested))}${action('ldScheduleBtn',tours.length?'Reschedule':'Schedule',!canSchedule)}</div>
           </section>
           <section class="mat-card prospect-notes"><h2>Notes</h2>
@@ -2617,7 +2635,7 @@
         };
         byId('ldScheduleBtn').onclick=()=>wf.book(r,lead,wf.scheduledFor(r,lead));
         byId('ldRequestId').onclick=()=>{
-          lead.idReviewed=false;lead.idRequested=true;
+          lead.idReviewed=false;lead.idRequested=true;lead.idMetadataWarning=false;
           for(const v of tours.filter(v=>v.type.startsWith('Self-Access') && ['Pending Confirmation','Confirmed'].includes(v.status))) {v.status='Requested';v.confirmBy=null;}
           wf.message(r,lead,'Please provide a new practice ID for review.');wf.note(lead,'Requested a new practice ID.');
           refresh('ldScheduleBtn');showToast('New ID request saved in Messages.');
@@ -3596,6 +3614,16 @@
         if(state.signedOut) return;
         const {section,rentalId,jump,id}=typeof request==='string'?{section:request}:request;
         if(section==='signout') {full.openSignOut();return;}
+        if(section==='practice-prospect' || section==='practice-conversation') {
+          const r=state.rentals.find(r=>r.id==='r1');
+          const lead=r?.leads.find(l=>l.id===(id || 'lead_r1_1'));
+          if(lead) {
+            goto({section:'leads',rentalId:r.id});
+            if(section==='practice-conversation') openLeadMessages(r,lead);
+            else openLeadProfile(r,lead);
+          }
+          return;
+        }
         detailPage=null;
         reportView={...reportView,page:0,column:null,descending:false};
         const selected=rentalId || 'r1';

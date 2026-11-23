@@ -55,7 +55,7 @@ window.ReplicaBooking = (() => {
     if ((!lead.manualOverride && (lead.score === null || lead.score < 6)) || lead.archived) return fail('Review pre-qualification before booking, or record a manual override.');
     if (!self && !state.users.some(user=>user.name===agent && user.active && user.canShow!==false)) return fail('Choose an active showing agent in Viewing settings.');
     if (!(self ? rental.viewing.selfAccess : ip.enabled)) return fail('This viewing method is off for this rental.');
-    if (self && rental.viewing.requireId && !lead.idReviewed) return fail('Mark the practice ID reviewed before scheduling self-access.');
+    if (self && (rental.viewing.requireId || lead.idRequested) && !lead.idReviewed) return fail('Mark the practice ID reviewed before scheduling self-access.');
     if (!Number.isFinite(start) || start <= now) return fail('Choose a valid future showing time.');
     const notice = self ? (parseInt(limits.selfAccessAdvanceNotice,10) || 0) * (limits.selfAccessAdvanceNotice.includes('hour') ? 60 : 1) : Number(ip.advanceNoticeHours) * 60;
     if (!confirm && start - now < notice * minute) return fail(`Choose a showing with at least ${notice} minutes’ notice.`);
