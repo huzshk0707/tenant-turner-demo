@@ -6,7 +6,7 @@
   <title>Leasing Lab | Rental operations practice</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" href="assets/lab.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="replica.css?v=workflow-accuracy" />
+  <link rel="stylesheet" href="replica.css?v=gallery-support" />
 </head>
 <body>
   <div class="app-shell">
@@ -34,24 +34,38 @@
       <path d="M5 5h14v12H9l-4 4z M8 9h8m-8 4h5"/>
     </svg>
     <svg class="chat-close-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-    <span>Help</span>
   </button>
 
-  <aside id="chatPopover" class="chat-popover" aria-labelledby="practice-help-heading">
+  <aside id="chatPopover" class="chat-popover" aria-label="Leasing Lab support">
     <div class="chat-pop-head">
-      <div><h2 id="practice-help-heading">Leasing Lab support</h2><span>Local practice session</span></div>
+      <div class="support-brand"><img src="assets/lab.svg" alt="" width="26" height="26"><strong>Leasing Lab support</strong></div>
       <button id="closeChatBtn" type="button" aria-label="Close practice support">×</button>
     </div>
     <div class="chat-pop-body">
-      <section aria-labelledby="support-answers-title">
-        <h3 id="support-answers-title">Find an answer</h3>
-        <label class="mat-field"><span class="mat-label">Search help topics</span><input id="practice-support-search" class="mat-input" type="search"></label>
-        <div id="practice-support-results"></div>
+      <div id="support-home">
+        <header class="support-welcome"><h2 id="practice-help-heading">Hi there 👋</h2><p>Ask a practice question about rentals, leads or showings.</p></header>
+        <section class="support-card">
+          <h3>Start a conversation</h3>
+          <div class="support-reply"><span id="support-avatars" aria-hidden="true"></span><span>Practice assistant<br><strong>Replies instantly</strong></span></div>
+          <button class="btn-blue" id="support-new" type="button">Send us a message</button>
+          <button class="support-history-link" id="support-history" type="button">See all your conversations <span aria-hidden="true">→</span></button>
+        </section>
+        <section class="support-card support-status"><span aria-hidden="true">✓</span><div><h3>Practice support status</h3><p id="support-status-text"></p></div></section>
+        <section class="support-card" aria-labelledby="support-answers-title">
+          <h3 id="support-answers-title">Search for help</h3>
+          <input class="mat-input" type="search" id="practice-support-search" aria-label="Search help topics" placeholder="Search help topics">
+          <div id="practice-support-results"></div>
+        </section>
+      </div>
+      <section id="support-conversations" class="support-subpage" hidden>
+        <button class="btn-flat" type="button" data-support-home>← Support home</button>
+        <h2>Your conversations</h2><div id="support-conversation-list"></div>
       </section>
-      <section aria-labelledby="support-history-title">
-        <h3 id="support-history-title">Conversation history</h3>
-        <div id="practice-support-thread" class="practice-support-thread" aria-live="polite"></div>
-        <form id="practice-support"><label class="mat-field"><span class="mat-label">Practice support message</span><input id="practice-support-message" class="mat-input" maxlength="500" required></label><button class="btn-blue" type="submit">Send practice message</button></form>
+      <section id="support-conversation" class="support-subpage" hidden>
+        <button class="btn-flat" type="button" id="support-back">← Back</button>
+        <h2 id="support-thread-title">New conversation</h2>
+        <div id="practice-support-thread" class="practice-support-thread" role="log" aria-label="Messages"></div>
+        <form id="practice-support"><label class="mat-field"><span class="mat-label">Your message</span><textarea id="practice-support-message" class="mat-textarea" maxlength="500" rows="2" required></textarea></label><button class="btn-blue" type="submit">Send practice message</button></form>
       </section>
     </div>
   </aside>
@@ -82,13 +96,13 @@
     </div>
   </div>
 
-  <script src="data.js?v=workflow-accuracy"></script>
-  <script src="scheduling.js?v=workflow-accuracy"></script>
-  <script src="exports.js?v=workflow-accuracy"></script>
-  <script src="replica-booking.js?v=workflow-accuracy"></script>
-  <script src="replica-workflows.js?v=workflow-accuracy"></script>
-  <script src="full-workspace.js?v=workflow-accuracy"></script>
-  <script src="replica-tutorial.js?v=workflow-accuracy"></script>
-  <script src="replica.js?v=workflow-accuracy"></script>
+  <script src="data.js?v=gallery-support"></script>
+  <script src="scheduling.js?v=gallery-support"></script>
+  <script src="exports.js?v=gallery-support"></script>
+  <script src="replica-booking.js?v=gallery-support"></script>
+  <script src="replica-workflows.js?v=gallery-support"></script>
+  <script src="full-workspace.js?v=gallery-support"></script>
+  <script src="replica-tutorial.js?v=gallery-support"></script>
+  <script src="replica.js?v=gallery-support"></script>
 </body>
 </html>
