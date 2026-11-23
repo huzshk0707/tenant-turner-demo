@@ -1948,7 +1948,8 @@
           Object.assign(current,r,{availability:{...r.availability,overrides},leads,ownerReport});
           if (selected && selected.rentalId!==current.id) assignDeviceToRental(selected.id,current.id,false);
           if(oldWaitlist && !r.waitlist) current.leads.filter(l=>l.status==='Wait List').forEach(l=>{
-            l.status='Pre-Qualified';wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
+            wf.startFollowUps(current,l);
+            wf.message(current,l,'The practice wait list has opened. You can now schedule a viewing.');
           });
           settingsDraft=null;saveState();render();tutorial.record('settings',{rentalId:r.id,waitlist:r.waitlist,changed});
           showToast(`Saved rental settings for ${r.address}`);

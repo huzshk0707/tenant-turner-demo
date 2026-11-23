@@ -112,9 +112,9 @@ window.createReplicaWorkflows = api => {
       storeLead(r,l);
       const outcome=reasons.length ? `Archived: ${reasons.join(' ')}` : r.waitlist ? r.waitlistMessage : 'Pre-qualified. Choose a showing from the available hours.';
       message(r,l,outcome);
+      if (!reasons.length && !r.waitlist) startFollowUps(r,l);
       if (!reasons.length && !r.waitlist && (thenBook || prospect)) { save();done('lead-screen',{qualified:true});book(r,l); }
       else {
-        if (!reasons.length && !r.waitlist && typeof startFollowUps==='function') startFollowUps(r,l,'Waiting on Lead');
         finish(outcome);done('lead-screen',{qualified:!reasons.length});
       }
     });
