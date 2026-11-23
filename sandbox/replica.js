@@ -1204,6 +1204,25 @@
           [r.photo, 'Listing exterior'], ['assets/living-sample.jpg','Sample living room'],
           ['assets/kitchen-sample.jpg','Sample kitchen'], ['assets/dining-sample.jpg','Sample dining area'],
           ['assets/bedroom-sample.jpg','Sample bedroom'], ['assets/bath-sample.jpg','Sample bathroom'],
+          ['assets/kitchen-counter.jpg','Kitchen counter'],
+          ['assets/kitchen-island.jpg','Kitchen island'],
+          ['assets/lounge.jpg','Main lounge'],
+          ['assets/lounge-windows.jpg','Lounge windows'],
+          ['assets/sitting-room.jpg','Sitting room'],
+          ['assets/family-room.jpg','Family room'],
+          ['assets/window-seat.jpg','Window seating'],
+          ['assets/bedroom-window.jpg','Bedroom window'],
+          ['assets/guest-bedroom.jpg','Guest bedroom'],
+          ['assets/bath-vanity.jpg','Bathroom vanity'],
+          ['assets/walk-in-bath.jpg','Walk-in bath'],
+          ['assets/open-plan.jpg','Open-plan living area'],
+          ['assets/lounge-terrace.jpg','Terrace lounge'],
+          ['assets/entry-exterior.jpg','Entry exterior'],
+          ['assets/courtyard.jpg','Courtyard'],
+          ['assets/terrace.jpg','Terrace'],
+          ['assets/evening-garden.jpg','Garden at dusk'],
+          ['assets/garden.jpg','Garden view'],
+          ['assets/pool.jpg','Pool'],
         ];
       }
       function viewListingPhoto(photos,index) {
@@ -1356,10 +1375,15 @@
                   <textarea id="mkDesc" class="mat-textarea" ${r.imported ? 'readonly' : ''}>${esc(r.description)}</textarea>
                 </div>
 
-                <div class="sub-heading">Photos</div>
+                <details class="listing-visuals">
+                  <summary>Visuals</summary>
+                  <label class="mat-field"><span class="mat-label">Virtual Tour</span>
+                    <input id="listing-virtual-tour" class="mat-input" type="url" value="${esc(r.virtualTour || '')}" ${r.imported?'readonly':''}>
+                  </label>
                 <div class="listing-gallery">
                   ${photos.map(([src,label], index)=>`<button class="photo-thumb-item" type="button" data-listing-photo="${index}" aria-label="View ${esc(label)}"><img src="${esc(src)}" alt="" loading="lazy"></button>`).join('')}
                 </div>
+                </details>
 
                 <div class="accordion-row">
                   <button class="accordion-btn" type="button"><span aria-hidden="true">▸</span><span>Amenities</span></button>
@@ -1770,7 +1794,10 @@
         bindVal("mkTerm", v => { r.leaseTerm = v; });
         bindVal("mkType", v => { r.propertyType = v; });
         bindVal("mkTitle", v => { r.customTitle = v; });
-        if(!r.imported) bindVal("mkDesc", v => { r.description = v; });
+        if(!r.imported) {
+          bindVal("mkDesc", v => { r.description = v; });
+          bindVal("listing-virtual-tour", v => { r.virtualTour = v.trim(); });
+        }
         canvas.querySelectorAll('[data-listing-photo]').forEach(button=>{
           button.onclick=()=>viewListingPhoto(photos,Number(button.dataset.listingPhoto));
         });

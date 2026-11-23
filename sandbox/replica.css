@@ -510,8 +510,11 @@
     .status-control { display: inline-flex; gap: 8px; align-items: center; position: relative; cursor: pointer; }
     .status-control input { position: absolute; left: 0; width: 13px; height: 13px; opacity: 0; margin: 0; }
     .status-control input:focus-visible + .status-dot { outline: 2px solid var(--blue); outline-offset: 3px; }
-    .listing-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 16px; }
-    .listing-gallery .photo-thumb-item { cursor: zoom-in; border: 0; border-radius: 7px; padding: 0; }
+    .listing-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 16px 0; }
+    .listing-gallery .photo-thumb-item { cursor: zoom-in; border: 0; border-radius: 2px; padding: 0; height: auto; aspect-ratio: 3 / 2; }
+    .listing-visuals summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+    .listing-visuals .mat-field { max-width: 420px; }
+    @media (max-width: 600px) { .listing-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .listing-photo-preview { margin: 0; }
     .listing-photo-preview img { width: 100%; border-radius: 8px; }
     .listing-photo-preview figcaption { margin-top: 7px; color: var(--muted); }
