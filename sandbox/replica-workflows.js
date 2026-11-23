@@ -52,7 +52,7 @@ window.createReplicaWorkflows = api => {
     m.thread.push({sender:'auto',label,time:'Just now',date:date(),text});
     return m;
   }
-  function note(lead,text) { lead.notes.unshift({time:'Just now',at:Date.now(),text}); }
+  function note(lead,text) { lead.notes.unshift({time:'Just now',at:Date.now(),text,internal:false}); }
   function storeLead(r,l) { if (!r.leads.some(row=>row.id===l.id)) r.leads.unshift(l); }
   function blankLead(r, fields={}) {
     return {id:uid('lead'),name:'Practice prospect',email:'prospect@example.com',phone:'(303) 555-0199',leadType:'Tenant lead',source:'Website',status:'Unscored',score:null,
@@ -76,6 +76,8 @@ window.createReplicaWorkflows = api => {
       if (prospect) { const name=val('pq-name');if(!name) return alert('Enter a sample name.');l.name=name; }
       const answers={moveIn:val('pq-move'),income:Number(val('pq-income')),pets:Number(val('pq-pets')),petType:val('pq-type'),cosigner:on('pq-cosigner'),voucher:on('pq-voucher'),bankruptcy:on('pq-bankruptcy'),judgment:on('pq-judgment'),eviction:on('pq-eviction'),felony:on('pq-felony'),creditScore:Number(val('pq-credit-score')),smoking:on('pq-smoking'),custom:(q.questions || []).map((_,i)=>val(`pq-custom-${i}`))};
       const reasons=engine.screen(r,answers);
+      l.answers=answers;l.customResponses=(q.questions || []).map((item,i)=>({label:item.label,answer:answers.custom[i]}));
+      l.qualifiedOn=reasons.length ? null : date();
       l.score=reasons.length ? 2 : 9;
       l.archived=Boolean(reasons.length);
       l.status=reasons.length ? 'Disqualified' : r.waitlist ? 'Wait List' : 'Pre-Qualified';
@@ -95,12 +97,12 @@ window.createReplicaWorkflows = api => {
     const preferred=existing ? getMethod(existing) : methods.find(([m])=>m==='person')?.[0] || methods[0][0];
     const available=engine.firstSlot(get(),r,l,preferred,api.times,existing?.id);
     form(existing ? 'Reschedule showing':'Schedule showing', `<div class="grid-2">${select('book-method','Showing method',methods.map(([key,label])=>opt(key,label,preferred)).join(''))}${input('book-date','Date',existing?.date || available?.date || date(1),'date','required')}${input('book-time','Time',engine.toTime(existing?.time || available?.time || '11:00 AM'),'time','required')}</div>
-      ${r.viewing.requireId ? toggle('book-id','Practice ID reviewed',l.idReviewed) : ''}<p class="practice-note">Calendar, access and messages use fictional data.</p>`, 'Save showing', () => {
+      ${r.viewing.requireId ? toggle('book-id',l.idRequested?'Replacement practice ID reviewed':'Practice ID reviewed',l.idReviewed) : ''}<p class="practice-note">Calendar, access and messages use fictional data.</p>`, 'Save showing', () => {
       const method=val('book-method');
       const reviewed=l.idReviewed || on('book-id');
       const outcome=engine.plan(get(),r,{...l,idReviewed:reviewed},val('book-date'),val('book-time'),method,{existing:existing?.id});
       if (outcome.error) return alert(outcome.error);
-      l.idReviewed=reviewed;l.status=outcome.status==='Confirmed'?'Scheduled':'Showing requested';
+      l.idReviewed=reviewed;if(reviewed) l.idRequested=false;l.status=outcome.status==='Confirmed'?'Scheduled':'Showing requested';
       storeLead(r,l);
       const v=existing || {id:uid('showing'),rentalId:r.id,leadId:l.id,leadName:l.name,leadPhone:l.phone};
       const start=window.LeasingSchedule.epoch(outcome.date,engine.toTime(outcome.time),outcome.zone);
