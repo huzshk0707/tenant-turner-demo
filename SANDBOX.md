@@ -22,7 +22,7 @@ python3 -m http.server 8777 --directory sandbox
 node tools/check-replica.cjs
 ```
 
-The browser check covers navigation order, sample sync, rental settings, screening and booking, feedback, messages, codes and contacts, report schedules and exports, workspace screens, and switching modes. It checks that lesson steps persist, archived screenshot references exist, and the guide fits on a phone. Install Playwright and set `LEASING_CHROMIUM` to use a system Chromium. Set `LEASING_URL` for another server. `tools/check-sandbox.cjs` checks the legacy app.
+The browser check covers navigation, saved settings, screening, booking, feedback, messages, contacts, reports, and desktop and phone layouts. The focused checks are `tools/check-availability.cjs`, `tools/check-identity-flow.cjs`, `tools/check-qualification.cjs`, and `tools/check-access.cjs`. Install Playwright and set `LEASING_CHROMIUM` to use a system Chromium. Set `LEASING_URL` to point a test at a running server. `tools/check-sandbox.cjs` checks the legacy app.
 
 ## GitHub Pages
 

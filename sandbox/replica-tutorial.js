@@ -9,7 +9,7 @@
   const chapters = [
     {id:'rentals',title:'Find a rental and open Settings', time:'00:00–01:24',steps:[
       step('Find a rental','From Rentals, set User to anyone and type Wren in Search. Look for the practice listing at 24 Wren Lane.',route('rentals'),'#searchInput','rental-search','0000-rentals',data=>/wren/i.test(data.query || '')),
-      step('Open its Settings','Choose SETTINGS on the 24 Wren Lane card. Check the four rental tabs in the blue header.',route('rentals'),'button[data-open-settings="r1"]','rental-settings','0125-rental-settings',data=>data.rentalId==='r1'),
+      step('Open its Settings','Choose SETTINGS on the 24 Wren Lane card. Check the four rental tabs in the header.',route('rentals'),'button[data-open-settings="r1"]','rental-settings','0125-rental-settings',data=>data.rentalId==='r1'),
     ]},
     {id:'marketing',title:'Status, marketing and syndication',time:'01:24–02:23',steps:[
       step('Review Status','Change the rental’s assigned user to another practice agent. Scroll to the bottom and choose Save Rental Settings.',setting(),'#stAssignee','settings','0125-rental-settings',includes('assignee')),
@@ -18,7 +18,7 @@
     ]},
     {id:'qualifying',title:'Qualifying rules and custom questions',time:'02:23–03:04',steps:[
       step('Change a restriction','In Qualifying, change a practice income, move-in or pet rule. Save Rental Settings.',setting('qualifying'),'#qIncomeRatio','settings','0232-qualifying',data=>data.changed?.includes('qualifying') && !data.changed.includes('questions')),
-      step('Set a required answer','Add a fictional custom question, pick Yes or No as the required answer, and save. The answer is evaluated when a prospect submits the questionnaire.',setting('qualifying'),'#add-custom-question','settings','0253-custom-questions',includes('questions')),
+      step('Set a knockout answer','Add a fictional custom question, mark one answer as Knockout, and save. Try that answer when you practice qualifying a lead.',setting('qualifying'),'#add-custom-question','settings','0253-custom-questions',includes('questions')),
     ]},
     {id:'waitlist',title:'Wait list and reopening viewings',time:'03:04–03:28',steps:[
       step('Set a wait-list message','Open Viewing for the unit at 16 Juniper Way. Turn on Wait List if needed, change the practice message, and save.',waitList,'#vwWaitlist','settings','0314-wait-list',data=>data.rentalId==='r2' && data.waitlist && data.changed?.includes('waitlistMessage')),
@@ -72,7 +72,7 @@
       step('Simulate a vendor’s arrival','Choose Practice check-in for a recurring contact. Enter the sample Box serial and pick an arrival within the contact’s access hours. Review the staff alert in Messages.',route('contacts'),'[data-vendor-contact]','vendor-arrival','1018-edit-contact'),
     ]},
     {id:'support',title:'Open support and return to Rentals',time:'10:21–11:25',steps:[
-      step('Open the support widget','From Rentals, open the blue support button in the bottom-right corner. You can try sending a fictional support question.',route('rentals'),'#chatFab','open-support','1112-support'),
+      step('Open the support widget','From Rentals, select Help in the bottom-right corner. Search the help topics or send a fictional support question.',route('rentals'),'#chatFab','open-support','1112-support'),
       step('Return to the rental grid','Close the support widget. You should be back on the same Rentals screen.',route('rentals'),'#closeChatBtn','close-support','1125-closing'),
     ]},
     {id:'workspace',title:'Extra practice with the supplied workspace screens',time:'Extra practice',steps:[
