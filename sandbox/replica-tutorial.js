@@ -27,8 +27,8 @@
     {id:'methods',title:'Self-access, devices and in-person showings',time:'03:28–06:28',steps:[
       step('Set self-access controls','Under Viewing, change Viewing Approval or the practice ID requirement, then save the settings.',setting('viewing'),'#vwApproval','settings','0337-self-access',includes('self-access')),
       step('Assign a practice device','Use the device selector to pick a different practice box, then save. Keep any real access details out of the practice record.',setting('viewing'),'#vwAssignedDevice','settings','0548-device-assignment',includes('device')),
-      step('Configure in-person showings','Change an in-person setting such as duration, travel buffer, grouping or scheduling notice. Save Rental Settings.',setting('viewing'),'#vwInPerson','settings','0605-in-person',includes('in-person')),
-      step('Set a showing limit','Adjust one of the showing limits under Viewing. Save to make it apply to the practice calendar.',setting('viewing'),'#limMaxPerDay','settings','0620-showing-limit',includes('limits')),
+      step('Configure in-person showings','Change a setting such as capacity, duration, travel buffer or scheduling notice. Save Rental Settings.',setting('viewing'),'#vwInPerson','settings','0605-in-person',includes('in-person')),
+      step('Set a showing limit','Choose an option under Limit Showings and save. The daily trip option keeps the same showing agent at the rental for overlapping or back-to-back tours.',setting('viewing'),'#ipVisitLimit','settings','0620-showing-limit',includes('limits')),
     ]},
     {id:'self-access-practice',title:'Self-viewings, scams and automatic replies',time:'03:28–06:00 · guided practice',steps:[
       {title:'Choose the viewing method',text:'The manager enables self-access on a suitable vacancy, assigns its lockbox and sets available hours and ID requirements. A listing inquiry triggers a scheduling invitation. When does the prospect get to choose a time?',route:setting('viewing'),target:'#vwSelfAccess',reference:'0337-self-access',
@@ -42,8 +42,8 @@
       step('Reply to the prospect','In Messages, read the automated showing confirmation and the prospect’s follow-up. The recorded workflow sends invitations, reminders and post-tour feedback/application links. A question left for staff needs a reply. Type a practice answer and choose Send.',route('practice-conversation'),'#msgReplyInput','reply',null,data=>data.threadId==='msg1'),
     ]},
     {id:'availability',title:'Availability and application fees',time:'06:28–06:58',steps:[
-      step('Set General Availability','In Rental Settings → Viewing, expand General Availability. Change the showing agent’s weekly hours and choose Save Rental Settings.',setting('viewing'),'#inline-general-edit','settings','0633-general-availability',includes('general-availability')),
-      step('Set rental-specific availability','In the same Viewing section, turn on Rental-Specific Availability. Add or edit a recurring block with hours, a property manager, approval and capacity. Choose Save Rental Settings.',setting('viewing'),'#inline-custom-enabled','settings','0648-rental-availability',includes('rental-availability')),
+      step('Set General Availability','In Rental Settings → Viewing, turn on General Availability and open Edit Availability on a showing agent’s card. Change their weekly hours and choose Save Rental Settings.',setting('viewing'),'#inline-general-enabled','settings','0633-general-availability',includes('general-availability')),
+      step('Set rental-specific availability','Turn on Rental-Specific Availability. Set hours, manager, approval and capacity. Choose whether the block repeats weekly and save. The rental block takes priority when it overlaps general hours.',setting('viewing'),'#inline-custom-enabled','settings','0648-rental-availability',includes('rental-availability')),
       step('Set application fees','Return to Settings → Application & Fees. Update a sample application or admin fee, then click Save Rental Settings.',setting('fees'),'#appFee','settings','0655-application',includes('fees')),
     ]},
     {id:'lead-journey',title:'Lead review, booking and follow-up',time:'06:58–07:42',steps:[

@@ -58,36 +58,80 @@ window.ReplicaBooking = (() => {
   }
   const identityHold = lead => Boolean(lead.idMetadataWarning || lead.idRequested);
 
+  const canShow = (state,agent) => state.users.some(user=>user.name===agent && user.active && user.canShow!==false);
+  const primaryAgent = rental => rental.viewing.inPerson.showingAgent && rental.viewing.inPerson.showingAgent !== 'Any Available Agent'
+    ? rental.viewing.inPerson.showingAgent : rental.assignee;
+
+  function generalAgents(state,rental) {
+    const configured=rental.availability.generalAgents;
+    const defaults=rental.viewing.inPerson.showingAgent==='Any Available Agent' ? Object.keys(state.generalAvailability) : [primaryAgent(rental)];
+    return (configured || defaults).filter(name=>state.generalAvailability[name] && canShow(state,name));
+  }
+
+  function subtractHours(rows, overlays) {
+    return overlays.reduce((remaining,overlay)=>remaining.flatMap(row=>{
+      if (!overlaps(row.start,row.end,overlay.start,overlay.end)) return [row];
+      return [
+        ...(row.start < overlay.start ? [{...row,end:overlay.start}] : []),
+        ...(row.end > overlay.end ? [{...row,start:overlay.end}] : []),
+      ];
+    }),rows);
+  }
+
+  function windows(state,rental,date,method) {
+    const self=method==='self';
+    const config=rental.availability;
+    const primary=self ? rental.assignee : primaryAgent(rental);
+    const day=days[(new Date(`${date}T12:00:00Z`).getUTCDay()+6)%7];
+    const normalize=(block,source,agent)=>({...block,start:toTime(block.start),end:toTime(block.end),agent,source});
+    const usable=block=>block.start && block.end && block.start < block.end && (self || canShow(state,block.agent));
+    const override=(config.overrides || []).filter(block=>block.date===date);
+    const opens=override.filter(block=>block.type==='open')
+      .map(block=>normalize(block,'Date override',self ? primary : block.agent || primary)).filter(usable);
+    const recurring=config.customHours?.[day];
+    const rentalHours=config.mode==='custom' && recurring?.enabled
+      ? recurring.blocks.map(block=>normalize(block,'Rental weekly',self ? primary : block.agent || primary)).filter(usable) : [];
+    const oneTime=config.mode==='custom' ? (config.oneTimeHours || []).filter(block=>block.date===date)
+      .map(block=>normalize(block,'Rental one-time',self ? primary : block.agent || primary)).filter(usable) : [];
+    const useGeneral=config.generalEnabled ?? config.mode!=='custom';
+    const general=useGeneral ? (self ? [primary] : generalAgents(state,rental)).flatMap(agent=>{
+      const settings=state.generalAvailability[agent];
+      if (!settings) return [];
+      const rules=settings.weekly?.[day];
+      const blocks=self ? [{start:settings.selfAccessStart,end:settings.selfAccessEnd}] : rules?.enabled ? rules.blocks : [];
+      return blocks.map(block=>normalize(block,'General',agent)).filter(usable);
+    }) : [];
+    const combined=opens.length ? opens : [...oneTime,...subtractHours(rentalHours,oneTime),...subtractHours(general,[...rentalHours,...oneTime])];
+    const rentalBlackouts=override.filter(block=>block.type==='block');
+    return combined.flatMap(row=>{
+      const agentBlackouts=(state.generalAvailability[row.agent]?.blockedDates || []).filter(block=>block.date===date);
+      const closed=[...rentalBlackouts,...agentBlackouts];
+      if (closed.some(block=>block.allDay || !block.start || !block.end)) return [];
+      const hours=closed.map(block=>({start:toTime(block.start),end:toTime(block.end)}));
+      return subtractHours([row],hours);
+    }).sort((a,b)=>a.start.localeCompare(b.start));
+  }
+
   function plan(state,rental,lead,date,time,method,options={}) {
     if (identityHold(lead)) return {error:'Scheduling is on hold. Resolve the practice identity review on the lead profile.'};
     const self=method==='self';
-    const primary=self ? rental.assignee : rental.viewing.inPerson.showingAgent || rental.assignee;
+    const primary=self ? rental.assignee : primaryAgent(rental);
     const duration=Number(self ? 30 : rental.viewing.inPerson.durationMinutes) || 30;
-    const day=days[(new Date(`${date}T12:00:00Z`).getUTCDay()+6)%7];
-    const rules=rental.availability.customHours?.[day];
-    const special=rental.availability.overrides?.some(row=>row.date===date && row.type==='open');
-    let agents=[primary];
-    if(!self && rental.availability.mode==='custom' && rules?.enabled && !special) {
-      const start=toTime(time);
-      const matches=rules.blocks.filter(block=>{
-        const end=toTime(block.end);
-        const minutes=value=>Number(value.slice(0,2))*60+Number(value.slice(3));
-        return start && end && start>=toTime(block.start) && minutes(start)+duration<=minutes(end);
-      });
-      if(matches.length) agents=[...new Set(matches.map(block=>block.agent || primary))];
-    }
+    const blocks=windows(state,rental,date,method);
+    const localTime=toTime(time);
+    const availableAgents=[...new Set(blocks.filter(block=>localTime>=block.start && localTime<block.end).map(block=>block.agent))];
     const booked=options.confirm && state.viewingsList.find(v=>v.id===options.existing)?.agent;
-    if(booked) agents=[booked];
+    const agents=booked ? [booked] : availableAgents.length ? availableAgents : [primary];
     let failure;
     for(const agent of agents) {
-      const result=planForAgent(state,rental,lead,date,time,method,agent,primary,duration,options);
+      const result=planForAgent(state,rental,lead,date,time,method,agent,blocks,duration,options);
       if(!result.error) return result;
       failure ??=result;
     }
     return failure;
   }
 
-  function planForAgent(state,rental,lead,date,time,method,agent,primary,duration,{existing = '', confirm = false, now = Date.now()}) {
+  function planForAgent(state,rental,lead,date,time,method,agent,blocks,duration,{existing = '', confirm = false, now = Date.now()}) {
     const ip = rental.viewing.inPerson;
     const limits = rental.viewing.limits;
     const self = method === 'self';
@@ -100,40 +144,39 @@ window.ReplicaBooking = (() => {
     if (!rental.active) return fail('This rental is inactive.');
     if (rental.waitlist) return fail('Turn off the wait list in Settings before booking a showing.');
     if ((!lead.manualOverride && (lead.score === null || lead.score < 6)) || lead.archived) return fail('Review pre-qualification before booking, or record a manual override.');
-    if (!self && !state.users.some(user=>user.name===agent && user.active && user.canShow!==false)) return fail('Choose an active showing agent in Viewing settings.');
+    if (!self && !canShow(state,agent)) return fail('Choose an active showing agent in Viewing settings.');
     if (!(self ? rental.viewing.selfAccess : ip.enabled)) return fail('This viewing method is off for this rental.');
     if (self && rental.viewing.requireId && !lead.idReviewed) return fail('Review the practice ID on the lead profile before scheduling self-access.');
     if (!Number.isFinite(start) || start <= now) return fail('Choose a valid future showing time.');
     const notice = self ? (parseInt(limits.selfAccessAdvanceNotice,10) || 0) * (limits.selfAccessAdvanceNotice.includes('hour') ? 60 : 1) : Number(ip.advanceNoticeHours) * 60;
     if (!confirm && start - now < notice * minute) return fail(`Choose a showing with at least ${notice} minutes’ notice.`);
     if (date > shiftDate(today,Number(limits.maxDaysAdvance) || 7)) return fail('That date is outside the maximum advance booking window.');
-    const day = days[(new Date(`${date}T12:00:00Z`).getUTCDay()+6)%7];
     const override = rental.availability.overrides?.filter(o => o.date === date) || [];
     if (override.some(o => o.type === 'block' && (!o.start || overlaps(start,end,epoch(date,toTime(o.start),zone),epoch(date,toTime(o.end),zone))))) return fail('This rental is blocked at that time.');
     if (availability?.blockedDates?.some(b => b.date === date && (b.allDay || overlaps(start,end,epoch(date,toTime(b.start),zone),epoch(date,toTime(b.end),zone))))) return fail('The showing agent is unavailable at that time.');
-    const opens = override.filter(o => o.type === 'open');
-    const weekly = rental.availability.mode === 'custom' ? rental.availability.customHours : availability?.weekly;
-    const rules = weekly?.[day];
-    const blocks = opens.length ? opens : self && rental.availability.mode !== 'custom' && availability
-      ? [{start:availability.selfAccessStart,end:availability.selfAccessEnd}] : rules?.enabled ? rules.blocks : [];
-    const block=blocks.find(b => (self || rental.availability.mode!=='custom' || opens.length || (b.agent || primary)===agent) && start >= epoch(date,toTime(b.start),zone) && end <= epoch(date,toTime(b.end),zone));
+    const block=blocks.find(b => b.agent===agent && start >= epoch(date,b.start,zone) && end <= epoch(date,b.end,zone));
     if (!block) return fail('The showing must fit within available hours.');
     const active = state.viewingsList.filter(v => v.id !== existing && ['Confirmed','Pending Confirmation','Requested'].includes(v.status) && v.date >= today);
     const atRental = active.filter(v => v.rentalId === rental.id);
     const sameLead = atRental.filter(v => v.leadId ? v.leadId === lead.id : v.leadName === lead.name);
     if (limits.limitUpcoming && atRental.length >= Number(limits.maxUpcoming)) return fail('The rental has reached its upcoming showing limit.');
     const sameDay = atRental.filter(v => v.date === date);
-    if (limits.limitPerDay && sameDay.length >= Number(limits.maxPerDay)) return fail('The rental has reached its daily showing limit.');
+    if (limits.limitPerDay && (self || limits.legacyInPersonCap) && sameDay.length >= Number(limits.maxPerDay)) return fail('The rental has reached its daily showing limit.');
     if (limits.preventDuplicates && sameLead.length) return fail('This lead already has an active showing. Use Reschedule for the existing appointment.');
     if (limits.minDaysBetweenEnabled && sameLead.some(v => Math.abs(Date.parse(v.date)-Date.parse(date)) < Number(limits.minDaysBetween)*86400000)) return fail('The lead’s showings are too close together.');
     const bookingStart = v => epoch(v.date,toTime(v.time),v.zone || zone);
     const bookingEnd = v => bookingStart(v) + (v.duration || 30)*minute;
     const collisions = sameDay.filter(v => overlaps(start,end,bookingStart(v),bookingEnd(v)));
-    const group = !self && ip.allowGroupShowings;
-    if (collisions.length && (!group || collisions.length >= Math.min(Number(ip.maxLeadsPerSlot) || 1,Number(block.capacity) || Infinity) || collisions.some(v => v.method === 'self' || !v.type.startsWith('In-Person') || bookingStart(v) !== start))) return fail('That viewing slot is full or overlaps another showing.');
-    if (!self && ip.clusterShowings) {
-      const trips = sameDay.filter(v => v.type.startsWith('In-Person'));
-      if (trips.length && !trips.some(v => start === bookingStart(v) || start === bookingEnd(v) || end === bookingStart(v))) return fail('Choose a slot next to another showing on this rental’s trip.');
+    const capacity=self || ip.allowGroupShowings===false ? 1 : Math.min(Number(ip.maxLeadsPerSlot) || 1,Number(block.capacity) || Infinity);
+    if (collisions.length && (collisions.length >= capacity || collisions.some(v => !v.type.startsWith('In-Person') || bookingStart(v) !== start))) return fail('That viewing slot is full or overlaps another showing.');
+    if (!self) {
+      const showings=sameDay.filter(v=>v.type.startsWith('In-Person'));
+      const limit=limits.inPersonVisitLimit || (ip.clusterShowings ? 'trip' : 'none');
+      if (limit==='showing' && showings.length) return fail('This rental allows one in-person showing per day.');
+      if (limit==='trip' && showings.length && (
+        showings.some(v=>(v.agent || v.type.slice(11,-1))!==agent)
+        || !showings.some(v=>start===bookingStart(v) || start===bookingEnd(v) || end===bookingStart(v))
+      )) return fail('Choose an adjacent showing with the same agent for this rental’s daily trip.');
     }
     if (!self && active.some(v => {
       if (v.rentalId === rental.id || !v.type.startsWith('In-Person') || (v.agent || v.type.slice(11,-1)) !== agent) return false;
@@ -195,5 +238,5 @@ window.ReplicaBooking = (() => {
     return reasons;
   }
 
-  return {dateOffset,toTime,plan,firstSlot,screen,historyRestrictions,historyPolicy,builtInQuestions,questionChoices,qualificationQuestions,webUrl,identityHold};
+  return {dateOffset,toTime,generalAgents,windows,plan,firstSlot,screen,historyRestrictions,historyPolicy,builtInQuestions,questionChoices,qualificationQuestions,webUrl,identityHold};
 })();

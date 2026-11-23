@@ -7,12 +7,14 @@
       const practiceLink = (...segments) => `${location.href.split(/[?#]/,1)[0]}#${segments.map(encodeURIComponent).join('/')}`;
       const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
       const reportFilterDefaults = () => ({property:'all',agent:'all',from:'',through:'',active:false,search:''});
-      const TIME_OPTIONS = [
-        "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM",
-        "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM",
-        "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
-        "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM",
-        "7:00 PM", "7:30 PM", "8:00 PM"
+      const TIME_OPTIONS = Array.from({length:53},(_,index)=>{
+        const hour=7+Math.floor(index/4);
+        return `${hour%12 || 12}:${['00','15','30','45'][index%4]} ${hour<12?'AM':'PM'}`;
+      });
+      const IN_PERSON_LIMITS = [
+        ['none','Do not limit'],
+        ['showing','Limit showings to once per day'],
+        ['trip','Limit trips to rental to once per day'],
       ];
 
       const PHOTOS = {
@@ -54,8 +56,9 @@
         return {
           limitUpcoming: true,
           maxUpcoming: 5,
-          limitPerDay: true,
+          limitPerDay: false,
           maxPerDay: 3,
+          inPersonVisitLimit: "none",
           minDaysBetweenEnabled: false,
           minDaysBetween: 1,
           preventDuplicates: true,
@@ -70,10 +73,8 @@
           enabled: false,
           showingAgent: assignee || "Jamie Taylor",
           durationMinutes: 30,
-          clusterShowings: true,
           bufferMinutes: 30,
-          allowGroupShowings: false,
-          maxLeadsPerSlot: 3,
+          maxLeadsPerSlot: 1,
           requireConfirmation: true,
           advanceNoticeHours: 2,
           instructions: "Meet the leasing agent at the front entrance 5 minutes prior to your appointment."
@@ -82,8 +83,10 @@
 
       function defaultRentalAvailability() {
         return {
-          mode: "general", // "general" or "custom"
+          mode: "general", // Custom hours can be used alongside general availability.
+          generalEnabled: true,
           customHours: defaultWeeklyHours("8:00 AM", "7:00 PM", true),
+          oneTimeHours: [],
           overrides: [
             { id: "ov1", date: "2026-11-26", type: "block", label: "Thanksgiving Day — No Showings", start: "8:00 AM", end: "8:00 PM" }
           ]
@@ -449,7 +452,7 @@
               viewingApproval: "Set Appointments",
               instructions: "Use visitor parking along Cedar Ridge Ln. CodeBox is on the left porch column.",
               requireId: true,
-              inPerson: Object.assign(defaultInPerson("Casey Nguyen"), { enabled: true, allowGroupShowings: true, maxLeadsPerSlot: 4 }),
+              inPerson: Object.assign(defaultInPerson("Casey Nguyen"), { enabled: true, maxLeadsPerSlot: 4 }),
               limits: defaultShowingLimits()
             },
             availability: Object.assign(defaultRentalAvailability(), { mode: "custom" }),
@@ -731,6 +734,18 @@
               if (!r.viewing.inPerson) r.viewing.inPerson = defaultInPerson(r.assignee);
               if (!r.viewing.limits) r.viewing.limits = defaultShowingLimits();
               if (!r.availability) r.availability = defaultRentalAvailability();
+              const {inPerson,limits}=r.viewing;
+              if (!limits.inPersonVisitLimit) {
+                const dailyCap=limits.limitPerDay ? Number(limits.maxPerDay) : 0;
+                limits.inPersonVisitLimit=dailyCap===1 ? 'showing' : inPerson.clusterShowings ? 'trip' : 'none';
+                limits.legacyInPersonCap=dailyCap>0;
+              }
+              if (inPerson.allowGroupShowings===false) inPerson.maxLeadsPerSlot=1;
+              delete inPerson.clusterShowings;
+              delete inPerson.allowGroupShowings;
+              r.availability.generalEnabled ??= r.availability.mode!=='custom';
+              r.availability.oneTimeHours ??= [];
+              r.availability.overrides ??= [];
               ensureStep4RentalFields(r);
               return r;
             });
@@ -1567,17 +1582,11 @@
                     </label>
                     ${ip.enabled ? `
                       <div class="blue-subpanel">
-                        <div class="grid-2">
-                          <div class="mat-field">
-                            <div class="row-inline" style="justify-content:space-between;">
-                              <label class="mat-label" for="ipAgent">Showing Agent</label>
-                              <span class="help-q" title="In-person showings will use this user's General Availability unless overridden on the Availability tab.">?</span>
-                            </div>
-                            <select id="ipAgent" class="mat-select">
-                              ${agentOptions(ip.showingAgent)}
-                              <option value="Any Available Agent" ${ip.showingAgent === "Any Available Agent" ? "selected" : ""}>Any Available Agent</option>
-                            </select>
-                          </div>
+                        <div class="grid-3">
+                          <label class="mat-field">
+                            <span class="mat-label">Max Showings per Time</span>
+                            <input id="ipMaxLeads" class="mat-input" type="number" min="1" max="15" value="${esc(ip.maxLeadsPerSlot)}" required>
+                          </label>
                           <div class="mat-field">
                             <label class="mat-label" for="ipDuration">Showing Duration</label>
                             <select id="ipDuration" class="mat-select">
@@ -1587,21 +1596,8 @@
                               <option value="60" ${ip.durationMinutes === 60 ? "selected" : ""}>60 minutes</option>
                             </select>
                           </div>
-                        </div>
-
-                        <div class="grid-2">
                           <div class="mat-field">
-                            <label class="mat-label" for="ipBuffer">Travel Buffer Between Showings</label>
-                            <select id="ipBuffer" class="mat-select">
-                              <option value="0" ${ip.bufferMinutes === 0 ? "selected" : ""}>None</option>
-                              <option value="15" ${ip.bufferMinutes === 15 ? "selected" : ""}>15 minutes</option>
-                              <option value="30" ${ip.bufferMinutes === 30 ? "selected" : ""}>30 minutes</option>
-                              <option value="45" ${ip.bufferMinutes === 45 ? "selected" : ""}>45 minutes</option>
-                              <option value="60" ${ip.bufferMinutes === 60 ? "selected" : ""}>60 minutes</option>
-                            </select>
-                          </div>
-                          <div class="mat-field">
-                            <label class="mat-label" for="ipNotice">Minimum Advance Notice</label>
+                            <label class="mat-label" for="ipNotice">Scheduling Notice</label>
                             <select id="ipNotice" class="mat-select">
                               <option value="1" ${ip.advanceNoticeHours === 1 ? "selected" : ""}>1 hour</option>
                               <option value="2" ${ip.advanceNoticeHours === 2 ? "selected" : ""}>2 hours</option>
@@ -1612,44 +1608,50 @@
                           </div>
                         </div>
 
-                        <div class="row-inline">
-                          <label class="mat-switch">
-                            <input id="ipCluster" type="checkbox" ${ip.clusterShowings ? "checked" : ""} />
-                            <span class="switch-track"></span>
-                            <span>Cluster showings near existing appointments</span>
+                        <div class="grid-2">
+                          <label class="mat-field">
+                            <span class="mat-label">Buffer Before Trip to Rental</span>
+                            <select id="ipBuffer" class="mat-select">
+                              ${[0,15,30,45,60].map(value=>`<option value="${value}" ${ip.bufferMinutes===value?'selected':''}>${value ? `${value} minutes` : 'None'}</option>`).join('')}
+                            </select>
                           </label>
-                          <span class="help-q" title="Prioritizes time slots adjacent to already booked showings to minimize driving.">?</span>
-                        </div>
-
-                        <div class="row-inline">
-                          <label class="mat-switch">
-                            <input id="ipGroup" type="checkbox" ${ip.allowGroupShowings ? "checked" : ""} />
-                            <span class="switch-track"></span>
-                            <span>Allow group showings (up to</span>
+                          <label class="mat-field">
+                            <span class="mat-label">Limit Showings</span>
+                            <select id="ipVisitLimit" class="mat-select">
+                              ${IN_PERSON_LIMITS.map(([value,label])=>`<option value="${value}" ${lim.inPersonVisitLimit===value?'selected':''}>${label}</option>`).join('')}
+                            </select>
                           </label>
-                          <input id="ipMaxLeads" class="inline-num" type="number" min="2" max="15" value="${ip.maxLeadsPerSlot || 3}" ${ip.allowGroupShowings ? "" : "disabled"} />
-                          <span>leads per time slot)</span>
                         </div>
-
-                        <label class="mat-switch">
-                          <input id="ipConfirm" type="checkbox" ${ip.requireConfirmation ? "checked" : ""} />
-                          <span class="switch-track"></span>
-                          <span>Require leads to confirm 2 hours before appointment (auto-cancel no-responses)</span>
-                        </label>
-
-                        <label class="mat-switch"><input id="ipNotify" type="checkbox" ${ip.notifyOccupants?'checked':''}><span class="switch-track"></span><span>Record practice notice for current occupants</span></label>
-                        <div class="mat-field">
-                          <label class="mat-label" for="ipInstr">In-Person Viewing Instructions (optional)</label>
-                          <textarea id="ipInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(ip.instructions)}</textarea>
-                          <div id="ipCounter" class="char-counter">${ipRemaining} remaining</div>
-                        </div>
+                        ${lim.legacyInPersonCap ? `<p class="availability-note">This rental also has a saved cap of ${esc(lim.maxPerDay)} showings per day. Choose a different Limit Showings option to replace the saved cap.</p>` : ''}
+                        <details class="showing-details">
+                          <summary>Optional showing details</summary>
+                          <label class="mat-field">
+                            <span class="mat-label">Default showing agent</span>
+                            <select id="ipAgent" class="mat-select">
+                              ${agentOptions(ip.showingAgent)}
+                              <option value="Any Available Agent" ${ip.showingAgent === "Any Available Agent" ? "selected" : ""}>Any Available Agent</option>
+                            </select>
+                          </label>
+                          <label class="mat-switch">
+                            <input id="ipConfirm" type="checkbox" ${ip.requireConfirmation ? "checked" : ""} />
+                            <span class="switch-track"></span>
+                            <span>Require leads to confirm 2 hours before appointment</span>
+                          </label>
+                          <label class="mat-switch"><input id="ipNotify" type="checkbox" ${ip.notifyOccupants?'checked':''}><span class="switch-track"></span><span>Record practice notice for current occupants</span></label>
+                          <div class="mat-field">
+                            <label class="mat-label" for="ipInstr">In-Person Viewing Instructions</label>
+                            <textarea id="ipInstr" class="mat-textarea" maxlength="${maxInstr}">${esc(ip.instructions)}</textarea>
+                            <div id="ipCounter" class="char-counter">${ipRemaining} remaining</div>
+                          </div>
+                        </details>
                       </div>
                     ` : ""}
                   </div>
                 </div>
 
                 <!-- Showing Limits (0620-showing-limit.jpg) -->
-                <div class="sub-heading">Showing Limits &amp; Scheduling Rules</div>
+                <details class="showing-details">
+                <summary>Advanced scheduling options</summary>
                 <div class="toggle-list">
                   <div class="row-inline">
                     <label class="mat-switch">
@@ -1660,16 +1662,6 @@
                     <input id="limMaxUpcoming" class="inline-num" type="number" min="1" max="50" value="${lim.maxUpcoming}" />
                     <span>active appointments</span>
                     <span class="help-q" title="Automatically pauses new bookings once this number of upcoming showings is reached.">?</span>
-                  </div>
-
-                  <div class="row-inline">
-                    <label class="mat-switch">
-                      <input id="limPerDay" type="checkbox" ${lim.limitPerDay ? "checked" : ""} />
-                      <span class="switch-track"></span>
-                      <span>Limit showings per day to</span>
-                    </label>
-                    <input id="limMaxPerDay" class="inline-num" type="number" min="1" max="20" value="${lim.maxPerDay}" />
-                    <span>showings per day</span>
                   </div>
 
                   <div class="row-inline">
@@ -1703,13 +1695,15 @@
                     </div>
                   </div>
                 </div>
+                </details>
                 <div id="viewing-availability">
                   <h3 class="sub-heading">Availability</h3>
-                  <details id="inline-general">
-                    <summary id="inline-general-edit">General Availability · ${esc(ip.showingAgent || r.assignee)}</summary>
-                    <div id="inline-general-hours"></div>
-                  </details>
-                  <label class="mat-switch"><input id="inline-custom-enabled" type="checkbox" ${r.availability.mode==='custom' ? 'checked' : ''}><span class="switch-track"></span><span>Rental-Specific Availability</span></label>
+                  <label class="mat-switch"><input id="inline-general-enabled" type="checkbox" ${r.availability.generalEnabled?'checked':''}><span class="switch-track"></span><span>General Availability</span></label>
+                  <div id="inline-general-hours" ${r.availability.generalEnabled?'':'hidden'}></div>
+                  <div class="row-inline">
+                    <label class="mat-switch"><input id="inline-custom-enabled" type="checkbox" ${r.availability.mode==='custom' ? 'checked' : ''}><span class="switch-track"></span><span>Rental-Specific Availability</span></label>
+                    <button id="viewAvailabilityReport" class="btn-flat btn-sm" type="button">View Availability Report</button>
+                  </div>
                   <div id="inline-custom-hours" ${r.availability.mode!=='custom' ? 'hidden' : ''}></div>
                 </div>
               </section>
@@ -1818,12 +1812,17 @@
         });
 
         byId('jumpToRentalAvailBtn').onclick=()=>byId('viewing-availability').scrollIntoView({block:'start'});
-        byId('inline-general').ontoggle=e=>{if(e.currentTarget.isConnected && e.currentTarget.open) renderInlineGeneral(r);};
+        byId('inline-general-enabled').onchange=e=>{
+          r.availability.generalEnabled=e.target.checked;
+          renderInlineGeneral(r);
+        };
         byId('inline-custom-enabled').onchange=e=>{
           r.availability.mode=e.target.checked ? 'custom' : 'general';
           renderInlineRentalHours(r);
           tutorial.draw();
         };
+        byId('viewAvailabilityReport').onclick=()=>goto({section:'report',id:'viewing_availability',filterRentalId:r.id});
+        renderInlineGeneral(r);
         renderInlineRentalHours(r);
 
         const instrEl = document.getElementById("vwInstr");
@@ -1840,15 +1839,13 @@
         bindCheck("vwInPerson", v => { ip.enabled = v; r.viewing.inPerson = ip; }, true);
         bindVal("ipAgent", v => {
           ip.showingAgent=v;
-          byId('inline-general-edit').textContent=`General Availability · ${v}`;
-          if(byId('inline-general').open) renderInlineGeneral(r);
+          renderInlineGeneral(r);
         });
         bindVal("ipDuration", v => { ip.durationMinutes = Number(v) || 30; });
         bindVal("ipBuffer", v => { ip.bufferMinutes = Number(v) || 0; });
         bindVal("ipNotice", v => { ip.advanceNoticeHours = Number(v) || 2; });
-        bindCheck("ipCluster", v => { ip.clusterShowings = v; });
-        bindCheck("ipGroup", v => { ip.allowGroupShowings = v; }, true);
-        bindVal("ipMaxLeads", v => { ip.maxLeadsPerSlot = Number(v) || 3; });
+        bindVal("ipMaxLeads", v => { ip.maxLeadsPerSlot = Number(v) || 1; });
+        bindVal('ipVisitLimit',v=>{lim.inPersonVisitLimit=v;lim.legacyInPersonCap=false;});
         bindCheck("ipConfirm", v => { ip.requireConfirmation = v; });
         bindCheck('ipNotify',v=>{ip.notifyOccupants=v;});
 
@@ -1865,8 +1862,6 @@
         // Viewing: Showing Limits (0620-showing-limit.jpg)
         bindCheck("limUpcoming", v => { lim.limitUpcoming = v; });
         bindVal("limMaxUpcoming", v => { lim.maxUpcoming = Number(v) || 5; });
-        bindCheck("limPerDay", v => { lim.limitPerDay = v; });
-        bindVal("limMaxPerDay", v => { lim.maxPerDay = Number(v) || 3; });
         bindCheck("limMinDays", v => { lim.minDaysBetweenEnabled = v; });
         bindVal("limMinDaysVal", v => { lim.minDaysBetween = Number(v) || 1; });
         bindCheck("limNoDupes", v => { lim.preventDuplicates = v; });
@@ -1898,7 +1893,8 @@
         byId('saveSettingsBtn').onclick=()=>{
           const current=state.rentals.find(item=>item.id===r.id);
           const different=(keys,a,b)=>keys.some(key=>JSON.stringify(a[key])!==JSON.stringify(b[key]));
-          const availabilityChanged=different(['mode','customHours'],r.availability,current.availability);
+          const availabilityChanged=different(['mode','customHours','oneTimeHours'],r.availability,current.availability);
+          const generalChanged=different(['generalEnabled','generalAgents'],r.availability,current.availability);
           const applicationUrl=byId('appLink').value.trim();
           if (applicationUrl && applicationUrl!==practiceLink('apply',r.id) && !window.ReplicaBooking.webUrl(applicationUrl)) {
             byId('setting-error').textContent='Enter an HTTP or HTTPS application link.';return;
@@ -1916,7 +1912,8 @@
           r.applicationLink=applicationUrl;
           const orderedHours=weekly=>Object.values(weekly).every(day=>!day.enabled || day.blocks.every(block=>
             window.ReplicaBooking.toTime(block.start)<window.ReplicaBooking.toTime(block.end)));
-          if((availabilityChanged && r.availability.mode==='custom' && !orderedHours(r.availability.customHours)) || [...generalAvailabilityDrafts.values()].some(weekly=>!orderedHours(weekly))) {
+          const invalidOneTime=r.availability.oneTimeHours.some(block=>window.ReplicaBooking.toTime(block.start)>=window.ReplicaBooking.toTime(block.end));
+          if((availabilityChanged && r.availability.mode==='custom' && (!orderedHours(r.availability.customHours) || invalidOneTime)) || [...generalAvailabilityDrafts.values()].some(weekly=>!orderedHours(weekly))) {
             byId('setting-error').textContent='End times must be later than start times.';return;
           }
           const oldWaitlist=current.waitlist;
@@ -1935,6 +1932,7 @@
           r.qualifying.questions=questions;
           if (different(['questions'],r.qualifying,current.qualifying)) changed.push('questions');
           if (availabilityChanged) changed.push('rental-availability');
+          if (generalChanged) changed.push('general-availability');
           for(const [name,weekly] of generalAvailabilityDrafts) {
             const availability=state.generalAvailability[name];
             if(availability && JSON.stringify(weekly)!==JSON.stringify(availability.weekly)) {
@@ -1957,70 +1955,137 @@
         byId('cancelSettingsBtn').onclick=()=>{settingsDraft=null;render();showToast('Unsaved rental changes discarded.');};
       }
 
+      const availabilityIcons={
+        add:'<path d="M12 5v14M5 12h14"/>',
+        remove:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v6m4-6v6"/>',
+      };
+      function availabilityButton(action,attrs,label) {
+        return `<button class="availability-icon" type="button" ${attrs} aria-label="${esc(label)}" title="${esc(label)}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${availabilityIcons[action]}</svg></button>`;
+      }
+
       function renderInlineGeneral(r) {
         const target=byId('inline-general-hours');
-        const agent=r.viewing.inPerson.showingAgent || r.assignee;
-        const availability=state.generalAvailability[agent];
-        if(!availability){target.textContent='Choose a showing agent to edit their weekly hours.';return;}
-        const weekly=generalAvailabilityDrafts.get(agent) || structuredClone(availability.weekly);
-        target.innerHTML=renderWeeklyScheduleEditor(weekly,'inline-ga');
-        bindWeeklyScheduleEditor(target,weekly,'inline-ga',()=>renderInlineGeneral(r),()=>generalAvailabilityDrafts.set(agent,weekly));
+        const openNames=new Set([...target.querySelectorAll('details[open]')].map(card=>card.dataset.generalName));
+        target.hidden=!r.availability.generalEnabled;
+        if(target.hidden){target.replaceChildren();return;}
+        const names=r.availability.generalAgents || window.ReplicaBooking.generalAgents(state,r);
+        const unassigned=state.users.filter(user=>user.active && user.canShow!==false && state.generalAvailability[user.name] && !names.includes(user.name));
+        target.innerHTML=`<div class="availability-agent-list">${names.map((name,index)=>`
+          <article class="availability-agent">
+            <header><strong>${esc(name)}</strong>${names.length>1 ? availabilityButton('remove',`data-general-remove="${index}"`,`Remove ${name} from general availability`) : ''}</header>
+            <details data-general-name="${esc(name)}" ${openNames.has(name)?'open':''}>
+              <summary ${index===0 ? 'id="inline-general-edit"' : ''}>Edit Availability</summary>
+              <div data-general-editor></div>
+            </details>
+          </article>`).join('')}</div>
+          ${unassigned.length ? `<div class="row-inline availability-add-agent">
+            <label class="mat-field"><span class="mat-label">Add a showing agent</span><select id="inline-general-agent" class="mat-select">${unassigned.map(user=>`<option>${esc(user.name)}</option>`).join('')}</select></label>
+            ${availabilityButton('add','id="inline-general-add"','Add agent to general availability')}
+          </div>` : ''}`;
+        target.querySelectorAll('details').forEach((card,index)=>{
+          const name=card.dataset.generalName;
+          const availability=state.generalAvailability[name];
+          const editor=card.querySelector('[data-general-editor]');
+          if (!availability) {editor.textContent='This team member has no saved schedule.';return;}
+          const weekly=generalAvailabilityDrafts.get(name) || structuredClone(availability.weekly);
+          const draw=()=>{
+            const prefix=index===0 ? 'inline-ga' : `inline-ga-${index}`;
+            editor.innerHTML=renderWeeklyScheduleEditor(weekly,prefix);
+            bindWeeklyScheduleEditor(editor,weekly,prefix,draw,()=>generalAvailabilityDrafts.set(name,weekly));
+          };
+          if(card.open) draw();
+          card.ontoggle=()=>{if(card.open && !editor.childElementCount) draw();};
+        });
+        byId('inline-general-add')?.addEventListener('click',()=>{
+          const name=byId('inline-general-agent').value;
+          r.availability.generalAgents=[...names,name];
+          renderInlineGeneral(r);
+          const card=[...target.querySelectorAll('details')].find(row=>row.dataset.generalName===name);
+          card.open=true;
+          card.querySelector('summary').focus();
+        });
+        target.querySelectorAll('[data-general-remove]').forEach(button=>button.onclick=()=>{
+          r.availability.generalAgents=names.filter((_,i)=>i!==Number(button.dataset.generalRemove));
+          renderInlineGeneral(r);
+          byId('inline-general-edit')?.focus();
+        });
       }
 
       function renderInlineRentalHours(r) {
         const target=byId('inline-custom-hours');
         target.hidden=r.availability.mode!=='custom';
         if(target.hidden){target.replaceChildren();return;}
-        const weekly=r.availability.customHours;
+        const {customHours:weekly,oneTimeHours:oneTime}=r.availability;
         const timeOptions=time=>TIME_OPTIONS.map(value=>`<option ${value===time ? 'selected' : ''}>${value}</option>`).join('');
-        target.innerHTML=`<p class="availability-note">Blackout dates and the showing agent’s calendar still apply.</p>
-          ${DAYS.flatMap(day=>(weekly[day]?.enabled ? weekly[day].blocks : []).map((block,i)=>`<fieldset class="inline-hours-card" data-inline-day="${day}" data-index="${i}">
-            <legend>Repeats weekly</legend>
-            <label class="mat-field"><span class="mat-label">Day of week</span><select class="mat-select" data-hour-field="day">${DAYS.map(value=>`<option ${value===day ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
+        const rows=[
+          ...DAYS.flatMap(day=>weekly[day].enabled ? weekly[day].blocks.map((block,index)=>({block,day,index})) : []),
+          ...oneTime.map((block,index)=>({block,day:'',index})),
+        ];
+        target.innerHTML=`<p class="availability-note">Rental hours take priority during an overlap. Blackout dates and the showing agent’s calendar still apply.</p>
+          ${rows.map(({block,day,index},i)=>`<fieldset class="inline-hours-card" data-inline-day="${day}" data-index="${index}" data-hour-row="${i}">
+            <legend>${day ? `${day} hours` : 'One-time hours'}</legend>
+            <label class="mat-switch"><input type="checkbox" data-hour-field="repeat" ${day ? 'checked' : ''}><span class="switch-track"></span><span>Repeats weekly</span></label>
+            ${day ? `<label class="mat-field"><span class="mat-label">Day of week</span><select class="mat-select" data-hour-field="day">${DAYS.map(value=>`<option ${value===day?'selected':''}>${value}</option>`).join('')}</select></label>`
+              : `<label class="mat-field"><span class="mat-label">Date</span><input class="mat-input" type="date" data-hour-field="date" value="${esc(block.date)}" required></label>`}
             <label class="mat-field"><span class="mat-label">Property manager</span><select class="mat-select" data-hour-field="agent"><option value="">Rental showing agent</option>${agentOptions(block.agent)}</select></label>
             <label class="mat-field"><span class="mat-label">From</span><select class="mat-select" data-hour-field="start">${timeOptions(block.start)}</select></label>
             <label class="mat-field"><span class="mat-label">To</span><select class="mat-select" data-hour-field="end">${timeOptions(block.end)}</select></label>
             <label class="mat-field"><span class="mat-label">Viewing approval</span><select class="mat-select" data-hour-field="approval"><option value="">Rental default</option>${['Take Requests','Set Appointments'].map(value=>`<option ${block.approval===value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
             <label class="mat-field"><span class="mat-label">Max showings per time</span><input class="mat-input" type="number" min="1" max="15" data-hour-field="capacity" value="${esc(block.capacity ?? '')}"></label>
-            <button class="btn-flat" type="button" data-inline-remove aria-label="Remove ${day} block ${i+1}">Remove</button>
-          </fieldset>`)).join('')}
-          <button id="inline-custom-add" class="btn-blue" type="button">+ Add recurring hours</button>`;
-        const removeBlock=(day,index)=>{
-          const [block]=weekly[day].blocks.splice(index,1);
-          if(!weekly[day].blocks.length) weekly[day].enabled=false;
-          return block;
+            ${availabilityButton('remove','data-inline-remove',`Remove ${day || 'one-time'} block ${index+1}`)}
+          </fieldset>`).join('')}
+          ${availabilityButton('add','id="inline-custom-add"','Add rental-specific hours')}`;
+        const addRecurring=(day,block)=>{
+          const hours=weekly[day];
+          if(!hours.enabled) hours.blocks=[];
+          hours.enabled=true;
+          return hours.blocks.push(block)-1;
         };
-        target.querySelectorAll('[data-inline-day]').forEach(row=>{
-          const {inlineDay:day,index}=row.dataset;
-          const block=weekly[day].blocks[index];
+        const focusChanged=(day,index,field)=>{
+          renderInlineRentalHours(r);
+          target.querySelector(`[data-inline-day="${day}"][data-index="${index}"] [data-hour-field="${field}"]`)?.focus({preventScroll:true});
+        };
+        const weekday=date=>DAYS[(new Date(`${date}T12:00:00Z`).getUTCDay()+6)%7];
+        target.querySelectorAll('[data-hour-row]').forEach(row=>{
+          const {block,day,index}=rows[Number(row.dataset.hourRow)];
+          const remove=()=>{
+            if(day){
+              weekly[day].blocks.splice(index,1);
+              if(!weekly[day].blocks.length) weekly[day].enabled=false;
+            } else oneTime.splice(index,1);
+          };
           row.onchange=e=>{
             const {value,dataset:{hourField}}=e.target;
             if(hourField==='day') {
-              const destination=weekly[value];
-              if(!destination.enabled) destination.blocks=[];
-              destination.enabled=true;
-              destination.blocks.push(removeBlock(day,index));
-              renderInlineRentalHours(r);
-              target.querySelector(`[data-inline-day="${value}"][data-index="${destination.blocks.length-1}"] [data-hour-field="day"]`)?.focus({preventScroll:true});
+              remove();
+              focusChanged(value,addRecurring(value,block),'day');
+            } else if(hourField==='repeat'){
+              remove();
+              if(day){
+                const {shiftDate}=window.LeasingSchedule;
+                const today=dateOffset();
+                const offset=(DAYS.indexOf(day)-DAYS.indexOf(weekday(today))+7)%7;
+                oneTime.push({...block,date:shiftDate(today,offset),id:uid('hours')});
+                focusChanged('',oneTime.length-1,'date');
+              } else {
+                const {date,id,...hours}=block;
+                const nextDay=weekday(date) || weekday(dateOffset());
+                focusChanged(nextDay,addRecurring(nextDay,hours),'day');
+              }
             } else if(hourField) block[hourField]=hourField==='capacity' ? (value ? Number(value) : null) : value;
           };
           row.querySelector('[data-inline-remove]').onclick=()=>{
-            removeBlock(day,index);renderInlineRentalHours(r);byId('inline-custom-add').focus({preventScroll:true});
+            remove();renderInlineRentalHours(r);byId('inline-custom-add').focus({preventScroll:true});
           };
         });
         byId('inline-custom-add').onclick=()=>{
           const day=DAYS.find(name=>!weekly[name].enabled) || DAYS[0];
-          const hours=weekly[day];
-          if(!hours.enabled) hours.blocks=[];
-          hours.enabled=true;
-          const index=hours.blocks.length;
-          hours.blocks.push({start:'9:00 AM',end:'5:00 PM',approval:'',capacity:null,agent:''});
-          renderInlineRentalHours(r);
-          target.querySelector(`[data-inline-day="${day}"][data-index="${index}"] select`)?.focus();
+          const index=addRecurring(day,{start:'9:00 AM',end:'5:00 PM',approval:'',capacity:null,agent:''});
+          focusChanged(day,index,'day');
         };
       }
 
-      function renderWeeklyScheduleEditor(weeklyObj, prefix, onChange) {
+      function renderWeeklyScheduleEditor(weeklyObj, prefix) {
         return DAYS.map(day => {
           const d = weeklyObj[day] || { enabled: false, blocks: [{ start: "9:00 AM", end: "5:00 PM" }] };
           return `
@@ -2042,7 +2107,6 @@
                         <select class="time-select ${prefix}-end" data-day="${day}" data-idx="${idx}">
                           ${TIME_OPTIONS.map(t => `<option value="${t}" ${blk.end === t ? "selected" : ""}>${t}</option>`).join("")}
                         </select>
-                        ${prefix==='rc'?`<label>Property manager <select class="time-select rc-agent" data-day="${day}" data-idx="${idx}"><option value="">Rental showing agent</option>${agentOptions(blk.agent)}</select></label><label>Approval <select class="time-select rc-approval" data-day="${day}" data-idx="${idx}"><option value="">Rental default</option><option ${blk.approval==='Take Requests'?'selected':''}>Take Requests</option><option ${blk.approval==='Set Appointments'?'selected':''}>Set Appointments</option></select></label><label>Max per slot <input class="inline-num rc-capacity" type="number" min="1" max="15" data-day="${day}" data-idx="${idx}" value="${esc(blk.capacity ?? '')}"></label>`:''}
                         ${d.blocks.length > 1 ? `<button type="button" class="icon-x-btn ${prefix}-rm" data-day="${day}" data-idx="${idx}" title="Remove time block">×</button>` : ""}
                         ${idx === d.blocks.length - 1 ? `<button type="button" class="btn-flat btn-sm ${prefix}-add" data-day="${day}">+ Add hours</button>` : ""}
                       </div>
@@ -2084,15 +2148,6 @@
           });
         });
 
-        if(prefix==='rc') {
-          container.querySelectorAll('.rc-agent,.rc-approval,.rc-capacity').forEach(control=>control.onchange=()=>{
-            if(!control.checkValidity()) {control.reportValidity();return;}
-            const block=weeklyObj[control.dataset.day].blocks[Number(control.dataset.idx)];
-            if(control.matches('.rc-capacity')) block.capacity=control.value ? Number(control.value) : null;
-            else block[control.matches('.rc-agent')?'agent':'approval']=control.value;
-            commit();
-          });
-        }
         container.querySelectorAll(`.${prefix}-add`).forEach(btn => {
           btn.addEventListener("click", () => {
             weeklyObj[btn.dataset.day].blocks.push({ start: "1:00 PM", end: "5:00 PM" });
@@ -2126,9 +2181,13 @@
         const avail = r.availability || defaultRentalAvailability();
         r.availability = avail;
         const ip = r.viewing.inPerson || defaultInPerson(r.assignee);
-        const agentName = (ip.showingAgent && state.generalAvailability[ip.showingAgent]) ? ip.showingAgent : r.assignee;
-        const genAvail = state.generalAvailability[agentName] || Object.values(state.generalAvailability)[0];
-        const activeWeekly = avail.mode === "custom" ? avail.customHours : genAvail.weekly;
+        const planner=window.ReplicaBooking;
+        const generalNames=planner.generalAgents(state,r);
+        const timeLabel=time=>{
+          const [hour,minute]=time.split(':').map(Number);
+          return `${hour%12 || 12}:${String(minute).padStart(2,'0')} ${hour<12?'AM':'PM'}`;
+        };
+        const slotLabel=(rows,type,label)=>rows.map(row=>`<div class="cal-slot cal-slot-${type}"><strong>${label}</strong><br>${esc(timeLabel(row.start))} – ${esc(timeLabel(row.end))}<br>${esc(type==='self' ? row.source : row.agent)}</div>`).join('');
         const weekDates = getWeekDates(state.calendarWeekOffset);
         const weekRangeLabel = `${weekDates[0].label} – ${weekDates[6].label}, ${weekDates[6].iso.slice(0,4)}`;
 
@@ -2147,26 +2206,13 @@
                 ${ip.enabled ? `<span class="pill pill-blue">In-Person (${esc(ip.showingAgent)})</span>` : `<span class="pill pill-gray">In-Person Off</span>`}
               </div>
 
-              <div class="mode-radio-row">
-                <label class="mode-radio-card ${avail.mode === "general" ? "selected" : ""}">
-                  <input type="radio" name="availMode" value="general" ${avail.mode === "general" ? "checked" : ""} style="margin-top:3px;" />
-                  <div>
-                    <div style="font-weight:500;">Use General Availability (${esc(agentName)})</div>
-                    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
-                      Inherits recurring hours from ${esc(agentName)}'s General Availability and default self-access window (${esc(genAvail.selfAccessStart)} – ${esc(genAvail.selfAccessEnd)}).
-                    </div>
-                  </div>
-                </label>
-                <label class="mode-radio-card ${avail.mode === "custom" ? "selected" : ""}">
-                  <input type="radio" name="availMode" value="custom" ${avail.mode === "custom" ? "checked" : ""} style="margin-top:3px;" />
-                  <div>
-                    <div style="font-weight:500;">Custom Availability for This Rental</div>
-                    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
-                      Override General Availability with custom showing hours specific to ${esc(r.address)}.
-                    </div>
-                  </div>
-                </label>
+              <div class="row-inline">
+                <span class="pill ${avail.generalEnabled ? 'pill-blue' : 'pill-gray'}">General Availability ${avail.generalEnabled ? 'On' : 'Off'}</span>
+                <span class="pill ${avail.mode==='custom' ? 'pill-blue' : 'pill-gray'}">Rental-Specific Availability ${avail.mode==='custom' ? 'On' : 'Off'}</span>
+                <button id="availEditHoursBtn" class="btn-flat btn-sm" type="button">Edit Showing Hours</button>
+                <button id="availOpenReportBtn" class="btn-flat btn-sm" type="button">View Availability Report</button>
               </div>
+              ${avail.generalEnabled && generalNames.length ? `<p class="availability-agents-caption">General availability team · ${esc(generalNames.join(', '))}</p>` : ''}
             </section>
 
             <!-- Weekly Calendar Preview (0648-rental-availability.jpg) -->
@@ -2193,37 +2239,16 @@
 
               <div class="week-grid">
                 ${weekDates.map(wd => {
-                  const rentalOverride = (avail.overrides || []).find(o => o.date === wd.iso);
-                  const userBlocked = (genAvail.blockedDates || []).find(b => b.date === wd.iso && b.allDay);
-                  const dayCfg = activeWeekly[wd.dayName];
+                  const blackout = avail.overrides.find(o => o.date === wd.iso && o.type === 'block');
                   const dayBookings = state.viewingsList.filter(v => v.rentalId === r.id && v.date === wd.iso && !['Canceled','No-show'].includes(v.status));
 
                   let slotsHtml = "";
                   if (r.waitlist) {
                     slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Wait List</strong><br/>Showings paused</div>`;
-                  } else if (rentalOverride && rentalOverride.type === "block") {
-                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked</strong><br/>${esc(rentalOverride.label)}</div>`;
-                  } else if (avail.mode === "general" && userBlocked) {
-                    slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked</strong><br/>${esc(userBlocked.reason)}</div>`;
                   } else {
-                    if (rentalOverride && rentalOverride.type === "open") {
-                      slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>Special Open</strong><br/>${esc(rentalOverride.start)} – ${esc(rentalOverride.end)}</div>`;
-                    } else {
-                      if (r.viewing.selfAccess) {
-                        const saWindow = avail.mode === "custom"
-                          ? (dayCfg && dayCfg.enabled ? dayCfg.blocks.map(b => `${b.start} – ${b.end}`).join(", ") : null)
-                          : `${genAvail.selfAccessStart} – ${genAvail.selfAccessEnd}`;
-                        if (saWindow) {
-                          slotsHtml += `<div class="cal-slot cal-slot-self"><strong>Self-Access</strong><br/>${esc(saWindow)}</div>`;
-                        }
-                      }
-                      if (ip.enabled && dayCfg && dayCfg.enabled) {
-                        dayCfg.blocks.forEach(b => {
-                          const blockAgent=avail.mode==='custom' && b.agent;
-                          slotsHtml += `<div class="cal-slot cal-slot-inperson"><strong>In-Person</strong><br/>${esc(b.start)} – ${esc(b.end)}${blockAgent ? `<br/>${esc(blockAgent)}` : ''}</div>`;
-                        });
-                      }
-                    }
+                    if (blackout) slotsHtml += `<div class="cal-slot cal-slot-blocked"><strong>Blocked hours</strong><br>${esc(blackout.label)}</div>`;
+                    if (r.viewing.selfAccess) slotsHtml += slotLabel(planner.windows(state,r,wd.iso,'self'),'self','Self-Access');
+                    if (ip.enabled) slotsHtml += slotLabel(planner.windows(state,r,wd.iso,'person'),'inperson','In-Person');
                   }
 
                   dayBookings.forEach(bk => {
@@ -2246,35 +2271,6 @@
                 }).join("")}
               </div>
             </section>
-
-            <!-- Custom Weekly Hours Editor (shown when mode === "custom") -->
-            ${avail.mode === "custom" ? `
-              <section class="mat-card" id="customHoursCard">
-                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
-                  <h2 class="mat-card-title" style="margin:0;">Custom Weekly Hours for ${esc(r.address)}</h2>
-                  <button id="copyGenToCustomBtn" class="btn-outline btn-sm" type="button">Copy from General Availability</button>
-                </div>
-                ${renderWeeklyScheduleEditor(avail.customHours, "rc")}
-              </section>
-            ` : `
-              <section class="mat-card">
-                <div class="row-inline" style="justify-content:space-between; margin-bottom:10px;">
-                  <h2 class="mat-card-title" style="margin:0;">Inherited General Availability (${esc(agentName)})</h2>
-                  <button id="openGenAvailFromRental" class="btn-flat btn-sm" type="button">Edit General Availability →</button>
-                </div>
-                <div class="grid-3">
-                  ${DAYS.map(d => {
-                    const cfg = genAvail.weekly[d];
-                    return `
-                      <div class="imported-box">
-                        <div class="imported-head"><span>${d}</span><span class="imported-tag">${cfg.enabled ? "Open" : "Off"}</span></div>
-                        <div class="imported-val" style="font-size:13px;">${cfg.enabled ? cfg.blocks.map(b => `${b.start} – ${b.end}`).join(", ") : "Unavailable"}</div>
-                      </div>
-                    `;
-                  }).join("")}
-                </div>
-              </section>
-            `}
 
             <!-- Date-Specific Overrides & Blackouts -->
             <section class="mat-card">
@@ -2303,24 +2299,13 @@
           </div>
         `;
 
-        canvas.querySelectorAll('input[name="availMode"]').forEach(radio => {
-          radio.addEventListener("change", () => {
-            avail.mode = radio.value;
-            saveState();
-            renderRentalAvailability(r);
-          });
-        });
-
-        document.getElementById("availEditMethodsBtn").addEventListener("click", () => {
-          state.detailTab = "settings";
-          state.activeSubnav = "viewing";
-          saveState();
-          render();
-          setTimeout(() => {
-            const el = document.getElementById("sec-viewing");
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 60);
-        });
+        const editSettings=id=>{
+          goto({section:'settings',rentalId:r.id,jump:'viewing'});
+          byId(id)?.scrollIntoView({block:'start'});
+        };
+        byId('availEditMethodsBtn').onclick=()=>editSettings('sec-viewing');
+        byId('availEditHoursBtn').onclick=()=>editSettings('viewing-availability');
+        byId('availOpenReportBtn').onclick=()=>goto({section:'report',id:'viewing_availability',filterRentalId:r.id});
 
         document.getElementById("calPrevWeek").addEventListener("click", () => {
           state.calendarWeekOffset -= 1;
@@ -2398,29 +2383,6 @@
             showToast("Added date override for " + dateVal);
           });
         });
-
-        if (avail.mode === "custom") {
-          const customCard = document.getElementById("customHoursCard");
-          bindWeeklyScheduleEditor(customCard, avail.customHours, "rc", () => renderRentalAvailability(r));
-          document.getElementById("copyGenToCustomBtn").addEventListener("click", () => {
-            avail.customHours = JSON.parse(JSON.stringify(genAvail.weekly));
-            saveState();
-            renderRentalAvailability(r);
-            showToast("Copied hours from " + agentName + "'s General Availability");
-          });
-        } else {
-          const openGen = document.getElementById("openGenAvailFromRental");
-          if (openGen) {
-            openGen.addEventListener("click", () => {
-              state.section = "viewings";
-              state.viewingsTab = "general";
-              state.selectedAvailUser = agentName;
-              state.selectedRentalId = null;
-              saveState();
-              render();
-            });
-          }
-        }
 
         canvas.querySelectorAll(".rm-override-btn").forEach(btn => {
           btn.addEventListener("click", () => {
@@ -3869,6 +3831,8 @@
         for(const r of state.rentals) {
           if(r.assignee===oldName) r.assignee=newName;
           if(r.viewing.inPerson.showingAgent===oldName) r.viewing.inPerson.showingAgent=newName;
+          if(r.availability.generalAgents) r.availability.generalAgents=r.availability.generalAgents.map(name=>name===oldName ? newName : name);
+          for(const block of r.availability.oneTimeHours) if(block.agent===oldName) block.agent=newName;
           for(const day of Object.values(r.availability.customHours)) {
             for(const block of day.blocks) if(block.agent===oldName) block.agent=newName;
           }
