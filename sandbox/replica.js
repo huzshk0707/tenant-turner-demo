@@ -6,6 +6,7 @@
       const byId = (id) => document.getElementById(id);
       const practiceLink = (...segments) => `${location.href.split(/[?#]/,1)[0]}#${segments.map(encodeURIComponent).join('/')}`;
       const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      const reportFilterDefaults = () => ({property:'all',agent:'all',from:'',through:'',active:false,search:''});
       const TIME_OPTIONS = [
         "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM",
         "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM",
@@ -510,19 +511,15 @@
         const slug = (r.address || "property").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
         return {
           autoSend: true,
-          dayOfWeek: "Friday",
-          sendTime: "10:00 AM",
           emails: `owner.${slug.slice(0, 18)}@example.com, ${(r.assignee || "jamie.taylor").toLowerCase().replace(/\s+/g, ".")}@example.com`,
           includeFeedback: true,
           onMarketDate: "2026-11-05",
-          lastSent: "Nov 14, 2026 at 10:00 AM",
-          base7d: { leads: 4, prequalified: 3, scheduled: 2, viewings: 1 },
-          baseTotal: { leads: 11, prequalified: 8, scheduled: 5, viewings: 3 },
           feedback: [
             {
               id: "fb_" + r.id + "_1",
               date: "Nov 19, 2026",
               lead: "J.E.",
+              rating: 5,
               interest: "Very Interested",
               comment: "Clean interior, bright natural light, and great neighborhood feel. Planning to apply this weekend.",
               visible: true
@@ -531,6 +528,7 @@
               id: "fb_" + r.id + "_2",
               date: "Nov 17, 2026",
               lead: "R.K.",
+              rating: 3,
               interest: "Somewhat Interested",
               comment: "Liked the layout overall, though yard maintenance was still wrapping up during the tour.",
               visible: true
@@ -597,8 +595,8 @@
 
       function workspaceDefaults() {
         return {...window.FullPracticeWorkspace.defaults(),accessTab:'CodeBox',accessFilters:{search:'',user:'',unassigned:true},reportTab:'standard',
-          reportFilters:{property:'all',agent:'all',from:'',through:'',active:false,search:''},
-          ownerDelivery:{day:'Tuesday',time:'9:00 AM'}, standardDelivery:{}, accessEvents:[], signedOut:false,
+          reportFilters:reportFilterDefaults(),
+          ownerDelivery:{day:'Tuesday',time:'9:00 AM'}, standardDelivery:{}, accessEvents:[], notices:[], signedOut:false,
           guide:window.ReplicaTutorial.initialize(),
           support:[],
           contacts:[{id:'c1',name:'Morgan Ellis',company:'Practice Maintenance',phone:'(303) 555-0169',email:'morgan@example.com',access:'Recurring'}]};
@@ -650,6 +648,13 @@
         s.viewingsList.forEach((v,i)=>{v.date=dateOffset(i===0 ? -1 : i+1);if(i===0){v.status='Viewed';s.rentals[0].leads[0].status='Viewing Completed';}});
         s.rentals[0].ownerReport.feedback[0].leadId=s.rentals[0].leads[0].id;
         s.rentals[0].ownerReport.feedback[0].date=dateOffset(-1);
+        const example=s.rentals[0];
+        example.turnStartDate=dateOffset(-25);
+        example.turnEndDate=example.listed;
+        s.notices.push(
+          {id:'sample-owner-notice',rentalId:example.id,type:'Owner',recipient:example.ownerReport.emails,date:dateOffset(-7),channel:'Email',message:'Sample weekly owner report delivery.'},
+          {id:'sample-occupant-notice',rentalId:example.id,type:'Occupant',recipient:'Current occupants',date:dateOffset(-2),channel:'Email',message:'Sample notice of an upcoming visit.'},
+        );
         return seedProfileExamples(s);
       }
       function newRental(address,rent,available,imported) {
@@ -706,6 +711,8 @@
           const legacyAccount=parsed.profile ? {companyName:parsed.profile.name,email:parsed.profile.email,defaultApplicationFee:parsed.profile.fee}:{};
           merged.account={...seed.account,...legacyAccount,...parsed.account};
           merged.usersFilter={...seed.usersFilter,...parsed.usersFilter};
+          merged.reportFilters={...seed.reportFilters,...parsed.reportFilters};
+          merged.ownerDelivery={...seed.ownerDelivery,...parsed.ownerDelivery};
           merged.helpFilter={...seed.helpFilter,...parsed.helpFilter};
           merged.rewards={...seed.rewards,...parsed.rewards};
           if (!parsed.rewards && parsed.referrals?.length) merged.rewards.referrals=parsed.referrals.map((ref,i)=>({id:`legacy-ref-${i}`,name:ref.name,email:ref.email,company:'Practice referral',sentDate:'Previous practice',status:'Invited',credit:0}));
@@ -2507,6 +2514,7 @@
                 <label class="field-label" for="alSource">Lead Source</label>
                 <select id="alSource" class="mat-select">
                   <option value="Phone / Walk-in">Phone / Walk-in</option>
+                  <option value="Call Center">Call Center</option>
                   <option value="Craigslist">Craigslist</option>
                   <option value="Zillow">Zillow</option>
                   <option value="Apartments.com">Apartments.com</option>
@@ -2514,6 +2522,17 @@
                   <option value="Referral">Referral</option>
                 </select>
               </div>
+            </div>
+            <div class="grid-2" style="margin-bottom:10px;">
+              <label class="mat-field">Acquisition channel
+                <select id="alChannel" class="mat-select">
+                  <option value="">From source</option>
+                  <option>Phone</option><option>Web</option><option>Walk-in</option><option>Email</option><option>SMS</option><option>Other</option>
+                </select>
+              </label>
+              <label class="mat-field">Source partner
+                <input id="alPartner" class="mat-input" type="text" maxlength="80" />
+              </label>
             </div>
             <div style="margin-bottom:12px;">
               <label class="field-label" for="alAction">Action *</label>
@@ -2557,7 +2576,7 @@
           const action = actionSel.value;
 
           if (byId('alEmail').value && !byId('alEmail').checkValidity()) {showToast('Enter a valid practice email.');return;}
-          const lead=wf.blankLead(r,{name:fullName,email,phone,source,leadType,manualOverride:action==='skip_schedule'});
+          const lead=wf.blankLead(r,{name:fullName,email,phone,source,leadType,channel:byId('alChannel').value,partner:byId('alPartner').value.trim(),manualOverride:action==='skip_schedule'});
           if(action==='invite') wf.invite(r,lead);
           else if(action==='self_qualify') wf.qualify(r,lead,{thenBook:true});
           else wf.book(r,lead);
@@ -2848,239 +2867,160 @@
         };
       }
 
+      const reportingZone=()=>state.account.timezone?.split(' ')[0] || 'Mountain';
+      const reportDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T12:00:00Z`).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'})
+        : value;
+      const reportTime=value=>{
+        const clock=window.ReplicaBooking.toTime(value);
+        if (!clock) return value;
+        const [hour,minute]=clock.split(':');
+        return `${Number(hour)%12 || 12}:${minute} ${Number(hour)<12?'AM':'PM'}`;
+      };
+      const reportTimestamp=(instant,zone)=>{
+        if (!Number.isFinite(instant)) return '—';
+        const {date,time}=window.LeasingSchedule.localParts(instant,zone);
+        return `${reportDate(date)} ${reportTime(time)} ${zone}`;
+      };
+      const recipientList=value=>String(value || '').split(',').map(email=>email.trim()).filter(Boolean);
+      function recordNotice(r,{type,recipient,message,date=dateOffset(0,reportingZone()),channel='Email'}) {
+        state.notices.unshift({id:uid('notice'),rentalId:r.id,type,recipient,message,date,channel});
+      }
+      function recordDueOwnerReports() {
+        const delivery=state.ownerDelivery;
+        const now=Date.now();
+        if (!Number.isFinite(delivery.startedAt)) {delivery.startedAt=now;saveState();return;}
+        const zone=reportingZone();
+        const schedule=window.LeasingSchedule;
+        const today=schedule.localParts(now,zone).date;
+        const weekday=(new Date(`${today}T12:00:00Z`).getUTCDay()+6)%7;
+        let week=schedule.shiftDate(today,-weekday);
+        let date=schedule.shiftDate(week,DAYS.indexOf(delivery.day));
+        let when=schedule.epoch(date,window.ReplicaBooking.toTime(delivery.time),zone);
+        if (!Number.isFinite(when) || when>now) {
+          week=schedule.shiftDate(week,-7);
+          date=schedule.shiftDate(date,-7);
+          when=schedule.epoch(date,window.ReplicaBooking.toTime(delivery.time),zone);
+        }
+        if (!Number.isFinite(when) || when<delivery.startedAt) return;
+        let changed=false;
+        for (const r of state.rentals) {
+          const or=r.ownerReport;
+          if (!or?.autoSend || or.lastDeliveryWeek===week || when<(or.deliveryStartedAt || 0)) continue;
+          const recipients=recipientList(or.emails);
+          if (!recipients.length || recipients.some(email=>!/^\S+@\S+\.\S+$/.test(email))) continue;
+          or.lastDeliveryWeek=week;
+          or.lastSent=reportTimestamp(when,zone);
+          recordNotice(r,{type:'Owner',recipient:recipients.join(', '),message:'Weekly owner report delivery recorded in practice.',date});
+          changed=true;
+        }
+        if (changed) saveState();
+      }
+
       function renderRentalOwnerReport(r) {
-        const canvas = document.getElementById("canvas");
-        ensureStep4RentalFields(r);
-        const or = r.ownerReport;
-        or.dayOfWeek=state.ownerDelivery.day;
-        or.sendTime=state.ownerDelivery.time;
+        const canvas=byId('canvas');
+        const or=r.ownerReport;
+        const delivery=state.ownerDelivery;
+        const today=dateOffset(0,reportingZone());
+        const since=window.LeasingSchedule.shiftDate(today,-6);
+        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && v.status!=='Requested');
+        const scheduledLeads=visits=>new Set(visits.map(v=>v.leadId || r.leads.find(l=>l.name===v.leadName)?.id || v.leadName)).size;
+        const viewed=visits=>visits.filter(v=>v.date<=today && !['Canceled','No-show'].includes(v.status)).length;
+        const recentTours=tours.filter(v=>v.date>=since && v.date<=today);
+        const qualifiedDate=lead=>lead.qualifiedOn || (Number(lead.score)>=6 ? lead.createdDate : '');
+        const metrics=[
+          ['Leads','People who shared their name and contact information.',r.leads.filter(l=>l.createdDate>=since && l.createdDate<=today).length,r.leads.length],
+          ['Leads Pre-Qualified','Leads who met the rental’s practice criteria.',r.leads.filter(l=>qualifiedDate(l)>=since && qualifiedDate(l)<=today).length,r.leads.filter(qualifiedDate).length],
+          ['Leads Scheduled','Leads with a booked viewing, including those awaiting confirmation.',scheduledLeads(recentTours),scheduledLeads(tours)],
+          ['Viewings','Scheduled visits through the report date, omitting cancellations and no-shows.',viewed(recentTours),viewed(tours)],
+        ];
+        const feedback=or.feedback.slice().sort((a,b)=>Date.parse(b.date)-Date.parse(a.date));
 
-        const tours=state.viewingsList.filter(v=>v.rentalId===r.id && !['Canceled','No-show'].includes(v.status));
-        const since=dateOffset(-6);
-        const totals=(leads,visits)=>({leads:leads.length,prequalified:leads.filter(l=>Number(l.score)>=6&&!l.archived).length,scheduled:visits.length,viewings:visits.filter(v=>v.status==='Viewed').length});
-        const m7=totals(r.leads.filter(l=>l.createdDate>=since),tours.filter(v=>v.date>=since&&v.date<=dateOffset()));
-        const mTot=totals(r.leads,tours);
-
-        const visibleFeedback = or.feedback.filter(f => f.visible);
-
-        canvas.innerHTML = `
+        canvas.innerHTML=`
           <div class="owner-report-grid">
-            <div class="mat-card owner-report-settings">
-              <h2 class="mat-card-title" style="margin-bottom:14px;">Owner Report Settings</h2>
-              <div class="toggle-row" style="margin-bottom:14px;">
-                <div>
-                  <div style="font-weight:600;font-size:13.5px;">Send owner report automatically</div>
-                  <div style="font-size:12px;color:var(--muted);">Weekly practice delivery schedule</div>
-                </div>
-                <label class="mat-switch" aria-label="Send owner report automatically">
-                  <input id="orAutoSend" type="checkbox" ${or.autoSend ? "checked" : ""} />
-                  <span class="switch-track"></span>
-                </label>
-              </div>
-
-              <div class="grid-2" style="margin-bottom:14px;">
-                <div>
-                  <label class="field-label" for="orDay">Send Each</label>
-                  <select id="orDay" class="mat-select" ${or.autoSend ? "" : "disabled"}>
-                    ${DAYS.map(d => `<option value="${d}" ${or.dayOfWeek === d ? "selected" : ""}>${d}</option>`).join("")}
-                  </select>
-                </div>
-                <div>
-                  <label class="field-label" for="orTime">At Time</label>
-                  <select id="orTime" class="mat-select" ${or.autoSend ? "" : "disabled"}>
-                    ${["8:00 AM", "9:00 AM", "10:00 AM", "12:00 PM", "3:00 PM", "5:00 PM"].map(t =>
-                      `<option value="${t}" ${or.sendTime === t ? "selected" : ""}>${t}</option>`
-                    ).join("")}
-                  </select>
-                </div>
-              </div>
-
-              <div style="margin-bottom:14px;">
-                <label class="field-label" for="orEmails">Email Addresses (comma-separated)</label>
-                <textarea id="orEmails" class="mat-textarea" rows="2" placeholder="owner@example.com, agent@example.com">${esc(or.emails)}</textarea>
-                <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">Include owner, leasing agent, or PM emails separated by commas.</div>
-              </div>
-
-              <div class="toggle-row" style="margin-bottom:16px;">
-                <div>
-                  <div style="font-weight:600;font-size:13.5px;">Include showing feedback</div>
-                  <div style="font-size:12px;color:var(--muted);">Choose which comments appear in the report below.</div>
-                </div>
-                <label class="mat-switch" aria-label="Include showing feedback">
-                  <input id="orIncludeFb" type="checkbox" ${or.includeFeedback ? "checked" : ""} />
-                  <span class="switch-track"></span>
-                </label>
-              </div>
-
-              <div style="font-size:12px;color:var(--muted);background:#F5F7F9;padding:9px 11px;border-radius:4px;margin-bottom:14px;">
-                <strong>Schedule:</strong> ${or.autoSend ? `Each ${esc(or.dayOfWeek)} at ${esc(or.sendTime)}` : "Manual delivery only"}<br/>
-                <strong>Last Sent:</strong> ${esc(or.lastSent)}
-              </div>
-
-              <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                <button id="orSendNowBtn" class="btn-blue" type="button">SEND REPORT NOW</button>
-                <button id="orCopyLinkBtn" class="btn-outline" type="button">COPY REPORT LINK</button>
-              </div>
-            </div>
-
-            <div class="or-preview-card">
-              <div class="owner-report-hero">
+            <section class="mat-card owner-report-settings">
+              <h2 class="mat-card-title">Owner Report Delivery</h2>
+              <label class="mat-switch">
+                <input id="orAutoSend" type="checkbox" ${or.autoSend?'checked':''} />
+                <span class="switch-track"></span><span>Send owner report automatically</span>
+              </label>
+              <p class="owner-schedule-summary">${or.autoSend
+                ? `The report is scheduled every ${esc(delivery.day)} at ${esc(reportTime(delivery.time))} (${esc(reportingZone())} time).`
+                : 'Automatic delivery is paused for this rental.'}
+                <button id="owner-schedule-link" class="btn-flat" type="button">Manage shared schedule</button>
+              </p>
+              <label class="mat-field">
+                <span class="mat-label">Email addresses (comma-separated)</span>
+                <textarea id="orEmails" class="mat-textarea" rows="2" placeholder="owner@example.com">${esc(or.emails)}</textarea>
+              </label>
+              <label class="mat-switch">
+                <input id="orIncludeFb" type="checkbox" ${or.includeFeedback?'checked':''} />
+                <span class="switch-track"></span><span>Include showing feedback</span>
+              </label>
+              ${or.lastSent?`<p class="practice-note">Last recorded delivery · ${esc(or.lastSent)}</p>`:''}
+            </section>
+            <article class="or-preview-card">
+              <header class="owner-report-hero">
                 <img src="${esc(r.photo)}" alt="${esc(r.address)}" />
-                <div><h2>Owner Report for ${esc(r.address)}</h2><p>Report date ${dateOffset()} · On market since ${esc(or.onMarketDate)}</p></div>
+                <div><h2>Owner Report for ${esc(r.address)}</h2><p>${esc(reportDate(today))} · On market since ${esc(reportDate(or.onMarketDate))}</p></div>
                 <button id="orPrintBtn" class="btn-orange" type="button" aria-label="Print owner report" title="Print owner report">
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8V3h12v5M6 17H3V8h18v9h-3M6 14h12v7H6zM16 11h2"/></svg>
                 </button>
-              </div>
+              </header>
               <div class="or-preview-body">
-
-                <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0 0 8px;">Leasing Metrics</h3>
+                <h3>Leasing metrics</h3>
                 <table class="or-metrics-table">
-                  <thead>
-                    <tr>
-                      <th>Metric</th>
-                      <th class="num">Last 7 Days</th>
-                      <th class="num">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr><td><strong>Leads</strong></td><td class="num">${m7.leads}</td><td class="num">${mTot.leads}</td></tr>
-                    <tr><td><strong>Pre-Qualified</strong></td><td class="num">${m7.prequalified}</td><td class="num">${mTot.prequalified}</td></tr>
-                    <tr><td><strong>Scheduled</strong></td><td class="num">${m7.scheduled}</td><td class="num">${mTot.scheduled}</td></tr>
-                    <tr><td><strong>Viewings</strong></td><td class="num">${m7.viewings}</td><td class="num">${mTot.viewings}</td></tr>
-                  </tbody>
+                  <thead><tr><th scope="col">Metric</th><th scope="col" class="num">Last 7 Days</th><th scope="col" class="num">Total</th></tr></thead>
+                  <tbody>${metrics.map(([metric,definition,recent,total])=>`<tr><th scope="row">${metric}<small>${definition}</small></th><td class="num">${recent}</td><td class="num">${total}</td></tr>`).join('')}</tbody>
                 </table>
-
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                  <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:0.4px;color:#546E7A;margin:0;">
-                    Showing Feedback (${or.includeFeedback ? `${visibleFeedback.length} included` : "Hidden from report"})
-                  </h3>
-                  <button id="orAddFbBtn" class="btn-ghost" type="button">+ Add Sample Feedback</button>
-                </div>
-
-                ${!or.includeFeedback ? `
-                  <p style="font-size:13px;color:var(--muted);font-style:italic;margin:0;">Feedback section is currently toggled OFF and will be omitted from the owner email.</p>
-                ` : or.feedback.length === 0 ? `
-                  <p style="font-size:13px;color:var(--muted);margin:0;">No prospect feedback collected yet.</p>
-                ` : or.feedback.map(fb => `
-                  <div class="fb-item ${fb.visible ? "" : "suppressed"}">
-                    <div class="fb-head">
-                      <span><strong>${esc(fb.lead)}</strong> • <button class="btn-flat" type="button" data-feedback-detail="${esc(fb.id)}">${esc(fb.date)}</button> • <span style="color:#0277BD;font-weight:600;">${esc(fb.interest)}</span></span>
-                      <button class="btn-ghost" type="button" data-toggle-fb="${esc(fb.id)}" style="padding:3px 8px;font-size:11px;">
-                        ${fb.visible ? "Suppress from Owner" : "Restore to Report"}
-                      </button>
-                    </div>
-                    <div style="font-size:13px;color:#263238;">${esc(fb.comment)}</div>
-                  </div>
-                `).join("")}
+                ${or.includeFeedback?`<h3>Feedback</h3>
+                  ${feedback.length?`<div class="table-scroll"><table class="or-metrics-table or-feedback-table">
+                    <thead><tr><th scope="col">Date</th><th scope="col">Rating (1–5)</th><th scope="col">Comments</th></tr></thead>
+                    <tbody>${feedback.map(fb=>`<tr class="${fb.visible?'':'suppressed'}">
+                      <td><button class="report-record-link" type="button" data-feedback-detail="${esc(fb.id)}">${esc(reportDate(fb.date))}</button></td>
+                      <td>${fb.rating>=1 && fb.rating<=5 ? esc(fb.rating) : '—'}</td>
+                      <td>${esc(fb.comment)}${fb.visible?'':'<small>Hidden from owner report</small>'}</td>
+                    </tr>`).join('')}</tbody>
+                  </table></div>`:'<p>No showing feedback yet.</p>'}`:'<p class="report-private-note">Showing feedback is turned off for this rental.</p>'}
+                <footer class="owner-report-brand"><img src="assets/lab.svg" width="32" height="32" alt=""><span>${esc(state.account.companyName || COMPANY_NAME)}</span></footer>
               </div>
-            </div>
-          </div>
-        `;
+            </article>
+          </div>`;
 
         byId('orPrintBtn').onclick=()=>window.print();
-        document.getElementById("orAutoSend").addEventListener("change", e => {
-          or.autoSend = e.target.checked;
+        byId('owner-schedule-link').onclick=()=>goto('scheduled');
+        byId('orAutoSend').onchange=event=>{
+          or.autoSend=event.target.checked;
+          if (or.autoSend) or.deliveryStartedAt=Date.now();
           saveState();
           renderRentalOwnerReport(r);
-        });
-        document.getElementById("orDay").addEventListener("change", e => {
-          state.ownerDelivery.day = e.target.value;
+          byId('orAutoSend').focus({preventScroll:true});
+        };
+        byId('orEmails').oninput=event=>{or.emails=event.target.value;saveState();};
+        byId('orEmails').onchange=()=>{
+          const recipients=recipientList(or.emails);
+          if (or.autoSend && recipients.length && recipients.every(email=>/^\S+@example\.com$/i.test(email))) tutorial.record('owner-recipient');
+        };
+        byId('orIncludeFb').onchange=event=>{
+          or.includeFeedback=event.target.checked;
           saveState();
           renderRentalOwnerReport(r);
-        });
-        document.getElementById("orTime").addEventListener("change", e => {
-          state.ownerDelivery.time = e.target.value;
-          saveState();
-          renderRentalOwnerReport(r);
-        });
-        document.getElementById("orEmails").addEventListener("input", e => {
-          or.emails = e.target.value;
-          saveState();
-        });
-        byId('orEmails').addEventListener('change',()=>{
-          if (or.autoSend && or.emails.trim() && or.emails.split(',').every(email=>/^\S+@example\.com$/i.test(email.trim()))) tutorial.record('owner-recipient');
-        });
-        document.getElementById("orIncludeFb").addEventListener("change", e => {
-          or.includeFeedback = e.target.checked;
-          saveState();
-          renderRentalOwnerReport(r);
-        });
-        document.getElementById("orSendNowBtn").addEventListener("click", () => {
-          const recips = (or.emails || "").split(",").map(s => s.trim()).filter(Boolean);
-          if (recips.length === 0 || recips.some(email=>!/^\S+@\S+\.\S+$/.test(email))) {
-            showToast("Enter valid practice recipient email addresses first");
-            return;
-          }
-          or.lastSent = "Today, Just now (manual send)";
-          saveState();
-          renderRentalOwnerReport(r);
-          showToast(`Practice Owner Report delivery recorded for ${recips.length} recipient${recips.length > 1 ? "s" : ""}`);
-        });
-        document.getElementById("orCopyLinkBtn").addEventListener("click", () => {
-          const shareUrl = `${practiceLink("owner-report", r.id)}`;
-          copyToClipboardSafe(shareUrl, "Copied Owner Report share link");
-        });
-        document.getElementById("orAddFbBtn").addEventListener("click", () => {
-          openModal(
-            "Add Showing Feedback",
-            `
-              <div class="grid-2" style="margin-bottom:10px;">
-                <div>
-                  <label class="field-label" for="fbLeadIn">Prospect Initials</label>
-                  <input id="fbLeadIn" class="mat-input" type="text" value="M.T." />
-                </div>
-                <div>
-                  <label class="field-label" for="fbIntIn">Interest Level</label>
-                  <select id="fbIntIn" class="mat-select">
-                    <option value="Very Interested">Very Interested</option>
-                    <option value="Somewhat Interested">Somewhat Interested</option>
-                    <option value="Not Interested">Not Interested</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label class="field-label" for="fbCommentIn">Feedback Comment</label>
-                <textarea id="fbCommentIn" class="mat-textarea" rows="3" placeholder="Enter prospect feedback..."></textarea>
-              </div>
-            `,
-            `
-              <button id="fbCancelBtn" class="btn-ghost" type="button">Cancel</button>
-              <button id="fbSaveBtn" class="btn-blue" type="button">Save Feedback</button>
-            `
-          );
-          document.getElementById("fbCancelBtn").addEventListener("click", closeModal);
-          document.getElementById("fbSaveBtn").addEventListener("click", () => {
-            const comment = document.getElementById("fbCommentIn").value.trim();
-            if (!comment) { showToast("Please enter a feedback comment"); return; }
-            or.feedback.unshift({
-              id: "fb_" + Date.now(),
-              date: dateOffset(),
-              lead: document.getElementById("fbLeadIn").value.trim() || "P.L.",
-              interest: document.getElementById("fbIntIn").value,
-              comment,
-              visible: true
-            });
+          byId('orIncludeFb').focus({preventScroll:true});
+        };
+        canvas.querySelectorAll('[data-feedback-detail]').forEach(button=>button.onclick=()=>{
+          const item=or.feedback.find(f=>f.id===button.dataset.feedbackDetail);
+          const lead=r.leads.find(l=>belongsToLead(item,l));
+          if (lead) {openLeadProfile(r,lead,item.id);return;}
+          openModal('Viewing feedback',`<p>${esc(reportDate(item.date))}</p><p>${esc(item.comment)}</p>`,
+            `<button class="btn-ghost" id="feedback-done" type="button">Back to report</button><button class="btn-blue" id="feedback-visibility" type="button">${item.visible?'Hide from owner report':'Show on owner report'}</button>`);
+          byId('feedback-done').onclick=closeModal;
+          byId('feedback-visibility').onclick=()=>{
+            item.visible=!item.visible;
             saveState();
             closeModal();
             renderRentalOwnerReport(r);
-            showToast("Showing feedback added to Owner Report");
-          });
-        });
-
-        const openFeedback=id=>{
-          const item=or.feedback.find(f=>f.id===id);if(!item)return;
-          const lead=r.leads.find(l=>l.id===item.leadId);
-          openModal('Viewing feedback',`<p><strong>${esc(lead?.name || item.lead)}</strong> · ${esc(item.date)}</p><p>${esc(item.comment)}</p>`,
-            `<button class="btn-ghost" id="feedback-done">Back to report</button><button class="btn-blue" id="feedback-visibility">${item.visible?'Hide from owner report':'Show on owner report'}</button>`);
-          byId('feedback-done').onclick=closeModal;
-          byId('feedback-visibility').onclick=()=>{item.visible=!item.visible;saveState();closeModal();render();wf.done('owner');showToast(item.visible?'Feedback included in owner report.':'Feedback hidden from owner report.');};
-        };
-        canvas.querySelectorAll('[data-toggle-fb]').forEach(btn=>btn.onclick=()=>openFeedback(btn.dataset.toggleFb));
-        canvas.querySelectorAll('[data-feedback-detail]').forEach(btn=>btn.onclick=()=>{
-          const f=or.feedback.find(row=>row.id===btn.dataset.feedbackDetail);
-          const lead=f && r.leads.find(l=>belongsToLead(f,l));
-          if(lead) openLeadProfile(r,lead,f.id);
-          else openFeedback(btn.dataset.feedbackDetail);
+            wf.done('owner');
+          };
         });
       }
 
@@ -3570,10 +3510,26 @@
       }
 
       const REPORT_CATALOG = [
-        {icon:'<path d="m2 11 10-9 10 9h-4v10h-5v-6h-2v6H6V11z" fill="currentColor"/>',items:[['rental_activity','RENTAL ACTIVITY','Inquiry and viewing totals by rental.'],['days','DAYS ON MARKET','Listing and activation dates.'],['lead_activity','LEAD ACTIVITY','Qualification and activity history.'],['lead_source','LEAD SOURCE','How prospects found each rental.'],['syndication','ZILLOW SYNDICATION','Listing distribution preferences.']]},
-        {icon:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v6m8-6v6m-6 6h5v4h-5z"/>',items:[['viewing_activity','VIEWING ACTIVITY','Viewing times, methods, and statuses.'],['viewing_availability','VIEWING AVAILABILITY','Rental and agent availability.'],['notifications','NOTIFICATIONS','Practice appointment and contact messages.']]},
-        {icon:'<rect x="5" y="10" width="14" height="11" rx="1"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v4"/>',items:[['codebox_access','LOCKBOX ACCESS','Generated practice access codes.'],['inventory','LOCKBOX INVENTORY','Assigned and unassigned devices.']]},
-        {icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M6 20v-2a6 4 0 0 1 12 0v2"/>',items:[['user_activity','USER ACTIVITY','Rental and showing counts by user.'],['company_overview','ACCOUNT OVERVIEW','Portfolio activity totals.']]},
+        {icon:'<path d="m2 11 10-9 10 9h-4v10h-5v-6h-2v6H6V11z" fill="currentColor"/>',items:[
+          ['rental_activity','RENTAL ACTIVITY','Active status and counts for inquiries, scheduled leads, qualifications, and viewings.'],
+          ['days','DAYS ON MARKET','Listing and turn dates, leads, viewings, and days on market.'],
+          ['lead_activity','LEAD ACTIVITY','Lead creation, qualification, status, notes, ratings, and feedback.'],
+          ['lead_source','LEAD SOURCE','Lead contact details and acquisition channel, source, and partner.'],
+          ['syndication','ZILLOW SYNDICATION','Zillow listing settings and other distribution destinations.'],
+        ]},
+        {icon:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v6m8-6v6m-6 6h5v4h-5z"/>',items:[
+          ['viewing_activity','VIEWING ACTIVITY','Scheduled viewing types and totals, with the instructions and feedback for each visit.'],
+          ['viewing_availability','VIEWING AVAILABILITY','Weekly hours and date-specific changes by rental, agent, and viewing type.'],
+          ['notifications','NOTIFICATIONS','Practice delivery notices for owners and current occupants.'],
+        ]},
+        {icon:'<rect x="5" y="10" width="14" height="11" rx="1"/><path d="M8 11V6a4 4 0 0 1 8 0v4"/>',items:[
+          ['codebox_access','LOCKBOX ACCESS','Check-ins by person and device, including actual arrival, scheduled arrival, and the practice code issued.'],
+          ['inventory','LOCKBOX INVENTORY','Devices, assigned locations, and reported status.'],
+        ]},
+        {icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>',items:[
+          ['user_activity','USER ACTIVITY','Active rental counts, sign-in details, and the latest rental opened by each user.'],
+          ['company_overview','ACCOUNT OVERVIEW','Rental, lead, upcoming viewing, and average days-on-market figures by user.'],
+        ]},
       ].map(cat=>({...cat,items:cat.items.map(([id,name,desc])=>({id,name,desc}))}));
 
       function reportName(id) {
@@ -3581,31 +3537,147 @@
         return name.toLowerCase().replace(/\b\w/g,letter=>letter.toUpperCase()).replace(' On ',' on ');
       }
 
+      const acquisitionChannel=lead=>{
+        if (lead.channel && lead.channel!=='Call Center') return lead.channel;
+        if (['Call Center','Phone / Walk-in','Phone','For Rent Sign'].includes(lead.source) || lead.channel==='Call Center') return 'Phone';
+        return ['Walk-in','Email','SMS'].includes(lead.source) ? lead.source : 'Web';
+      };
+      const daysOnMarket=(r,today)=>{
+        const elapsed=Date.parse(today)-Date.parse(r.listed);
+        return Number.isFinite(elapsed) ? Math.max(0,Math.floor(elapsed/86_400_000)) : '—';
+      };
+
+      function availabilityReportRows(rentals,inRange) {
+        const groups=[];
+        const slots=(r,method,agent,scope,day,blocks)=>{
+          for (const block of blocks || []) {
+            groups.push([r.address,agent,method,scope,day,reportTime(block.start),reportTime(block.end),block.approval || '—',block.capacity ?? '—']);
+          }
+        };
+        for (const r of rentals) {
+          const availability=r.availability;
+          const agent=r.viewing.inPerson.showingAgent || r.assignee;
+          const methods=[...(r.viewing.selfAccess?['Self-Access']:[]),...(r.viewing.inPerson.enabled?['In-Person']:[])];
+          if (availability.generalEnabled ?? availability.mode!=='custom') {
+            const generalNames=window.ReplicaBooking.generalAgents?.(state,r) || [agent];
+            for (const name of generalNames) {
+              const general=state.generalAvailability[name];
+              if (r.viewing.inPerson.enabled) for (const [day,entry] of Object.entries(general?.weekly || {})) {
+                if (entry.enabled) slots(r,'In-Person',name,'General',day,entry.blocks);
+              }
+            }
+            const access=state.generalAvailability[r.assignee];
+            if (r.viewing.selfAccess && access?.selfAccessStart && access?.selfAccessEnd) {
+              slots(r,'Self-Access',r.assignee,'General','Daily',[{start:access.selfAccessStart,end:access.selfAccessEnd}]);
+            }
+          }
+          if (availability.mode==='custom') {
+            for (const [day,entry] of Object.entries(availability.customHours || {})) {
+              if (!entry.enabled) continue;
+              for (const method of methods) for (const block of entry.blocks) {
+                slots(r,method,block.agent || agent,'Rental-specific',day,[block]);
+              }
+            }
+            for (const block of availability.oneTimeHours || []) if (inRange(block.date)) {
+              for (const method of methods) slots(r,method,block.agent || agent,'Rental-specific',block.date,[block]);
+            }
+          }
+          for (const block of availability.overrides || []) if (inRange(block.date)) {
+            for (const method of methods) slots(r,method,block.agent || agent,block.type==='block'?'Blocked':'One-time opening',block.date,[block]);
+          }
+        }
+        return groups;
+      }
+
       function buildReportData(id) {
         const f=state.reportFilters;
-        const rentals=state.rentals.filter(r=>(f.property==='all'||r.id===f.property) && (f.agent==='all'||r.assignee===f.agent) && (!f.active || r.active));
-        const IDs=new Set(rentals.map(r=>r.id));
+        const today=dateOffset(0,reportingZone());
+        const rentals=state.rentals.filter(r=>(f.property==='all'||r.id===f.property)
+          && (id==='viewing_availability'||f.agent==='all'||r.assignee===f.agent) && (!f.active || r.active));
+        const byRental=new Map(rentals.map(r=>[r.id,r]));
         const inRange=d=>(!f.from||d>=f.from)&&(!f.through||d<=f.through);
-        const find=id=>rentals.find(r=>r.id===id);
         const leads=rentals.flatMap(r=>r.leads.filter(l=>inRange(l.createdDate || dateOffset(-2))).map(l=>({...l,r})));
-        const viewings=state.viewingsList.filter(v=>IDs.has(v.rentalId)&&inRange(v.date));
-        const qualified=l=>Number(l.score)>=6 && !l.archived;
-        const owned=rentals.flatMap(r=>r.ownerReport.feedback || []);
-        const result=(headers,rows)=>({title:`${reportName(id)} Report`,headers,rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
-        const stats=(ls,vs)=>[ls.length,ls.filter(qualified).length,vs.filter(v=>!['Canceled','No-show'].includes(v.status)).length,vs.filter(v=>v.status==='Viewed').length];
+        const viewings=state.viewingsList.filter(v=>byRental.has(v.rentalId)&&inRange(v.date));
+        const byProperty=r=>viewings.filter(v=>v.rentalId===r.id);
+        const visits=rows=>rows.filter(v=>v.date<=today && !['Requested','Canceled','No-show'].includes(v.status));
+        const scheduled=rows=>rows.filter(v=>v.status!=='Requested');
+        const distinctLeads=rows=>new Set(rows.map(v=>v.leadId || `${v.rentalId}:${v.leadName}`)).size;
+        const feedbackFor=(r,lead)=>r.ownerReport.feedback.filter(item=>belongsToLead(item,lead));
+        const linkedProfile=(r,v)=>r.leads.find(lead=>belongsToLead(v,lead));
+        const joined=items=>items.filter(value=>value!==undefined && value!==null && value!=='').join(' · ') || '—';
+        const result=(headers,rows)=>({title:`${reportName(id)} Report`,headers,
+          rows:rows.filter(row=>!f.search || row.some(c=>String(c).toLowerCase().includes(f.search.toLowerCase())))});
+        const users=state.users.filter(u=>f.agent==='all'||u.name===f.agent);
+        const includeDevice=row=>byRental.has(row.rentalId) || (!row.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active);
+
         switch(id) {
-          case 'rental_activity':return result(['User','Rental','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],rentals.map(r=>[r.assignee,r.address,r.active?'Yes':'No',...stats(leads.filter(l=>l.r.id===r.id),viewings.filter(v=>v.rentalId===r.id))]));
-          case 'days':return result(['Rental','Activation','Days on market','Available'],rentals.map(r=>[r.address,r.listed,Math.max(0,Math.round((Date.parse(dateOffset())-Date.parse(r.listed))/86400000)),r.dateAvailable]));
-          case 'lead_activity':return result(['Lead','Rental','Qualification','Stage','Latest activity'],leads.map(l=>[l.name,l.r.address,l.score??'Unscored',l.status,l.notes[0]?.text || 'Inquiry received']));
-          case 'lead_source':return result(['User','Rental','Lead','Phone','Email','Created','Status','Channel','Source','Partner'],leads.map(l=>[l.r.assignee,l.r.address,l.name,l.phone,l.email,l.createdDate,l.status,l.source==='Phone / Walk-in'?'Phone':'Web',l.source,l.source==='Website'?'Direct':'—']));
-          case 'syndication':return result(['Rental','Zillow, Trulia, & HotPads','Other sources'],rentals.map(r=>[r.address,r.syndication['Zillow, Trulia, & HotPads']?'On':'Off',Object.keys(r.syndication).filter(k=>k!=='Zillow, Trulia, & HotPads'&&r.syndication[k]).join(', ')]));
-          case 'viewing_activity':return result(['Date','Time','Rental','Lead','Viewing type','Status'],viewings.map(v=>[v.date,v.time,find(v.rentalId).address,v.leadName,v.type,v.status]));
-          case 'viewing_availability':return result(['Rental','Agent','Availability','Self-Access','In-Person','Date Overrides'],rentals.map(r=>[r.address,r.assignee,r.availability.mode==='custom'?'Rental-specific':'General',r.viewing.selfAccess?'On':'Off',r.viewing.inPerson.enabled?'On':'Off',r.availability.overrides.length]));
-          case 'notifications':return result(['Rental','Lead','Channel','Date','Message'],state.messages.filter(m=>IDs.has(m.rentalId)).flatMap(m=>m.thread.filter(e=>e.sender!=='inbound' && inRange(e.date || dateOffset(-2))).map(e=>[find(m.rentalId).address,m.leadName,m.channel,e.date || dateOffset(-2),e.text])));
-          case 'codebox_access':return result(['Date','Device','Rental','Recipient','Code type','Action','Practice code'],state.accessEvents.filter(e=>(IDs.has(e.rentalId)||(!e.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active))&&inRange(e.date)).map(e=>[e.date,e.device,find(e.rentalId)?.address || 'Unassigned',e.recipient,e.type,e.action,e.code]));
-          case 'inventory':return result(['Device','Type','Assigned rental','Status'],state.devices.filter(d=>IDs.has(d.rentalId)||(!d.rentalId&&f.property==='all'&&f.agent==='all'&&!f.active)).map(d=>[d.serial,d.type,find(d.rentalId)?.address || 'Unassigned',d.battery]));
-          case 'user_activity':return result(['User','Active Rentals','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings'],state.users.filter(u=>f.agent==='all'||u.name===f.agent).map(u=>[u.name,rentals.filter(r=>r.assignee===u.name&&r.active).length,...stats(leads.filter(l=>l.r.assignee===u.name),viewings.filter(v=>find(v.rentalId)?.assignee===u.name))]));
-          default:return result(['Rentals','Active','Leads','Leads Pre-Qualified','Leads Scheduled','Viewings','Feedback'],[[rentals.length,rentals.filter(r=>r.active).length,...stats(leads,viewings),owned.length]]);
+          case 'rental_activity':
+            return result(['User','Rental','Active','Leads','Leads Scheduled','Leads Pre-Qualified','Viewings'],rentals.map(r=>{
+              const propertyLeads=leads.filter(l=>l.r.id===r.id);
+              const propertyViewings=byProperty(r);
+              return [r.assignee,r.address,r.active?'Yes':'No',propertyLeads.length,distinctLeads(scheduled(propertyViewings)),
+                propertyLeads.filter(l=>l.qualifiedOn || Number(l.score)>=6).length,visits(propertyViewings).length];
+            }));
+          case 'days':
+            return result(['Rental','Listed','Turn Start','Turn End','Leads','Viewings','Days on Market'],rentals.map(r=>[
+              r.address,r.listed,r.turnStartDate || '—',r.turnEndDate || '—',leads.filter(l=>l.r.id===r.id).length,visits(byProperty(r)).length,daysOnMarket(r,today),
+            ]));
+          case 'lead_activity':
+            return result(['Lead','Rental','Created','Qualified','Status','Rating (1–5)','Feedback','Notes'],leads.map(l=>{
+              const feedback=feedbackFor(l.r,l);
+              return [l.name,l.r.address,l.createdDate || l.createdAt,l.qualifiedOn || '—',l.status,joined(feedback.map(fb=>fb.rating)),
+                joined(feedback.map(fb=>fb.comment)),joined(l.notes.map(note=>note.text))];
+            }));
+          case 'lead_source':
+            return result(['User','Rental','Lead','Phone','Email','Created','Status','Channel','Source','Partner'],leads.map(l=>[
+              l.r.assignee,l.r.address,l.name,l.phone,l.email,l.createdDate || l.createdAt,
+              (l.archived ?? ['Archived','Disqualified'].includes(l.status))?'Archived':'Active',acquisitionChannel(l),l.source || '—',l.partner || l.sourcePartner || '—',
+            ]));
+          case 'syndication':
+            return result(['Rental','Zillow, Trulia, & HotPads','Other sources'],rentals.map(r=>[r.address,r.syndication['Zillow, Trulia, & HotPads']?'On':'Off',Object.keys(r.syndication).filter(k=>k!=='Zillow, Trulia, & HotPads'&&r.syndication[k]).join(', ')]));
+          case 'viewing_activity': {
+            const totals=new Map();
+            const key=v=>`${v.rentalId}|${v.type.split(' (')[0]}`;
+            for (const v of viewings) totals.set(key(v),(totals.get(key(v)) || 0)+1);
+            return result(['Date','Time','Rental','Lead','Viewing type','Count of type','Status','Instructions','Rating (1–5)','Feedback'],viewings.map(v=>{
+              const r=byRental.get(v.rentalId);
+              const lead=linkedProfile(r,v);
+              const feedback=r.ownerReport.feedback.find(fb=>fb.viewingId===v.id)
+                || (lead && feedbackFor(r,lead).find(fb=>fb.date===v.date));
+              const instructions=v.instructions || (v.type.startsWith('In-Person') ? r.viewing.inPerson.instructions : r.viewing.instructions);
+              return [v.date,v.time,r.address,v.leadName,v.type,totals.get(key(v)),v.status,instructions || '—',feedback?.rating ?? '—',feedback?.comment || '—'];
+            }));
+          }
+          case 'viewing_availability':
+            return result(['Rental','User','Viewing type','Availability','Day or date','From','To','Approval','Capacity'],
+              availabilityReportRows(rentals,inRange).filter(row=>f.agent==='all' || row[1]===f.agent));
+          case 'notifications':
+            return result(['Date','Rental','Recipient type','Recipient','Channel','Notice'],state.notices.filter(e=>byRental.has(e.rentalId)&&inRange(e.date)).map(e=>[
+              e.date,byRental.get(e.rentalId).address,e.type,e.recipient,e.channel,e.message,
+            ]));
+          case 'codebox_access':
+            return result(['Actual Arrival','Scheduled Arrival','Person','Rental','Device','Practice Code'],state.accessEvents.filter(e=>e.action==='Arrival' && includeDevice(e) && inRange(e.date)).map(e=>[
+              reportTimestamp(e.actualArrival,e.zone || reportingZone()),reportTimestamp(e.scheduledArrival,e.zone || reportingZone()),e.recipient,
+              byRental.get(e.rentalId)?.address || 'Unassigned',e.device,e.code,
+            ]));
+          case 'inventory':
+            return result(['Device','Type','Last known location','Status','Last sync'],state.devices.filter(includeDevice).map(d=>[
+              d.serial,d.type,byRental.get(d.rentalId)?.address || 'Unassigned',d.battery || '—',d.lastSync || '—',
+            ]));
+          case 'user_activity':
+            return result(['User','Active Rentals','Last sign-in','Last rental viewed','Last viewed at'],users.map(u=>[
+              u.name,rentals.filter(r=>r.assignee===u.name&&r.active).length,u.lastLogin || '—',
+              state.rentals.find(r=>r.id===u.lastViewedRentalId)?.address || '—',reportTimestamp(u.lastViewedAt,reportingZone()),
+            ]));
+          case 'company_overview':
+            return result(['User','Rentals','Leads','Upcoming Viewings','Average Days on Market'],users.map(u=>{
+              const owned=rentals.filter(r=>r.assignee===u.name);
+              const counts=owned.map(r=>daysOnMarket(r,today)).filter(Number.isFinite);
+              const upcoming=viewings.filter(v=>byRental.get(v.rentalId)?.assignee===u.name && v.date>=today && ['Pending Confirmation','Requested','Confirmed'].includes(v.status));
+              return [u.name,owned.length,leads.filter(l=>l.r.assignee===u.name).length,upcoming.length,
+                counts.length ? Math.round(counts.reduce((sum,count)=>sum+count,0)/counts.length) : '—'];
+            }));
+          default:return result(['Rental'],[]);
         }
       }
       function renderReportsSection() {
@@ -3629,13 +3701,35 @@
             <label class="mat-field"><span class="mat-label">End Date</span><input id="repThrough" type="date" class="mat-input" value="${esc(f.through)}"></label>
             <label class="mat-switch"><input type="checkbox" id="repActive" ${f.active?'checked':''}><span class="switch-track"></span><span>Show only active rentals</span></label>
           </div><button class="btn-blue" type="submit">Filter</button></form>
-          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span id="report-range" role="status"></span><label class="mat-field"><span class="mat-label">Search results</span><input id="repSearch" type="search" class="mat-input" value="${esc(f.search)}"></label></div>
+          <div class="mat-card practice-report-results"><div class="practice-between row-inline"><span id="report-range" role="status"></span>
+            <label class="report-search"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5"/></svg>
+              <input id="repSearch" type="search" class="mat-input" aria-label="Search results" placeholder="Search" value="${esc(f.search)}"></label>
+          </div>
             <div class="practice-actions" id="report-export-tools"></div><div id="report-results-table"></div>
           </div></div>`;
         const apply=()=>{reportView.page=0;saveState();drawReportResults();tutorial.draw();};
         byId('practice-report-filters').onsubmit=e=>{e.preventDefault();const from=byId('repFrom').value,through=byId('repThrough').value;if(from&&through&&from>through){showToast('End date must be on or after the start date.');return;}Object.assign(f,{from,through,property:byId('repPropSel').value,agent:byId('repAgentSel').value,active:byId('repActive').checked});apply();tutorial.record('filter-report',{id:state.activeReport});};
         byId('repSearch').oninput=e=>{f.search=e.target.value.trim();apply();};
         drawReportResults();
+      }
+
+      function reportCell(data,row,index) {
+        const field=data.headers[index];
+        const value=row[index];
+        const rental=state.rentals.find(r=>r.address===row[data.headers.indexOf('Rental')]);
+        if (field==='Rental' && rental) {
+          return `<button class="report-record-link" type="button" data-report-rental="${esc(rental.id)}">${esc(value)}</button>`;
+        }
+        if (field==='User') {
+          const user=state.users.find(u=>u.name===value);
+          if (user) return `<button class="report-record-link" type="button" data-report-user="${esc(user.id)}">${esc(value)}</button>`;
+        }
+        if (field==='Lead' && rental) {
+          const email=data.headers.includes('Email') ? row[data.headers.indexOf('Email')] : '';
+          const lead=rental.leads.find(l=>l.name===value && (!email || l.email===email));
+          if (lead) return `<button class="report-record-link" type="button" data-report-rental="${esc(rental.id)}" data-report-lead="${esc(lead.id)}">${esc(value)}</button>`;
+        }
+        return esc(value);
       }
 
       function drawReportResults() {
@@ -3654,13 +3748,27 @@
         const target=byId('report-results-table');
         target.innerHTML=`<div class="table-scroll"><table class="tt-table">
           <thead><tr>${data.headers.map((name,i)=>`<th scope="col" ${view.column===i ? `aria-sort="${view.descending ? 'descending' : 'ascending'}"` : ''}><button class="report-sort" type="button" data-sort-report="${i}">${esc(name)}${view.column===i ? (view.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead>
-          <tbody>${count ? data.rows.map((row,i)=>`<tr ${i<start || i>=end ? 'class="report-offpage"' : ''}>${row.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${data.headers.length}">No matching results.</td></tr>`}</tbody>
+          <tbody>${count ? data.rows.map((row,i)=>`<tr ${i<start || i>=end ? 'class="report-offpage"' : ''}>${row.map((_,index)=>`<td>${reportCell(data,row,index)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${data.headers.length}">${state.activeReport==='codebox_access' ? 'No practice Lockbox arrivals match these filters.' : 'No matching results.'}</td></tr>`}</tbody>
         </table></div>
         <div class="report-page-controls row-inline practice-between">
           <label>Show <select id="report-page-size" aria-label="Results per page">${[5,10,25,50].map(size=>`<option ${size===view.size ? 'selected' : ''}>${size}</option>`).join('')}</select> per page</label>
           <div class="row-inline"><button id="report-prev" class="btn-flat" type="button" ${view.page===0?'disabled':''}>Previous</button>
-          <span aria-label="Page ${view.page+1} of ${pages}">${view.page+1} / ${pages}</span><button id="report-next" class="btn-flat" type="button" ${view.page>=pages-1?'disabled':''}>Next</button></div>
+          <span class="report-page-number" aria-label="Page ${view.page+1} of ${pages}">${view.page+1}</span><button id="report-next" class="btn-flat" type="button" ${view.page>=pages-1?'disabled':''}>Next</button></div>
         </div>`;
+        target.querySelectorAll('[data-report-rental]').forEach(button=>button.onclick=()=>{
+          const rental=state.rentals.find(r=>r.id===button.dataset.reportRental);
+          if (!rental) return;
+          const lead=rental.leads.find(l=>l.id===button.dataset.reportLead);
+          goto({section:lead?'leads':'settings',rentalId:rental.id});
+          if (lead) openLeadProfile(rental,lead);
+        });
+        target.querySelectorAll('[data-report-user]').forEach(button=>button.onclick=()=>{
+          const user=state.users.find(u=>u.id===button.dataset.reportUser);
+          if (!user) return;
+          state.usersFilter={search:user.name,role:'all',showInactives:!user.active};
+          goto('users');
+          byId('canvas').querySelector('[data-edit-user]')?.focus();
+        });
         target.querySelectorAll('[data-sort-report]').forEach(btn=>btn.onclick=()=>{
           const column=Number(btn.dataset.sortReport);
           view.descending=view.column===column && !view.descending;
@@ -3674,12 +3782,13 @@
         wf.reportExports(data,state.activeReport);
       }
 
-      function addFeedback(r,lead,rating,comment) {
-        r.ownerReport.feedback.unshift({id:uid('feedback'),date:dateOffset(),leadId:lead.id,lead:lead.name,rating,interest:'Viewing feedback',comment,visible:true});
+      function addFeedback(r,lead,rating,comment,viewing) {
+        const date=viewing?.date || dateOffset();
+        r.ownerReport.feedback.unshift({id:uid('feedback'),date,leadId:lead.id,lead:lead.name,viewingId:viewing?.id,rating,comment,visible:true});
       }
       function goto(request) {
         if(state.signedOut) return;
-        const {section,rentalId,jump,id}=typeof request==='string'?{section:request}:request;
+        const {section,rentalId,jump,id,filterRentalId}=typeof request==='string'?{section:request}:request;
         if(section==='signout') {full.openSignOut();return;}
         if(section==='practice-prospect' || section==='practice-conversation') {
           const r=state.rentals.find(r=>r.id==='r1');
@@ -3700,7 +3809,10 @@
         if(['settings','leads','owner','availability'].includes(section)) {state.section='rentals';state.selectedRentalId=selected;state.detailTab=section;}
         else if(section==='upcoming'||section==='general'){state.section='viewings';state.viewingsTab=section;}
         else if(section==='contacts'||section==='access'){state.section='access';state.accessTab=section==='contacts'?'contacts':'CodeBox';}
-        else if(['scheduled','reports','report'].includes(section)){state.section='reports';state.reportTab=section==='scheduled'?'scheduled':'standard';state.activeReport=section==='report'?id:null;}
+        else if(['scheduled','reports','report'].includes(section)){
+          state.section='reports';state.reportTab=section==='scheduled'?'scheduled':'standard';state.activeReport=section==='report'?id:null;
+          if (section==='report' && filterRentalId) state.reportFilters={...reportFilterDefaults(),property:filterRentalId};
+        }
         else state.section=section;
         if(jump && section==='settings') state.activeSubnav=jump;
         if(jump && section==='account') state.accountSubnav=jump;
@@ -3713,6 +3825,7 @@
         byId('reset-cancel').onclick=closeModal;
         byId('reset-confirm').onclick=()=>{state=cloneSeed();settingsDraft=null;detailPage=null;saveState();closeModal();render();showToast('Practice data reset.');};
       }
+      let lastViewedRentalId;
       function render() {
         const overlay=byId('signoutOverlay');
         overlay.classList.toggle('open',state.signedOut);
@@ -3720,8 +3833,18 @@
         document.querySelector('.app-shell').inert=state.signedOut || byId('ttModal').classList.contains('open');
         byId('chatFab').hidden=state.signedOut;
         if(state.signedOut){byId('chatPopover').classList.remove('open');byId('signBackInBtn').focus();tutorial.draw();return;}
+        recordDueOwnerReports();
         wf.reminders();renderSidebar();renderHeader();
         const rental=state.section==='rentals' && state.rentals.find(r=>r.id===state.selectedRentalId);
+        if (rental && rental.id!==lastViewedRentalId) {
+          const user=state.users.find(u=>u.active);
+          if (user) {
+            user.lastViewedRentalId=rental.id;
+            user.lastViewedAt=Date.now();
+            saveState();
+          }
+        }
+        lastViewedRentalId=rental?.id;
         if (!rental || state.detailTab!=='settings') settingsDraft=null;
         if(detailPage) detailPage.draw();
         else if(rental){if(state.detailTab==='settings') renderRentalSettings(rental);else renderRentalSubTab(rental);}
@@ -3735,7 +3858,7 @@
       }
       const wf=window.createReplicaWorkflows({get:()=>state,el:byId,esc,save:saveState,render,toast:showToast,
         modal:openModal,close:closeModal,uid,date:dateOffset,link:practiceLink,copy:copyToClipboardSafe,weekly:defaultWeeklyHours,
-        defaultRental:newRental,addFeedback,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,
+        defaultRental:newRental,addFeedback,recordNotice,times:TIME_OPTIONS,days:DAYS,assign:assignDeviceToRental,
         openDetail:openDetailPage,backFromDetail,
         onAction:(key,detail)=>tutorial.record(key,detail)});
       function renameAssignee(oldName,newName) {

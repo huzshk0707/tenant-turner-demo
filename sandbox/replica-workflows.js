@@ -626,17 +626,31 @@ window.createReplicaWorkflows = api => {
   function scheduledReports(catalog) {
     const s=get(); const owner=s.ownerDelivery;
     const options=['Daily','Weekly','Monthly'];
+    const reports=catalog.flatMap(group=>group.items);
     el('canvas').innerHTML=`<div class="practice-form-width"><section class="mat-card"><h2 class="mat-card-title">Schedule Owner Reports</h2>
+      <p class="report-schedule-help">This weekly time applies to rentals with automatic owner report delivery enabled. The owner report uses the recipients saved on each rental.</p>
       <div class="grid-2">${select('owner-day','Send day',api.days.map(d=>fmt(d,owner.day)).join(''))}${input('owner-time','Send time',engine.toTime(owner.time),'time','required')}</div></section>
-      <section class="mat-card"><h2 class="mat-card-title">Schedule Standard Reports</h2>${catalog.flatMap(group=>group.items).map((item,i)=>{
+      <section class="mat-card"><h2 class="mat-card-title">Schedule Standard Reports</h2>
+        <p class="report-schedule-help">Set a practice schedule for CSV reports. Daily reports cover the previous day. Weekly reports run on Monday and cover the previous Monday through Sunday. Monthly reports run on the first of the month and cover the previous month.</p>
+        ${reports.map((item,i)=>{
         const preference=s.standardDelivery[item.id] || {};
-        return `<fieldset class="practice-report-setting"><legend>${esc(item.name)}</legend><div class="practice-actions">${options.map(period=>toggle(`schedule-${i}-${period}`,`Receive ${period.toLowerCase()}`,preference[period])).join('')}</div>${input(`schedule-email-${i}`,'Practice recipients',preference.email || '')}</fieldset>`;
+        const enabled=options.some(period=>preference[period]);
+        return `<fieldset class="practice-report-setting"><legend>${esc(item.name)}</legend><div class="practice-actions">${options.map(period=>toggle(`schedule-${i}-${period}`,`Receive ${period.toLowerCase()}`,preference[period])).join('')}</div>
+          <div id="schedule-recipients-${i}" ${enabled?'':'hidden'}>${input(`schedule-email-${i}`,'Practice recipients',preference.email || '')}</div></fieldset>`;
       }).join('')}</section>${button('save-report-schedule','Save schedules')}</div>`;
+    reports.forEach((_,i)=>{
+      for (const period of options) el(`schedule-${i}-${period}`).onchange=()=>{
+        el(`schedule-recipients-${i}`).hidden=!options.some(frequency=>on(`schedule-${i}-${frequency}`));
+      };
+    });
     click('save-report-schedule',()=>{
       if (!val('owner-time')) {toast('Enter an owner report send time.');return;}
-      const rows=catalog.flatMap(group=>group.items).map((item,i)=>[item.id,{email:val(`schedule-email-${i}`),...Object.fromEntries(options.map(period=>[period,on(`schedule-${i}-${period}`)]))}]);
+      const rows=reports.map((item,i)=>[item.id,{email:val(`schedule-email-${i}`),...Object.fromEntries(options.map(period=>[period,on(`schedule-${i}-${period}`)]))}]);
       if (rows.some(([,v])=>options.some(period=>v[period]) && (!v.email || !v.email.split(',').map(e=>e.trim()).every(validEmail)))) {toast('Enter valid practice recipients for each enabled report.');return;}
-      s.ownerDelivery={day:val('owner-day'),time:val('owner-time')};s.standardDelivery=Object.fromEntries(rows);
+      const day=val('owner-day');
+      const time=val('owner-time');
+      if (day!==owner.day || time!==engine.toTime(owner.time)) s.ownerDelivery={day,time,startedAt:Date.now()};
+      s.standardDelivery=Object.fromEntries(rows);
       finish('Practice report schedules saved.','schedule-report');
     });
   }
