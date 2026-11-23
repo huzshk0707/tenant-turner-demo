@@ -67,8 +67,9 @@
     ]},
     {id:'access',title:'CodeBox and authorized contacts',time:'09:33–10:21',steps:[
       step('Find a device','Open Access → CodeBox. Use Show unassigned to compare the assigned and unassigned cards.',route('access'),'#access-unassigned','access-filter','0938-access'),
-      step('Send a practice code','Select Send on a CodeBox. Review Date, Code type, Mobile phone, Name, Company, and Message. Choose Send Code to save the simulated code.',route('access'),'[data-code-send]','code','0950-send-code',data=>data.method==='Send'),
-      step('Manage a contact','Switch to Authorized Contacts. Add or edit a fictional vendor and save the contact.',route('contacts'),'#add-contact','contact','1005-authorized-contacts'),
+      step('Send a practice code','Select Send on a CodeBox. Enter a fictional recipient or choose Use sample recipient. Review the date and code type, then select Send Code.',route('access'),'[data-code-send]','code','0950-send-code',data=>data.method==='Send'),
+      step('Manage a contact','Switch to Authorized Contacts. Add or edit a fictional vendor, set their access hours and code type, and save.',route('contacts'),'#add-contact','contact','1005-authorized-contacts'),
+      step('Simulate a vendor’s arrival','Choose Practice check-in for a recurring contact. Enter the sample Box serial and pick an arrival within the contact’s access hours. Review the staff alert in Messages.',route('contacts'),'[data-vendor-contact]','vendor-arrival','1018-edit-contact'),
     ]},
     {id:'support',title:'Open support and return to Rentals',time:'10:21–11:25',steps:[
       step('Open the support widget','From Rentals, open the blue support button in the bottom-right corner. You can try sending a fictional support question.',route('rentals'),'#chatFab','open-support','1112-support'),

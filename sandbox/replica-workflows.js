@@ -226,44 +226,221 @@ window.createReplicaWorkflows = api => {
       finish('Practice device saved.','device');
     });
   }
-  function issueCode(d,send,draft={}) {
-    pageForm(`${send ? 'Send' : 'Get'} ${d.type} Code`,'Back to Access',`${input('code-date','Date',draft.date ?? date(1),'date','required')}${select('code-type','Code type',['One-time code','Date access'].map(v=>fmt(v,draft.type || 'One-time code')).join(''))}
-      ${send ? input('code-phone','Mobile phone','(303) 555-0199','tel','required') : ''}${input('code-name','Name',draft.name ?? 'Practice vendor','text','required')}${input('code-company','Company',draft.company ?? 'Practice Maintenance')}${textarea('code-note','Message',draft.message)}`,send ? 'Send Code' : 'Get Code',()=>{
-      if (val('code-date')<date()) return alert('Choose a practice date today or later.');
-      const code=`SIM-${uid('code').split('-')[1].slice(0,6).toUpperCase()}`;
-      get().accessEvents.unshift({id:uid('access'),device:d.serial,rentalId:d.rentalId,date:val('code-date'),type:val('code-type'),recipient:val('code-name'),company:val('code-company'),phone:send?val('code-phone'):'',message:val('code-note'),code,action:send?'Simulated send':'Generated'});
-      const day=val('code-date');
-      save();backFromDetail();done('code',{method:send?'Send':'Get'});
-      modal('Practice access code',`<p><strong>${esc(code)}</strong> for ${esc(day)}.</p><p>This code is recorded in the Lockbox Access Report.</p>`,button('code-done','Done'));
-      click('code-done',close);
-    },send ? {label:'Just get a code',run:()=>issueCode(d,false,{date:val('code-date'),type:val('code-type'),name:val('code-name'),company:val('code-company'),message:val('code-note')})} : null);
+  const codeTypes = ['One-time code','Date access'];
+  const phoneNumber = value => value.replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'');
+  const validMobile = value => /^[+\d ().-]+$/.test(value) && /^\d{7,15}$/.test(phoneNumber(value));
+  const accessZone = () => get().account.timezone?.split(' ')[0] || 'Mountain';
+  const accessClock = () => window.LeasingSchedule.localParts(Date.now(),accessZone());
+  const practiceCode = () => `SIM-${uid('code').split('-')[1].slice(0,8).toUpperCase()}`;
+
+  function codeTypeOptions(chosen,describeDate = false) {
+    return codeTypes.map(type => opt(type,describeDate && type === codeTypes[0] ? 'One-time code · valid on the selected date only' : type,chosen)).join('');
   }
-  function contactEditor(id) {
-    const c=get().contacts.find(row=>row.id===id);
-    pageForm(c?'Edit Authorized Contact':'Add Authorized Contact','Back to Authorized Contacts',`<h2 class="mat-card-title">Profile</h2>${input('contact-name','Name',c?.name || '','text','required')}${input('contact-company','Company',c?.company || '')}${input('contact-phone','Mobile phone',c?.phone || '(303) 555-0199','tel','required')}${input('contact-email','Email',c?.email || '','email')}${select('contact-access','Access level',['Recurring','By request'].map(x=>fmt(x,c?.access || 'Recurring')).join(''))}`,'Save contact',()=>{
-      if (!val('contact-name') || !val('contact-phone')) return alert('Enter a sample contact name and phone.');
-      const row={id:c?.id || uid('contact'),name:val('contact-name'),company:val('contact-company'),phone:val('contact-phone'),email:val('contact-email'),access:val('contact-access')};
-      if (c) Object.assign(c,row);else get().contacts.push(row);
-      save();backFromDetail();toast('Authorized practice contact saved.');done('contact');
+  function issueCode(d,send,draft={}) {
+    const today = accessClock().date;
+    const tomorrow = window.LeasingSchedule.shiftDate(today,1);
+    const fields = `<p class="practice-note">${send ? 'Codes are sent via text message only. This practice send stays in your browser.' : 'Generate a code for a practice visit.'}</p>
+      ${input('code-date','Date *',draft.date ?? tomorrow,'date',`required min="${today}"`)}
+      ${select('code-type','Code type *',codeTypeOptions(draft.type || codeTypes[0],true))}
+      ${send ? input('code-phone','Mobile number *',draft.phone ?? '','tel','required autocomplete="off"') : ''}
+      ${input('code-name','Recipient name *',draft.name ?? '','text','required autocomplete="off"')}
+      ${input('code-company','Company',draft.company ?? '')}
+      ${textarea('code-note','Message',draft.message)}
+      ${button('code-sample','Use sample recipient','btn-flat')}`;
+    pageForm(`${send ? 'Send' : 'Get'} ${d.type} Code`,'Back to Access',fields,send ? 'Send Code' : 'Get Code',()=>{
+      const day = val('code-date');
+      const name = val('code-name');
+      const phone = send ? val('code-phone') : '';
+      if (day < accessClock().date) return alert('Choose a practice date today or later.');
+      if (!name) return alert('Enter a practice recipient name.');
+      if (send && !validMobile(phone)) return alert('Enter a practice mobile number.');
+      const code = practiceCode();
+      get().accessEvents.unshift({
+        id:uid('access'),device:d.serial,rentalId:d.rentalId,date:day,type:val('code-type'),
+        recipient:name,company:val('code-company'),phone,message:val('code-note'),code,
+        action:send?'Simulated send':'Generated',
+      });
+      save();backFromDetail();done('code',{method:send?'Send':'Get'});
+      modal(send ? 'Practice text recorded' : 'Practice access code',
+        `<p>${send ? `To ${esc(name)} at ${esc(phone)}` : esc(name)} · ${esc(day)}</p><p><strong>${esc(code)}</strong></p>`,
+        button('code-done','Done'));
+      click('code-done',close);
+    },send ? {label:'Just get a code',run:()=>issueCode(d,false,{
+      date:val('code-date'),type:val('code-type'),name:val('code-name'),company:val('code-company'),message:val('code-note'),
+    })} : null);
+    click('code-sample',()=>{
+      if (send && !val('code-phone')) el('code-phone').value = '(303) 555-0199';
+      if (!val('code-name')) el('code-name').value = 'Practice vendor';
+      if (!val('code-company')) el('code-company').value = 'Practice Maintenance';
     });
   }
-  function remove(label,callback) {
-    form(label,'<p>Remove this fictional record from your practice workspace?</p>','Remove',callback);
+
+  function contactHours(contact) {
+    return contact?.accessHours || {days:[...api.days],start:'00:00',end:'23:59'};
+  }
+  function confirmContactRemoval(contact) {
+    modal('Remove authorized contact?',`<p>Remove ${esc(contact.name)} from this practice workspace?</p>`,
+      button('contact-remove-cancel','Cancel','btn-ghost')+button('contact-remove','Remove'));
+    click('contact-remove-cancel',close);
+    click('contact-remove',()=>{
+      get().contacts = get().contacts.filter(row=>row.id!==contact.id);
+      save();close();backFromDetail();toast('Authorized contact removed.');
+    });
+  }
+  function contactEditor(id) {
+    const contact = get().contacts.find(row=>row.id===id);
+    const hours = contactHours(contact);
+    const removeContact = contact ? {label:'Remove contact',run:()=>confirmContactRemoval(contact)} : null;
+    pageForm(contact ? 'Edit Authorized Contact' : 'Add Authorized Contact','Back to Authorized Contacts',`
+      <h2 class="mat-card-title">Profile</h2>
+      ${input('contact-name','Name *',contact?.name || '','text','required')}
+      ${input('contact-company','Company',contact?.company || '')}
+      ${input('contact-phone','Mobile number *',contact?.phone || '','tel','required')}
+      <p class="practice-note">Access codes are sent via text message only.</p>
+      <fieldset class="contact-hours">
+        <legend>Access</legend>
+        ${toggle('contact-recurring','Allow recurring vendor check-in',contact?.access!=='By request')}
+        <div id="contact-recurring-fields">
+          <fieldset class="contact-days">
+            <legend>Access Hours</legend>
+            <div class="contact-days-list">${api.days.map(day =>
+              `<label><input type="checkbox" name="contact-day" aria-label="${esc(day)}" value="${esc(day)}"${hours.days.includes(day)?' checked':''}>${esc(day.slice(0,3))}</label>`).join('')}
+            </div>
+          </fieldset>
+          <div class="grid-2">${input('contact-start','From *',hours.start,'time')}
+            ${input('contact-end','Until *',hours.end,'time')}</div>
+          <p class="practice-note">Hours use the workspace time zone (${esc(accessZone())}).</p>
+        </div>
+        ${select('contact-code','Code type',codeTypeOptions(contact?.codeType || codeTypes[0]))}
+      </fieldset>`,'Save contact',()=>{
+      const name = val('contact-name');
+      const phone = val('contact-phone');
+      if (!name || !validMobile(phone)) return alert('Enter a sample contact name and mobile number.');
+      if (get().contacts.some(row=>row.id!==contact?.id && phoneNumber(row.phone || '')===phoneNumber(phone))) return alert('A contact already uses that mobile number.');
+      const recurring = on('contact-recurring');
+      const days = [...el('contact-recurring-fields').querySelectorAll('[name="contact-day"]:checked')].map(field=>field.value);
+      const start = val('contact-start');
+      const end = val('contact-end');
+      if (recurring && (!days.length || !start || !end || start >= end)) return alert('Choose at least one access day and an end time after the start time.');
+      const next = {
+        id:contact?.id || uid('contact'),name,company:val('contact-company'),phone,
+        access:recurring?'Recurring':'By request',accessHours:recurring?{days,start,end}:hours,codeType:val('contact-code'),
+      };
+      if (contact) Object.assign(contact,next);else get().contacts.push(next);
+      get().accessFilters.contactsSearch = '';
+      save();backFromDetail();toast('Authorized practice contact saved.');done('contact');
+    },removeContact);
+    const showHours = () => {el('contact-recurring-fields').hidden = !on('contact-recurring');};
+    el('contact-recurring').addEventListener('change',showHours);
+    showHours();
+  }
+
+  function vendorCheckIn(contact) {
+    const {date: today,time} = accessClock();
+    const boxes = get().devices.filter(d=>d.type==='CodeBox' && rental(d.rentalId)?.serialNumber===d.serial);
+    if (!boxes.length) { toast('Assign a practice CodeBox to a rental first.'); return; }
+    form('Practice vendor check-in',`<p>${esc(contact.name)} can request a code by texting the serial on the assigned box.</p>
+      ${input('vendor-phone','From mobile number *',contact.phone,'tel','required')}
+      ${input('vendor-box','Text the CodeBox serial *','','text','required list="vendor-boxes" autocomplete="off"')}
+      <datalist id="vendor-boxes">${boxes.map(d=>`<option value="${esc(d.serial)}">${esc(rental(d.rentalId).address)}</option>`).join('')}</datalist>
+      <p class="practice-note">For example, try ${esc(boxes[0].serial)}.</p>
+      <div class="grid-2">
+        ${input('vendor-date','Practice arrival date *',today,'date','required')}
+        ${input('vendor-time','Practice arrival time *',time,'time','required')}
+      </div>`,'Simulate vendor text',()=>{
+      const phone = val('vendor-phone');
+      const box = boxes.find(d=>d.serial.toLowerCase()===val('vendor-box').toLowerCase());
+      if (!box || rental(box.rentalId)?.serialNumber!==box.serial) return alert('Enter the serial of an assigned practice CodeBox.');
+      if (!validMobile(phone) || phoneNumber(phone)!==phoneNumber(contact.phone) || contact.access==='By request') return alert('That mobile number is not authorized for recurring access.');
+      const day = val('vendor-date');
+      const arrivalTime = val('vendor-time');
+      const zone = accessZone();
+      const actualArrival = window.LeasingSchedule.epoch(day,arrivalTime,zone);
+      const weekday = api.days[(new Date(`${day}T12:00:00Z`).getUTCDay()+6)%7];
+      const hours = contactHours(contact);
+      if (!Number.isFinite(actualArrival) || !hours.days.includes(weekday) || arrivalTime<hours.start || arrivalTime>hours.end) {
+        return alert('The arrival is outside this contact’s access hours.');
+      }
+      const code = practiceCode();
+      const r = rental(box.rentalId);
+      get().accessEvents.unshift({
+        id:uid('access'),action:'Arrival',date:day,actualArrival,scheduledArrival:null,zone,
+        recipient:contact.name,company:contact.company,contactId:contact.id,phone,
+        code,device:box.serial,rentalId:r.id,type:contact.codeType || codeTypes[0],
+      });
+      const notice = {
+        sender:'inbound',label:'Practice access notification',time:`${day} at ${arrivalTime}`,
+        text:`${contact.name} arrived at ${r.address} and received an access code.`,
+      };
+      const messages = get().messages;
+      let thread = messages.find(row=>row.contactId===contact.id && row.rentalId===r.id);
+      if (!thread) {
+        thread = {id:uid('message'),contactId:contact.id,rentalId:r.id,leadId:`vendor:${contact.id}`,
+          leadName:contact.name,phone,email:'',channel:'SMS',needsReply:false,aiHandled:false,thread:[]};
+        messages.unshift(thread);
+      }
+      thread.leadName = contact.name;
+      thread.phone = phone;
+      thread.unread = true;
+      thread.updatedAt = 'Just now';
+      thread.thread.push(notice);
+      save();done('vendor-arrival');
+      modal('Vendor text simulation',`<p>Practice reply to ${esc(contact.name)} at ${esc(contact.phone)}</p>
+        <p><strong>${esc(code)}</strong> · ${esc(contact.codeType || codeTypes[0])}</p>
+        <p class="practice-note">The arrival is recorded in the Lockbox Access Report. Staff can read the notification in Messages.</p>`,
+        button('vendor-done','Done'));
+      click('vendor-done',close);
+    });
+  }
+
+  function renderContacts(s) {
+    el('canvas').innerHTML=`<div class="filter-bar"><div class="filter-left">
+        ${input('search-contacts','Search',s.accessFilters.contactsSearch || '','search', 'placeholder="Name, company or mobile number"')}
+      </div></div><div id="practice-contact-results" class="mat-card practice-table"></div>`;
+    const draw = () => {
+      const query = val('search-contacts').toLowerCase();
+      const digits = phoneNumber(query);
+      const rows = s.contacts.filter(c=>`${c.name} ${c.company || ''} ${c.phone || ''}`.toLowerCase().includes(query)
+        || (digits && /^[\d()+\s-]+$/.test(query) && phoneNumber(c.phone || '').includes(digits)));
+      const results = el('practice-contact-results');
+      results.innerHTML = table(['Name','Company','Mobile number','Access Hours','Code type','Actions'],rows.map(c=>{
+        const hours = contactHours(c);
+        const hoursLabel = c.access==='By request' ? 'By request' : `${hours.days.map(d=>d.slice(0,3)).join(', ')} · ${hours.start}–${hours.end}`;
+        const actions = `<div class="contact-row-actions"><button class="btn-flat" type="button" data-contact="${esc(c.id)}">Edit</button>
+          ${c.access==='By request' ? '' : `<button class="btn-flat" type="button" data-vendor-contact="${esc(c.id)}">Practice check-in</button>`}</div>`;
+        return [c.name,c.company,c.phone,hoursLabel,c.codeType || codeTypes[0]].map(esc).concat(actions);
+      }),query ? 'No authorized contacts match this search.' : 'No authorized contacts.');
+      results.querySelectorAll('[data-contact]').forEach(b=>b.onclick=()=>contactEditor(b.dataset.contact));
+      results.querySelectorAll('[data-vendor-contact]').forEach(b=>b.onclick=()=>vendorCheckIn(s.contacts.find(c=>c.id===b.dataset.vendorContact)));
+    };
+    el('search-contacts').addEventListener('input',()=>{
+      s.accessFilters.contactsSearch = el('search-contacts').value;
+      save();draw();
+    });
+    click('add-contact',()=>contactEditor());
+    draw();
   }
   function renderAccess() {
     const s=get();const tab=s.accessTab;
-    if (tab==='contacts') {
-      el('canvas').innerHTML=`<div class="mat-card practice-table">${table(['Name','Company','Mobile phone','Email','Access','Actions'],s.contacts.map(c=>[c.name,c.company,c.phone,c.email,c.access].map(esc).concat(`<button class="btn-flat" data-contact="${esc(c.id)}">Edit</button><button class="btn-danger-flat" data-remove-contact="${esc(c.id)}">Remove</button>`)),'No authorized contacts.')}</div>`;
-      click('add-contact',()=>contactEditor());
-      el('canvas').querySelectorAll('[data-contact]').forEach(b=>b.onclick=()=>contactEditor(b.dataset.contact));
-      el('canvas').querySelectorAll('[data-remove-contact]').forEach(b=>b.onclick=()=>remove('Remove contact?',()=>{s.contacts=s.contacts.filter(c=>c.id!==b.dataset.removeContact);finish('Contact removed.');}));
-      return;
-    }
+    if (tab==='contacts') { renderContacts(s); return; }
     const f=s.accessFilters;
     const results=()=>s.devices.filter(d=>d.type===tab && (!f.search || `${d.serial} ${rental(d.rentalId)?.address || ''}`.toLowerCase().includes(f.search.toLowerCase().trim())) && (d.rentalId ? !f.user || rental(d.rentalId)?.assignee===f.user : f.unassigned));
     const draw=()=>{
       const list=results();
-      el('practice-device-list').innerHTML=list.length ? list.map(d=>`<article class="practice-device mat-card"><div class="practice-device-label ${d.rentalId?'assigned':''}"><strong>${esc(d.serial)}</strong><small>${esc(rental(d.rentalId)?.address || 'Unassigned')}</small></div><div class="practice-device-body"><p>${esc(d.battery || 'Practice device')}</p><div class="practice-actions"><span class="status-dot ${d.rentalId?'':'off'}" aria-label="${d.rentalId?'Assigned':'Unassigned'}" role="img"></span><button class="btn-flat" data-code-send="${esc(d.id)}">Send</button><button class="btn-flat" data-code-get="${esc(d.id)}">Get</button><button class="btn-flat" data-edit-device="${esc(d.id)}">Settings</button></div></div></article>`).join('') : '<div class="mat-card">No devices match these filters.</div>';
+      el('practice-device-list').innerHTML=list.length ? list.map(d=>{
+        const battery = Number.parseInt(d.battery,10);
+        const status = !d.rentalId ? 'Unassigned' : battery <= 25 ? 'Low battery' : battery <= 80 ? 'Battery check suggested' : 'Assigned';
+        const tone = !d.rentalId ? 'off' : battery <= 25 ? 'critical' : battery <= 80 ? 'warn' : '';
+        return `<article class="practice-device mat-card">
+          <div class="practice-device-label ${d.rentalId?'assigned':''}"><strong>${esc(d.serial)}</strong><small>${esc(rental(d.rentalId)?.address || 'Unassigned')}</small></div>
+          <div class="practice-device-body practice-device-actions">
+            <span class="status-dot ${tone}" aria-label="${status}" title="${status}" role="img"></span>
+            <button class="btn-flat" type="button" data-code-send="${esc(d.id)}">Send</button>
+            <button class="btn-flat" type="button" data-code-get="${esc(d.id)}">Get</button>
+            <button class="btn-flat" type="button" data-edit-device="${esc(d.id)}">Settings</button>
+          </div>
+        </article>`;
+      }).join('') : '<div class="mat-card">No devices match these filters.</div>';
       const load=id=>s.devices.find(d=>d.id===id);
       el('practice-device-list').querySelectorAll('[data-code-send]').forEach(b=>b.onclick=()=>issueCode(load(b.dataset.codeSend),true));
       el('practice-device-list').querySelectorAll('[data-code-get]').forEach(b=>b.onclick=()=>issueCode(load(b.dataset.codeGet),false));
