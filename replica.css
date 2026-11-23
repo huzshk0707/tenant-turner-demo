@@ -2080,3 +2080,30 @@ body:has(.modal-backdrop.open) { overflow:hidden; }
   .lead-search { margin-left:0; flex:1 1 100%; }
   .rental-header .sync-fab { width:38px; height:38px; bottom:-19px; }
 }
+
+.lead-profile { width:100%; grid-template-columns:minmax(0,2.05fr) minmax(230px,1fr); grid-template-areas:"summary summary" "viewing notes" "qual notes"; align-items:stretch; gap:20px; overflow-wrap:anywhere; }
+.lead-profile h2 { font-size:21px; font-weight:500; margin:0 0 16px; }
+.lead-profile h3 { font-size:15px; font-weight:500; margin:0 0 14px; }
+.prospect-summary { grid-area:summary; }
+.prospect-contact { color:#25617d; line-height:1.6; margin-bottom:4px; }
+.prospect-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; }
+.lead-profile .btn-flat { color:#176084; text-transform:uppercase; padding:8px 9px; }
+.prospect-summary > .btn-flat { text-transform:none; padding-left:0; }
+.prospect-viewing { grid-area:viewing; }
+.prospect-notes { grid-area:notes; }
+.prospect-qual { grid-area:qual; }
+.prospect-feedback { padding:14px; margin-bottom:14px; box-shadow:var(--shadow-1); }
+.prospect-feedback form,.prospect-notes form,#edit-lead { display:grid; gap:12px; }
+.prospect-feedback button,.prospect-notes button { justify-self:start; }
+.prospect-note { margin-top:12px; padding:12px; background:#d8f1fb; }
+.prospect-note small,.prospect-id span,.prospect-id small { display:block; margin-top:6px; }
+.prospect-id { width:min(100%,190px); box-sizing:border-box; border:1px solid #9eafbc; border-radius:6px; background:#e9f1f4; padding:20px 14px; }
+.prospect-visit { padding:12px 0; border-top:1px solid var(--line); }
+.prospect-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.prospect-facts article { border:1px solid var(--line); padding:14px; }
+.prospect-facts dt { font-weight:600; }
+.prospect-facts dd { margin:0 0 8px; }
+@media(max-width:760px) {
+  .lead-profile { grid-template-columns:minmax(0,1fr); grid-template-areas:"summary" "viewing" "notes" "qual"; }
+  .prospect-facts { grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); }
+}
